@@ -1,0 +1,44 @@
+import { readFile } from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+import '../loadEnv.js';
+import { pool } from '../db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const migrationFiles = [
+  path.join(__dirname, 'padel_tables.sql'),
+  path.join(__dirname, 'padel_seed_data.sql'),
+];
+
+async function run() {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    for (const filePath of migrationFiles) {
+      const sql = await readFile(filePath, 'utf8');
+      if (!sql.trim()) {
+        continue;
+      }
+
+      console.log(`📄 Ejecutando migración: ${path.basename(filePath)}`);
+      await client.query(sql);
+    }
+
+    await client.query('COMMIT');
+    console.log('✅ Migraciones completadas correctamente');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ Error ejecutando migraciones:', error.message);
+    process.exitCode = 1;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+run();
