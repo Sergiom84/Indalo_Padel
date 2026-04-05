@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, Mail, Lock } from 'lucide-react';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Button from '../ui/button';
 import Input from '../ui/input';
-import { Card, CardContent } from '../ui/card';
 
 export default function PadelLogin() {
   const [email, setEmail] = useState('');
@@ -29,75 +28,81 @@ export default function PadelLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-padel-dark flex items-center justify-center px-4 py-8">
-      <Card className="w-full max-w-md bg-padel-surface border-padel-surface">
-        <CardContent className="p-6 sm:p-8">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-padel-primary/20 mb-4">
-              <LogIn className="w-8 h-8 text-padel-primary" />
-            </div>
-            <h1 className="text-2xl font-bold text-white">Indalo Padel</h1>
-            <p className="text-slate-400 mt-1">Inicia sesión en tu cuenta</p>
+    <div className="min-h-screen bg-padel-dark flex flex-col items-center justify-center px-4 py-8">
+      {/* Glow spot */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-padel-primary/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-sm relative">
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-padel-primary mb-5 glow-primary">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6l4 6-4 6-4-6z" />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-black text-white font-display tracking-tight">
+            Indalo<span className="text-padel-primary">.</span>
+          </h1>
+          <p className="text-padel-muted mt-1 text-sm">Tu club de pádel, siempre contigo</p>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="mb-5 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-padel-muted z-10" />
+            <input
+              type="email"
+              placeholder="tu@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full pl-11 pr-4 py-3.5 bg-padel-surface border border-padel-border rounded-xl text-white placeholder-padel-muted focus:outline-none focus:border-padel-primary focus:ring-1 focus:ring-padel-primary/40 transition-all text-sm"
+            />
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-padel-muted z-10" />
+            <input
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full pl-11 pr-4 py-3.5 bg-padel-surface border border-padel-border rounded-xl text-white placeholder-padel-muted focus:outline-none focus:border-padel-primary focus:ring-1 focus:ring-padel-primary/40 transition-all text-sm"
+            />
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="pl-10 bg-padel-dark border-slate-700 text-white placeholder:text-slate-500 focus:border-padel-primary focus:ring-padel-primary"
-                />
-              </div>
-            </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 bg-padel-primary text-padel-dark font-black py-3.5 rounded-xl hover:bg-padel-primaryDark active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed mt-2 text-sm glow-primary-sm"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-padel-dark border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                Entrar <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+              </>
+            )}
+          </button>
+        </form>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Contraseña
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="pl-10 bg-padel-dark border-slate-700 text-white placeholder:text-slate-500 focus:border-padel-primary focus:ring-padel-primary"
-                />
-              </div>
-            </div>
-
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-padel-primary hover:bg-padel-primary/90 text-white font-medium py-2.5"
-            >
-              {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
-            </Button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-slate-400">
-            ¿No tienes cuenta?{' '}
-            <Link to="/register" className="text-padel-primary hover:underline font-medium">
-              Regístrate
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+        <p className="mt-6 text-center text-sm text-padel-muted">
+          ¿No tienes cuenta?{' '}
+          <Link to="/register" className="text-padel-primary font-bold hover:text-padel-primaryDark transition-colors">
+            Regístrate gratis
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

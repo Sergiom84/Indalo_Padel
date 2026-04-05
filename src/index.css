@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -16,8 +16,8 @@ html {
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background-color: #0f172a;
-  color: #f1f5f9;
+  background-color: #0A0A0A;
+  color: #F5F5F5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -31,23 +31,75 @@ body {
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #0A0A0A;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #0d9488;
-  border-radius: 3px;
+  background: #2A2A2A;
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #14b8a6;
+  background: #C8F04D;
 }
 
-/* Mobile optimizations */
+/* Utility classes */
+@layer components {
+  .btn-primary {
+    @apply bg-padel-primary text-padel-dark font-bold rounded-xl px-6 py-3 transition-all duration-200 hover:bg-padel-primaryDark active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .card-surface {
+    @apply bg-padel-surface border border-padel-border rounded-2xl;
+  }
+
+  .card-surface-hover {
+    @apply bg-padel-surface border border-padel-border rounded-2xl hover:border-padel-primary/40 transition-all duration-200 cursor-pointer;
+  }
+
+  .text-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-padel-muted;
+  }
+
+  .badge-primary {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-padel-primary/15 text-padel-primary border border-padel-primary/30;
+  }
+
+  .badge-green {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-500/15 text-green-400 border border-green-500/30;
+  }
+
+  .input-dark {
+    @apply w-full bg-padel-surface2 border border-padel-border rounded-xl px-4 py-3 text-white placeholder:text-padel-muted focus:outline-none focus:border-padel-primary focus:ring-1 focus:ring-padel-primary/50 transition-all;
+  }
+
+  .section-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .section-title {
+    @apply text-lg font-bold text-white;
+  }
+
+  .section-link {
+    @apply text-sm font-semibold text-padel-primary hover:text-padel-primaryDark transition-colors flex items-center gap-1;
+  }
+
+  /* Neon glow effect for primary elements */
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(200, 240, 77, 0.25);
+  }
+
+  .glow-primary-sm {
+    box-shadow: 0 0 10px rgba(200, 240, 77, 0.2);
+  }
+}
+
+/* Mobile */
 @media (max-width: 640px) {
   body {
     font-size: 14px;

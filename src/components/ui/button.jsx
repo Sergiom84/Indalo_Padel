@@ -1,17 +1,17 @@
 import { clsx } from 'clsx';
 
 const variants = {
-  primary: 'bg-padel-primary hover:bg-teal-500 text-white',
-  secondary: 'bg-padel-secondary hover:bg-sky-500 text-white',
-  outline: 'border border-padel-40 text-slate-300 hover:bg-white/5',
-  ghost: 'text-slate-400 hover:text-white hover:bg-white/5',
-  danger: 'bg-red-600 hover:bg-red-500 text-white',
+  primary: 'bg-padel-primary text-padel-dark hover:bg-padel-primaryDark font-bold',
+  secondary: 'bg-padel-surface2 text-white hover:bg-padel-border border border-padel-border',
+  outline: 'border border-padel-primary text-padel-primary hover:bg-padel-primary hover:text-padel-dark font-semibold',
+  ghost: 'text-padel-muted hover:text-white hover:bg-padel-surface2',
+  danger: 'bg-red-600 hover:bg-red-500 text-white font-semibold',
 };
 
 const sizes = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
+  sm: 'px-3 py-1.5 text-xs rounded-lg',
+  md: 'px-4 py-2.5 text-sm rounded-xl',
+  lg: 'px-6 py-3.5 text-base rounded-xl',
 };
 
 export default function Button({
@@ -26,7 +26,7 @@ export default function Button({
   return (
     <button
       className={clsx(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-padel-primary/50 disabled:opacity-50 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-2 font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-padel-primary/40 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100',
         variants[variant],
         sizes[size],
         className
