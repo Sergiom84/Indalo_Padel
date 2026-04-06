@@ -171,9 +171,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.danger.withOpacity(0.1),
+                  color: AppColors.danger.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
                 ),
                 child: Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
               ),
@@ -477,7 +477,7 @@ class _TeamSection extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 6),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.dark.withOpacity(0.5),
+              color: AppColors.dark.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppColors.border),
             ),
@@ -487,7 +487,7 @@ class _TeamSection extends StatelessWidget {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.2),
+                    color: AppColors.primary.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Center(
@@ -543,7 +543,7 @@ class _ActionButton extends StatelessWidget {
       label: Text(label, style: const TextStyle(fontSize: 12)),
       style: OutlinedButton.styleFrom(
         foregroundColor: danger ? AppColors.danger : Colors.white,
-        side: BorderSide(color: danger ? AppColors.danger.withOpacity(0.5) : AppColors.border),
+        side: BorderSide(color: danger ? AppColors.danger.withValues(alpha: 0.5) : AppColors.border),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
     );

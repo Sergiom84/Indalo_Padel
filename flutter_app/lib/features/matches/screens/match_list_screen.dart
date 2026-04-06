@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
+import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../models/match_model.dart';
@@ -150,7 +151,7 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                     child: Column(
                       children: [
                         DropdownButtonFormField<String>(
-                          value: _filterVenueId.isEmpty ? null : _filterVenueId,
+                          initialValue: _filterVenueId.isEmpty ? null : _filterVenueId,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
@@ -176,22 +177,11 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                             Expanded(
                               child: TextButton.icon(
                                 onPressed: () async {
-                                  final picked = await showDatePicker(
+                                  final picked = await showAdaptiveAppDatePicker(
                                     context: context,
                                     initialDate: DateTime.now(),
                                     firstDate: DateTime.now().subtract(const Duration(days: 30)),
                                     lastDate: DateTime.now().add(const Duration(days: 60)),
-                                    builder: (ctx, child) => Theme(
-                                      data: Theme.of(ctx).copyWith(
-                                        colorScheme: const ColorScheme.dark(
-                                          primary: AppColors.primary,
-                                          onPrimary: AppColors.dark,
-                                          surface: AppColors.surface2,
-                                          onSurface: Colors.white,
-                                        ),
-                                      ),
-                                      child: child!,
-                                    ),
                                   );
                                   if (picked != null) {
                                     setState(() => _filterDate = DateFormat('yyyy-MM-dd').format(picked));

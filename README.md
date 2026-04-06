@@ -27,6 +27,13 @@ flutter run
 ```
 
 ## Notas de conexión al backend
-- **Android emulator**: conecta a `http://10.0.2.2:3010/api` (por defecto)
-- **iOS simulator**: cambia a `http://localhost:3010/api`
-- **Dispositivo físico**: usa tu IP LAN en `flutter_app/lib/core/api/api_client.dart`
+- **Android emulator**: `http://10.0.2.2:3010/api` por defecto.
+- **iOS simulator**: `http://localhost:3010/api` por defecto.
+- **Dispositivo físico**: ejecuta Flutter con `--dart-define=API_BASE_URL=http://TU_IP:3010/api`.
+
+## Validación realizada
+```bash
+cd flutter_app
+flutter analyze
+flutter test
+```

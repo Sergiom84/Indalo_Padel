@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/loading_spinner.dart';
@@ -196,7 +195,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                       Container(
                         width: 64,
                         height: 64,
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           color: AppColors.surface2,
                           shape: BoxShape.circle,
                         ),
@@ -448,7 +447,7 @@ class _RatingRow extends StatelessWidget {
               Container(
                 width: 32,
                 height: 32,
-                decoration: BoxDecoration(color: AppColors.surface2, shape: BoxShape.circle),
+                decoration: const BoxDecoration(color: AppColors.surface2, shape: BoxShape.circle),
                 child: const Icon(Icons.person_outline, color: AppColors.muted, size: 18),
               ),
               const SizedBox(width: 8),
@@ -521,7 +520,7 @@ class _EditProfileSheet extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: side.isEmpty ? null : side,
+              initialValue: side.isEmpty ? null : side,
               dropdownColor: AppColors.surface2,
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(labelText: 'Lado preferido'),
@@ -545,7 +544,7 @@ class _EditProfileSheet extends StatelessWidget {
               children: [
                 Switch(
                   value: available,
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                   onChanged: onAvailableChanged,
                 ),
                 const SizedBox(width: 8),
