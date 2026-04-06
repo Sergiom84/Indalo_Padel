@@ -5,7 +5,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_card.dart';
-import '../../../shared/widgets/padel_badge.dart';
 import '../models/venue_model.dart';
 
 class VenueListScreen extends ConsumerStatefulWidget {

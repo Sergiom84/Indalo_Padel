@@ -4,21 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
-import '../../features/home/screens/home_screen.dart';
-import '../../features/venues/screens/venue_list_screen.dart';
-import '../../features/venues/screens/venue_detail_screen.dart';
-import '../../features/bookings/screens/booking_form_screen.dart';
 import '../../features/bookings/screens/booking_confirmation_screen.dart';
+import '../../features/bookings/screens/booking_form_screen.dart';
 import '../../features/bookings/screens/my_bookings_screen.dart';
-import '../../features/matches/screens/match_list_screen.dart';
+import '../../features/home/screens/home_screen.dart';
 import '../../features/matches/screens/match_create_screen.dart';
 import '../../features/matches/screens/match_detail_screen.dart';
-import '../../features/players/screens/player_search_screen.dart';
-import '../../features/players/screens/player_profile_screen.dart';
+import '../../features/matches/screens/match_list_screen.dart';
 import '../../features/players/screens/favorites_list_screen.dart';
+import '../../features/players/screens/player_profile_screen.dart';
+import '../../features/players/screens/player_search_screen.dart';
+import '../../features/profile/screens/profile_screen.dart';
+import '../../features/venues/screens/venue_detail_screen.dart';
+import '../../features/venues/screens/venue_list_screen.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
-// Shell route key
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -29,20 +29,24 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
     redirect: (context, state) {
-      final isLoading = authState.loading;
-      if (isLoading) return null;
+      if (authState.loading) {
+        return null;
+      }
 
       final isAuthenticated = authState.isAuthenticated;
       final isAuthRoute =
           state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
 
-      if (!isAuthenticated && !isAuthRoute) return '/login';
-      if (isAuthenticated && isAuthRoute) return '/';
+      if (!isAuthenticated && !isAuthRoute) {
+        return '/login';
+      }
+      if (isAuthenticated && isAuthRoute) {
+        return '/';
+      }
       return null;
     },
     routes: [
-      // Auth routes (no shell)
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -51,7 +55,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
       ),
-      // Booking confirmation (full screen, no bottom nav)
       GoRoute(
         path: '/booking/:id/confirmation',
         builder: (context, state) {
@@ -59,11 +62,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           return BookingConfirmationScreen(bookingData: extra);
         },
       ),
-      // Shell with bottom navigation
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
-          return AppShell(child: child, location: state.matchedLocation);
+          return AppShell(location: state.matchedLocation, child: child);
         },
         routes: [
           GoRoute(
@@ -111,6 +113,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 },
               ),
             ],
+          ),
+          GoRoute(
+            path: '/profile',
+            builder: (context, state) => const ProfileScreen(),
           ),
           GoRoute(
             path: '/players',

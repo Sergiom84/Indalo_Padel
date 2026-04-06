@@ -111,7 +111,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
               child: Column(
                 children: [
                   DropdownButtonFormField<int?>(
-                    value: _filterLevel,
+                    initialValue: _filterLevel,
                     dropdownColor: AppColors.surface2,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
@@ -140,7 +140,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
                     children: [
                       Switch(
                         value: _filterAvailable,
-                        activeColor: AppColors.primary,
+                        activeThumbColor: AppColors.primary,
                         onChanged: (v) {
                           setState(() => _filterAvailable = v);
                           _search();
@@ -211,7 +211,7 @@ class _PlayerCard extends StatelessWidget {
             Container(
               width: 44,
               height: 44,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.surface2,
                 shape: BoxShape.circle,
               ),

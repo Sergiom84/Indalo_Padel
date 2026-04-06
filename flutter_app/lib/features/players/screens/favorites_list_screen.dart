@@ -113,7 +113,7 @@ class _FavoritesListScreenState extends ConsumerState<FavoritesListScreen> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.15),
+                                  color: Colors.red.withValues(alpha: 0.15),
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Icon(Icons.favorite, color: Colors.red, size: 22),
