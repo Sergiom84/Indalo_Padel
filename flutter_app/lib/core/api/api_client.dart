@@ -1,46 +1,68 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../storage/secure_storage.dart';
 
-// Base URL for different environments:
-// Android emulator: http://10.0.2.2:3010/api
-// iOS simulator / macOS: http://localhost:3010/api
-// Real device: replace with LAN IP e.g. http://192.168.1.100:3010/api
-const String _baseUrl = 'http://10.0.2.2:3010/api';
+const String _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+const int _defaultApiPort = 3011;
+
+String resolveBaseUrl() {
+  if (_configuredBaseUrl.isNotEmpty) {
+    return _configuredBaseUrl;
+  }
+
+  if (kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux) {
+    return 'http://localhost:$_defaultApiPort/api';
+  }
+
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return 'http://10.0.2.2:$_defaultApiPort/api';
+  }
+
+  return 'http://localhost:$_defaultApiPort/api';
+}
 
 class ApiClient {
   late final Dio _dio;
 
-  // Navigator key for redirecting on 401 – injected by app
   void Function()? onUnauthorized;
 
   ApiClient() {
-    _dio = Dio(BaseOptions(
-      baseUrl: _baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 30),
-      headers: {'Content-Type': 'application/json'},
-    ));
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: resolveBaseUrl(),
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 30),
+        headers: {'Content-Type': 'application/json'},
+      ),
+    );
 
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final token = await SecureStorage.getToken();
-        if (token != null && token.isNotEmpty) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        handler.next(options);
-      },
-      onError: (error, handler) async {
-        if (error.response?.statusCode == 401) {
-          await SecureStorage.clearAll();
-          onUnauthorized?.call();
-        }
-        handler.next(error);
-      },
-    ));
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = await SecureStorage.getToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+        onError: (error, handler) async {
+          if (error.response?.statusCode == 401) {
+            await SecureStorage.clearAll();
+            onUnauthorized?.call();
+          }
+          handler.next(error);
+        },
+      ),
+    );
   }
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<dynamic> get(String path,
+      {Map<String, dynamic>? queryParameters}) async {
     try {
       final response = await _dio.get(path, queryParameters: queryParameters);
       return response.data;
@@ -97,5 +119,4 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-// Riverpod provider
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());

@@ -3,17 +3,15 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { registerSchema, loginSchema } from '../validators/authValidators.js';
 
 const router = express.Router();
 
 // POST /api/padel/auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', validate(registerSchema), async (req, res) => {
   try {
     const { nombre, email, password, main_level, sub_level, preferred_side } = req.body;
-
-    if (!nombre || !email || !password) {
-      return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos' });
-    }
 
     const existing = await pool.query('SELECT id FROM app.users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
@@ -65,13 +63,9 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/padel/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
-    }
 
     const result = await pool.query(
       'SELECT id, nombre, email, password_hash FROM app.users WHERE email = $1',

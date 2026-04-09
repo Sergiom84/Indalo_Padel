@@ -4,10 +4,13 @@ import './loadEnv.js';
 const { Pool } = pkg;
 
 const rawConnStr = process.env.DATABASE_URL;
+const explicitDemoMode =
+  process.env.DEMO_MODE === 'true' ||
+  process.env.VITE_DEMO_MODE === 'true';
 export const isDemoMode =
-  process.env.VITE_DEMO_MODE === 'true' ||
+  explicitDemoMode ||
   (!rawConnStr && process.env.NODE_ENV !== 'production');
-export const hasDatabaseConnection = Boolean(rawConnStr);
+export const hasDatabaseConnection = Boolean(rawConnStr) && !explicitDemoMode;
 
 if (!rawConnStr && !isDemoMode) {
   throw new Error(
@@ -32,9 +35,13 @@ if (!rawConnStr && isDemoMode) {
   console.warn('⚠️ Modo demo activo: backend sin base de datos. Se omite la conexión PostgreSQL.');
 }
 
+if (rawConnStr && explicitDemoMode) {
+  console.warn('⚠️ DEMO_MODE activo: se ignora DATABASE_URL y el backend funcionará sin PostgreSQL.');
+}
+
 let poolInstance;
 
-if (!rawConnStr) {
+if (!rawConnStr || explicitDemoMode) {
   poolInstance = createDemoPool();
 } else {
   let parsed;
@@ -74,6 +81,8 @@ if (!rawConnStr) {
 
   console.log(`🔌 DB target → host=${host} port=${port} db=${database} user=${user}`);
 
+  const DB_SEARCH_PATH = process.env.DB_SEARCH_PATH || 'app,public';
+
   poolInstance = new Pool({
     host,
     port,
@@ -87,15 +96,7 @@ if (!rawConnStr) {
     connectionTimeoutMillis: 15000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
-  });
-
-  const DB_SEARCH_PATH = process.env.DB_SEARCH_PATH || 'app,public';
-  poolInstance.on('connect', async (client) => {
-    try {
-      await client.query(`SET search_path TO ${DB_SEARCH_PATH}`);
-    } catch (e) {
-      console.warn('⚠️ No se pudo establecer search_path:', e.message);
-    }
+    options: `--search_path=${DB_SEARCH_PATH}`,
   });
 }
 

@@ -4,6 +4,19 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/padel_badge.dart';
 
+PadelBadgeVariant _statusVariant(String status) {
+  switch (status) {
+    case 'confirmada':
+      return PadelBadgeVariant.success;
+    case 'pendiente':
+      return PadelBadgeVariant.warning;
+    case 'cancelada':
+      return PadelBadgeVariant.danger;
+    default:
+      return PadelBadgeVariant.neutral;
+  }
+}
+
 class BookingConfirmationScreen extends StatelessWidget {
   final Map<String, dynamic> bookingData;
 
@@ -18,6 +31,20 @@ class BookingConfirmationScreen extends StatelessWidget {
     }
   }
 
+  int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.replaceAll(',', '.'));
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (bookingData.isEmpty) {
@@ -28,9 +55,12 @@ class BookingConfirmationScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('No se encontraron datos de confirmación.', style: TextStyle(color: AppColors.muted)),
+              const Text('No se encontraron datos de confirmación.',
+                  style: TextStyle(color: AppColors.muted)),
               const SizedBox(height: 16),
-              ElevatedButton(onPressed: () => context.go('/'), child: const Text('Volver al inicio')),
+              ElevatedButton(
+                  onPressed: () => context.go('/'),
+                  child: const Text('Volver al inicio')),
             ],
           ),
         ),
@@ -41,8 +71,10 @@ class BookingConfirmationScreen extends StatelessWidget {
     final courtName = bookingData['court_name'] as String? ?? '';
     final date = bookingData['date'] as String? ?? '';
     final startTime = bookingData['start_time'] as String? ?? '';
-    final price = (bookingData['price'] as num?)?.toDouble();
+    final durationMinutes = _asInt(bookingData['duration_minutes']);
+    final price = _asDouble(bookingData['price']);
     final status = bookingData['status'] as String? ?? 'confirmada';
+    final notes = bookingData['notes'] as String? ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -61,15 +93,19 @@ class BookingConfirmationScreen extends StatelessWidget {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: AppColors.success.withOpacity(0.15),
+                color: AppColors.success.withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.check_circle_outline, color: AppColors.success, size: 40),
+              child: const Icon(Icons.check_circle_outline,
+                  color: AppColors.success, size: 40),
             ),
             const SizedBox(height: 20),
             const Text(
               '¡Reserva confirmada!',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 24),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -90,19 +126,32 @@ class BookingConfirmationScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _DetailRow(icon: Icons.location_on_outlined, title: venueName, subtitle: courtName),
+                  _DetailRow(
+                      icon: Icons.location_on_outlined,
+                      title: venueName,
+                      subtitle: courtName),
                   const Divider(color: AppColors.border, height: 24),
-                  _DetailRow(icon: Icons.calendar_today, title: _formatDate(date)),
+                  _DetailRow(
+                      icon: Icons.calendar_today, title: _formatDate(date)),
                   const Divider(color: AppColors.border, height: 24),
-                  _DetailRow(icon: Icons.access_time, title: '${startTime}h'),
+                  _DetailRow(
+                    icon: Icons.access_time,
+                    title: durationMinutes != null
+                        ? '$startTime h · $durationMinutes min'
+                        : '$startTime h',
+                  ),
                   const Divider(color: AppColors.border, height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Precio', style: TextStyle(color: AppColors.muted)),
+                      const Text('Precio',
+                          style: TextStyle(color: AppColors.muted)),
                       Text(
                         price != null ? '${price.toStringAsFixed(0)}€' : 'N/D',
-                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 20),
+                        style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20),
                       ),
                     ],
                   ),
@@ -110,10 +159,20 @@ class BookingConfirmationScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Estado', style: TextStyle(color: AppColors.muted)),
-                      PadelBadge(label: status, variant: PadelBadgeVariant.success),
+                      const Text('Estado',
+                          style: TextStyle(color: AppColors.muted)),
+                      PadelBadge(
+                          label: status, variant: _statusVariant(status)),
                     ],
                   ),
+                  if (notes.trim().isNotEmpty) ...[
+                    const Divider(color: AppColors.border, height: 24),
+                    _DetailRow(
+                      icon: Icons.notes_outlined,
+                      title: 'Observaciones',
+                      subtitle: notes,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -123,8 +182,9 @@ class BookingConfirmationScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => context.go('/my-bookings'),
-                child: const Text('Ver mis reservas', style: TextStyle(fontWeight: FontWeight.w900)),
+                onPressed: () => context.go('/calendar'),
+                child: const Text('Ver calendario',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
               ),
             ),
             const SizedBox(height: 12),
@@ -159,9 +219,13 @@ class _DetailRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w600)),
               if (subtitle != null)
-                Text(subtitle!, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                Text(subtitle!,
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 13)),
             ],
           ),
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/brand_logo.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -31,10 +32,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
     try {
       await ref.read(authProvider.notifier).login(
-        _emailCtrl.text.trim(),
-        _passwordCtrl.text,
-      );
-      if (mounted) context.go('/');
+            _emailCtrl.text.trim(),
+            _passwordCtrl.text,
+          );
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -53,16 +53,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
-              // Logo
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(Icons.sports_tennis, color: AppColors.dark, size: 28),
-              ),
+              const BrandLogo(size: 88, glow: true),
               const SizedBox(height: 20),
               RichText(
                 text: const TextSpan(
@@ -73,7 +64,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   children: [
                     TextSpan(text: 'Indalo'),
-                    TextSpan(text: '.', style: TextStyle(color: AppColors.primary)),
+                    TextSpan(
+                        text: '.', style: TextStyle(color: AppColors.primary)),
                   ],
                 ),
               ),
@@ -89,9 +81,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withOpacity(0.1),
+                    color: AppColors.danger.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                    border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
@@ -107,7 +100,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Expanded(
                         child: Text(
                           _error!,
-                          style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppColors.danger, fontSize: 13),
                         ),
                       ),
                     ],
@@ -123,7 +117,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'tu@email.com',
-                  prefixIcon: Icon(Icons.mail_outline, color: AppColors.muted, size: 20),
+                  prefixIcon: Icon(Icons.mail_outline,
+                      color: AppColors.muted, size: 20),
                 ),
               ),
               const SizedBox(height: 12),
@@ -135,7 +130,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'Contraseña',
-                  prefixIcon: Icon(Icons.lock_outline, color: AppColors.muted, size: 20),
+                  prefixIcon: Icon(Icons.lock_outline,
+                      color: AppColors.muted, size: 20),
                 ),
                 onFieldSubmitted: (_) => _submit(),
               ),
@@ -158,7 +154,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('Entrar', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                            Text('Entrar',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900, fontSize: 15)),
                             SizedBox(width: 8),
                             Icon(Icons.arrow_forward, size: 18),
                           ],

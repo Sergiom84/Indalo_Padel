@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
-import '../../../shared/widgets/padel_card.dart';
-import '../../../shared/widgets/padel_badge.dart';
+import '../../../core/platform/platform_helper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/loading_spinner.dart';
+import '../../../shared/widgets/brand_logo.dart';
+import '../../../shared/widgets/padel_badge.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -31,493 +32,601 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final api = ref.read(apiClientProvider);
     try {
       final results = await Future.wait([
-        api.get('/padel/venues').catchError((_) => []),
-        api.get('/padel/bookings/my').catchError((_) => {'upcoming': [], 'past': []}),
+        api.get('/padel/venues').catchError((_) => {'venues': []}),
+        api
+            .get('/padel/bookings/my')
+            .catchError((_) => {'upcoming': [], 'past': []}),
         api.get('/padel/matches').catchError((_) => []),
       ]);
-      if (mounted) {
-        setState(() {
-          _venues = _asList(results[0]);
-          final b = results[1];
-          _bookings = (b is Map)
-              ? {'upcoming': _asList(b['upcoming']), 'past': _asList(b['past'])}
-              : {'upcoming': [], 'past': []};
-          _matches = _asList(results[2]);
-          _loading = false;
-        });
+      if (!mounted) {
+        return;
       }
+      setState(() {
+        _venues =
+            _asList(results[0] is Map ? results[0]['venues'] : results[0]);
+        _bookings = results[1] is Map<String, dynamic>
+            ? results[1] as Map<String, dynamic>
+            : {'upcoming': [], 'past': []};
+        _matches =
+            _asList(results[2] is Map ? results[2]['matches'] : results[2]);
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
-  List<dynamic> _asList(dynamic v) {
-    if (v is List) return v;
+  List<dynamic> _asList(dynamic value) {
+    if (value is List) {
+      return value;
+    }
     return [];
   }
 
   List<dynamic> get _openMatches => _matches
-      .where((m) => m['status'] == 'buscando' || m['status'] == 'abierto')
+      .where((match) =>
+          match['status'] == 'buscando' || match['status'] == 'abierto')
+      .take(3)
       .toList();
 
-  List<dynamic> get _upcomingBookings {
-    final list = _bookings['upcoming'];
-    if (list is List) return list.take(3).toList();
-    return [];
-  }
+  List<dynamic> get _upcomingBookings =>
+      _asList(_bookings['upcoming']).take(3).toList();
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
-    final userName = user?.nombre ?? 'Jugador';
+    final greeting = user?.nombre ?? 'Jugador';
 
     return Scaffold(
       backgroundColor: AppColors.dark,
-      body: SafeArea(
-        child: RefreshIndicator(
-          color: AppColors.primary,
-          backgroundColor: AppColors.surface,
-          onRefresh: _fetchData,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        backgroundColor: AppColors.surface,
+        onRefresh: _fetchData,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 120),
+          children: [
+            Row(
               children: [
-                // Hero header
-                const Text(
-                  'Bienvenido de vuelta',
-                  style: TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '$userName 👋',
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _HomeBrandPill(),
+                      const SizedBox(height: 14),
+                      Text(
+                        _headlineDate(),
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Hola, $greeting',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 28,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 24),
-
-                // Quick actions
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => context.go('/venues'),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: AppColors.dark.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(Icons.calendar_today, color: AppColors.dark, size: 20),
-                              ),
-                              const SizedBox(width: 12),
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Reservar', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.dark, fontSize: 14)),
-                                  Text('pista ahora', style: TextStyle(color: AppColors.dark, fontSize: 11, fontWeight: FontWeight.w500)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                GestureDetector(
+                  onTap: () {
+                    appLightImpact();
+                    context.push('/profile');
+                  },
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      greeting.isNotEmpty ? greeting[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => context.go('/matches'),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(Icons.people_outline, color: AppColors.primary, size: 20),
-                              ),
-                              const SizedBox(width: 12),
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Unirse', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 14)),
-                                  Text('a un partido', style: TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w500)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-
-                // Stats row
-                Row(
-                  children: [
-                    _StatCard(
-                      icon: Icons.business,
-                      value: _loading ? '—' : '${_venues.length}',
-                      label: 'Clubes',
-                      onTap: () => context.go('/venues'),
-                    ),
-                    const SizedBox(width: 10),
-                    _StatCard(
-                      icon: Icons.calendar_today,
-                      value: _loading ? '—' : '${_upcomingBookings.length}',
-                      label: 'Reservas',
-                      onTap: () => context.go('/my-bookings'),
-                    ),
-                    const SizedBox(width: 10),
-                    _StatCard(
-                      icon: Icons.emoji_events,
-                      value: _loading ? '—' : '${_openMatches.length}',
-                      label: 'Partidos',
-                      onTap: () => context.go('/matches'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Venues section
-                _SectionHeader(
-                  title: 'Clubes',
-                  onSeeAll: () => context.go('/venues'),
-                ),
-                const SizedBox(height: 12),
-                if (_loading)
-                  const LoadingSpinner()
-                else if (_venues.isEmpty)
-                  _EmptyCard(message: 'No hay clubes disponibles')
-                else
-                  ...(_venues.take(4).map((venue) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: PadelCard(
-                      onTap: () => context.go('/venues/${venue['id']}'),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  venue['nombre'] ?? venue['name'] ?? 'Sede',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.location_on_outlined, color: AppColors.muted, size: 14),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        venue['ubicacion'] ?? venue['location'] ?? 'Sin ubicación',
-                                        style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          PadelBadge(label: '${venue['court_count'] ?? 0} pistas'),
-                        ],
-                      ),
-                    ),
-                  ))),
-                const SizedBox(height: 24),
-
-                // Upcoming bookings
-                _SectionHeader(
-                  title: 'Próximas reservas',
-                  onSeeAll: () => context.go('/my-bookings'),
-                ),
-                const SizedBox(height: 12),
-                if (_loading)
-                  const LoadingSpinner()
-                else if (_upcomingBookings.isEmpty)
-                  _EmptyCard(
-                    icon: Icons.calendar_today,
-                    message: 'No tienes reservas próximas',
-                    actionLabel: 'Reservar ahora',
-                    onAction: () => context.go('/venues'),
-                  )
-                else
-                  ...(_upcomingBookings.map((booking) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: PadelCard(
-                      onTap: () => context.go('/my-bookings'),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  booking['venue_name'] ?? booking['pista_name'] ?? 'Reserva',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
-                                ),
-                                const SizedBox(height: 2),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.access_time, color: AppColors.muted, size: 12),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${booking['fecha'] ?? booking['date'] ?? ''} ${booking['hora_inicio'] ?? booking['start_time'] ?? ''}',
-                                      style: const TextStyle(color: AppColors.muted, fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          PadelBadge(
-                            label: booking['status'] ?? 'Confirmada',
-                            variant: PadelBadgeVariant.success,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ))),
-                const SizedBox(height: 24),
-
-                // Open matches
-                _SectionHeader(
-                  title: 'Partidos abiertos',
-                  onSeeAll: () => context.go('/matches'),
-                ),
-                const SizedBox(height: 12),
-                if (_loading)
-                  const LoadingSpinner()
-                else if (_openMatches.isEmpty)
-                  _EmptyCard(
-                    icon: Icons.emoji_events,
-                    message: 'No hay partidos abiertos',
-                    actionLabel: 'Crear partido',
-                    onAction: () => context.go('/matches'),
-                  )
-                else
-                  ...(_openMatches.take(3).map((match) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: PadelCard(
-                      onTap: () => context.go('/matches/${match['id']}'),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.bolt, color: AppColors.primary, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  match['venue_name'] ?? match['titulo'] ?? 'Partido',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
-                                ),
-                                const SizedBox(height: 2),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.calendar_today, color: AppColors.muted, size: 12),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${match['fecha'] ?? match['match_date'] ?? ''} ${match['hora'] ?? match['start_time'] ?? ''}',
-                                      style: const TextStyle(color: AppColors.muted, fontSize: 11),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            children: [
-                              const PadelBadge(label: 'Abierto', variant: PadelBadgeVariant.success),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(Icons.people_outline, color: AppColors.muted, size: 12),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    '${match['player_count'] ?? 0}/4',
-                                    style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ))),
               ],
             ),
-          ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Sesión de hoy',
+                    style: TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Todo lo importante en una vista',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MetricTile(
+                          label: 'Clubes',
+                          value: _loading ? '—' : '${_venues.length}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _MetricTile(
+                          label: 'Reservas',
+                          value: _loading ? '—' : '${_upcomingBookings.length}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _MetricTile(
+                          label: 'Partidos',
+                          value: _loading ? '—' : '${_openMatches.length}',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            _HomeSection(
+              title: 'Próximas reservas',
+              actionLabel: 'Ver calendario',
+              onAction: () => context.go('/calendar'),
+              child: _loading
+                  ? const LoadingSpinner()
+                  : _upcomingBookings.isEmpty
+                      ? const _EmptyState(
+                          icon: Icons.calendar_today_outlined,
+                          message: 'No tienes reservas próximas.',
+                        )
+                      : Column(
+                          children: _upcomingBookings
+                              .map((booking) =>
+                                  _BookingPreviewCard(booking: booking))
+                              .toList(),
+                        ),
+            ),
+            const SizedBox(height: 18),
+            _HomeSection(
+              title: 'Clubes destacados',
+              actionLabel: 'Abrir clubes',
+              onAction: () => context.go('/venues'),
+              child: _loading
+                  ? const LoadingSpinner()
+                  : _venues.isEmpty
+                      ? const _EmptyState(
+                          icon: Icons.sports_tennis_outlined,
+                          message: 'Aún no hay clubes listados.',
+                        )
+                      : Column(
+                          children: _venues.take(3).map((venue) {
+                            return _VenuePreviewCard(
+                              venue: venue as Map<String, dynamic>,
+                            );
+                          }).toList(),
+                        ),
+            ),
+            const SizedBox(height: 18),
+            _HomeSection(
+              title: 'Partidos abiertos',
+              actionLabel: 'Ir a partidos',
+              onAction: () => context.go('/matches'),
+              child: _loading
+                  ? const LoadingSpinner()
+                  : _openMatches.isEmpty
+                      ? const _EmptyState(
+                          icon: Icons.emoji_events_outlined,
+                          message: 'No hay partidos abiertos ahora mismo.',
+                        )
+                      : Column(
+                          children: _openMatches
+                              .map((match) => _MatchPreviewCard(match: match))
+                              .toList(),
+                        ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  String _headlineDate() {
+    final now = DateTime.now();
+    const weekDays = [
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+      'Domingo',
+    ];
+    const months = [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ];
+    return '${weekDays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
+  }
 }
 
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String value;
+class _MetricTile extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
+  final String value;
 
-  const _StatCard({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.onTap,
-  });
+  const _MetricTile({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-          child: Column(
-            children: [
-              Icon(icon, color: AppColors.primary, size: 20),
-              const SizedBox(height: 8),
-              Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 22)),
-              const SizedBox(height: 2),
-              Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 10, fontWeight: FontWeight.w600)),
-            ],
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final VoidCallback onSeeAll;
-
-  const _SectionHeader({required this.title, required this.onSeeAll});
+class _HomeBrandPill extends StatelessWidget {
+  const _HomeBrandPill();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
-        ),
-        GestureDetector(
-          onTap: onSeeAll,
-          child: const Row(
-            children: [
-              Text('Ver todos', style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600)),
-              Icon(Icons.chevron_right, color: AppColors.primary, size: 16),
-            ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          BrandLogo(size: 30),
+          SizedBox(width: 10),
+          Text(
+            'Indalo Padel',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _EmptyCard extends StatelessWidget {
-  final IconData icon;
-  final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
+class _HomeSection extends StatelessWidget {
+  final String title;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final Widget child;
 
-  const _EmptyCard({
-    this.icon = Icons.info_outline,
-    required this.message,
-    this.actionLabel,
-    this.onAction,
+  const _HomeSection({
+    required this.title,
+    required this.actionLabel,
+    required this.onAction,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.border),
       ),
-      child: Center(
-        child: Column(
-          children: [
-            Icon(icon, color: AppColors.border, size: 32),
-            const SizedBox(height: 8),
-            Text(message, style: const TextStyle(color: AppColors.muted, fontSize: 14)),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: onAction,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-                child: Text(actionLabel!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              ),
+              TextButton(
+                onPressed: onAction,
+                child: Text(actionLabel),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _BookingPreviewCard extends StatelessWidget {
+  final dynamic booking;
+
+  const _BookingPreviewCard({required this.booking});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => context.go('/calendar'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.schedule, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    booking['venue_name']?.toString() ?? 'Reserva',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${booking['booking_date'] ?? booking['fecha'] ?? ''} · ${booking['start_time'] ?? booking['hora_inicio'] ?? ''}',
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            PadelBadge(
+              label: booking['status']?.toString() ?? 'pendiente',
+              variant: _badgeForBooking(booking['status']?.toString() ?? ''),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  PadelBadgeVariant _badgeForBooking(String status) {
+    switch (status) {
+      case 'confirmada':
+        return PadelBadgeVariant.success;
+      case 'cancelada':
+        return PadelBadgeVariant.danger;
+      case 'pendiente':
+        return PadelBadgeVariant.warning;
+      default:
+        return PadelBadgeVariant.neutral;
+    }
+  }
+}
+
+class _VenuePreviewCard extends StatelessWidget {
+  final Map<String, dynamic> venue;
+
+  const _VenuePreviewCard({required this.venue});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => context.push('/venues/${venue['id']}'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.sports_tennis, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    venue['name']?.toString() ??
+                        venue['nombre']?.toString() ??
+                        'Club',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    venue['location']?.toString() ??
+                        venue['ubicacion']?.toString() ??
+                        'Sin ubicación',
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            PadelBadge(label: '${venue['court_count'] ?? 0} pistas'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MatchPreviewCard extends StatelessWidget {
+  final dynamic match;
+
+  const _MatchPreviewCard({required this.match});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => context.push('/matches/${match['id']}'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.emoji_events, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    match['venue_name']?.toString() ?? 'Partido abierto',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${match['match_date'] ?? match['fecha'] ?? ''} · ${match['start_time'] ?? match['hora'] ?? ''}',
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${match['player_count'] ?? 0}/4',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _EmptyState({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          Icon(icon, color: AppColors.muted, size: 30),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            style: const TextStyle(color: AppColors.muted),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

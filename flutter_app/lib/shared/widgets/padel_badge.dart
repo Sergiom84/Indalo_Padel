@@ -21,24 +21,24 @@ class PadelBadge extends StatelessWidget {
 
     switch (variant) {
       case PadelBadgeVariant.success:
-        bg = AppColors.success.withOpacity(0.15);
+        bg = AppColors.success.withValues(alpha: 0.15);
         fg = AppColors.success;
-        border = AppColors.success.withOpacity(0.3);
+        border = AppColors.success.withValues(alpha: 0.3);
         break;
       case PadelBadgeVariant.warning:
-        bg = AppColors.warning.withOpacity(0.15);
+        bg = AppColors.warning.withValues(alpha: 0.15);
         fg = AppColors.warning;
-        border = AppColors.warning.withOpacity(0.3);
+        border = AppColors.warning.withValues(alpha: 0.3);
         break;
       case PadelBadgeVariant.danger:
-        bg = AppColors.danger.withOpacity(0.15);
+        bg = AppColors.danger.withValues(alpha: 0.15);
         fg = AppColors.danger;
-        border = AppColors.danger.withOpacity(0.3);
+        border = AppColors.danger.withValues(alpha: 0.3);
         break;
       case PadelBadgeVariant.info:
-        bg = AppColors.info.withOpacity(0.15);
+        bg = AppColors.info.withValues(alpha: 0.15);
         fg = AppColors.info;
-        border = AppColors.info.withOpacity(0.3);
+        border = AppColors.info.withValues(alpha: 0.3);
         break;
       case PadelBadgeVariant.outline:
         bg = Colors.transparent;
@@ -46,10 +46,9 @@ class PadelBadge extends StatelessWidget {
         border = AppColors.border;
         break;
       case PadelBadgeVariant.neutral:
-      default:
-        bg = AppColors.primary.withOpacity(0.15);
+        bg = AppColors.primary.withValues(alpha: 0.15);
         fg = AppColors.primary;
-        border = AppColors.primary.withOpacity(0.3);
+        border = AppColors.primary.withValues(alpha: 0.3);
         break;
     }
 
@@ -82,9 +81,9 @@ class LevelBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.15),
+        color: AppColors.primary.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
       ),
       child: Text(
         'Nv $lvl',

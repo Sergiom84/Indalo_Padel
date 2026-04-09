@@ -1,16 +1,19 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { createMatchSchema, matchQuerySchema } from '../validators/matchValidators.js';
 
 const router = express.Router();
 
 // GET /api/padel/matches - Partidos abiertos
-router.get('/', async (req, res) => {
+router.get('/', validate(matchQuerySchema, 'query'), async (req, res) => {
   try {
     const { level, date, venue_id } = req.query;
 
     let query = `
       SELECT m.*,
+        m.current_players as player_count,
         v.name as venue_name, v.location as venue_location,
         u.nombre as creator_name,
         (SELECT json_agg(json_build_object(
@@ -62,7 +65,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/padel/matches - Crear partido
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, validate(createMatchSchema), async (req, res) => {
   try {
     const { booking_id, match_type, min_level, max_level, match_date, start_time, venue_id, description } = req.body;
     const userId = req.user.userId;
@@ -95,6 +98,7 @@ router.get('/:id', async (req, res) => {
   try {
     const matchResult = await pool.query(
       `SELECT m.*,
+        m.current_players as player_count,
         v.name as venue_name, v.location as venue_location,
         u.nombre as creator_name
        FROM app.padel_matches m

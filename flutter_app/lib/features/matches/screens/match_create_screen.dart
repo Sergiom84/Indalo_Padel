@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/platform/platform_helper.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/adaptive_pickers.dart';
 
 class MatchCreateScreen extends ConsumerStatefulWidget {
   const MatchCreateScreen({super.key});
@@ -43,31 +45,28 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
       final data = await api.get('/padel/venues');
       if (mounted) {
         setState(() {
-          _venues = data is List ? data : (data['venues'] ?? []);
+          _venues = _asList(data is Map ? data['venues'] : data);
         });
       }
     } catch (_) {}
   }
 
+  List<dynamic> _asList(dynamic value) {
+    if (value is List) {
+      return value;
+    }
+    return [];
+  }
+
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showAdaptiveAppDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 60)),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: AppColors.primary,
-            onPrimary: AppColors.dark,
-            surface: AppColors.surface2,
-            onSurface: Colors.white,
-          ),
-        ),
-        child: child!,
-      ),
     );
     if (picked != null) {
+      await appSelectionHaptic();
       setState(() {
         _matchDate = '${picked.year.toString().padLeft(4, '0')}-'
             '${picked.month.toString().padLeft(2, '0')}-'
@@ -77,22 +76,12 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
+    final picked = await showAdaptiveAppTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 18, minute: 0),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: AppColors.primary,
-            onPrimary: AppColors.dark,
-            surface: AppColors.surface2,
-            onSurface: Colors.white,
-          ),
-        ),
-        child: child!,
-      ),
     );
     if (picked != null) {
+      await appSelectionHaptic();
       setState(() => _startTime = picked);
     }
   }
@@ -168,9 +157,9 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withOpacity(0.1),
+                    color: AppColors.danger.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
                   ),
                   child: Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
                 ),
@@ -263,7 +252,7 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
               const Text('Sede *', style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
-                value: _venueId.isEmpty ? null : _venueId,
+                initialValue: _venueId.isEmpty ? null : _venueId,
                 dropdownColor: AppColors.surface2,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
@@ -284,7 +273,7 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
               const Text('Tipo de partido', style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
-                value: _matchType,
+                initialValue: _matchType,
                 dropdownColor: AppColors.surface2,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
@@ -308,7 +297,7 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                         const Text('Nivel mínimo', style: TextStyle(color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<int>(
-                          value: _minLevel,
+                          initialValue: _minLevel,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
@@ -330,7 +319,7 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                         const Text('Nivel máximo', style: TextStyle(color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<int>(
-                          value: _maxLevel,
+                          initialValue: _maxLevel,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(

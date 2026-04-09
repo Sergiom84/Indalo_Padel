@@ -1,9 +1,12 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/platform/platform_helper.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../models/venue_model.dart';
 
@@ -22,6 +25,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
   AvailabilityModel? _availability;
   String? _error;
   DateTime _selectedDate = DateTime.now();
+  int _durationMinutes = 90;
 
   @override
   void initState() {
@@ -39,19 +43,20 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
                   ...Map<String, dynamic>.from(data['venue'] as Map),
                   'courts': data['courts'] ?? [],
                 }
-              : Map<String, dynamic>.from(data as Map))
+              : Map<String, dynamic>.from(data))
           : <String, dynamic>{};
-      if (mounted) {
-        setState(() {
-          _venue = VenueModel.fromJson(venueData);
-          _loadingVenue = false;
-        });
-        _fetchAvailability();
+      if (!mounted) {
+        return;
       }
-    } catch (e) {
+      setState(() {
+        _venue = VenueModel.fromJson(venueData);
+        _loadingVenue = false;
+      });
+      await _fetchAvailability();
+    } catch (_) {
       if (mounted) {
         setState(() {
-          _error = 'Error al cargar la sede';
+          _error = 'Error al cargar el club';
           _loadingVenue = false;
         });
       }
@@ -59,62 +64,93 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
   }
 
   Future<void> _fetchAvailability() async {
-    if (!mounted) return;
     setState(() => _loadingAvailability = true);
     try {
       final api = ref.read(apiClientProvider);
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      final data = await api.get('/padel/venues/${widget.venueId}/availability?date=$dateStr');
-      if (mounted) {
-        setState(() {
-          _availability = AvailabilityModel.fromJson(data as Map<String, dynamic>);
-          _loadingAvailability = false;
-        });
+      final data = await api.get(
+        '/padel/venues/${widget.venueId}/availability?date=$dateStr&duration_minutes=$_durationMinutes',
+      );
+      if (!mounted) {
+        return;
       }
+      setState(() {
+        _availability =
+            AvailabilityModel.fromJson(data as Map<String, dynamic>);
+        _loadingAvailability = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loadingAvailability = false);
+      if (mounted) {
+        setState(() => _loadingAvailability = false);
+      }
     }
   }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showAdaptiveAppDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 60)),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: AppColors.primary,
-            onPrimary: AppColors.dark,
-            surface: AppColors.surface2,
-            onSurface: Colors.white,
-          ),
-        ),
-        child: child!,
-      ),
     );
     if (picked != null) {
+      await appSelectionHaptic();
       setState(() {
         _selectedDate = picked;
         _availability = null;
       });
-      _fetchAvailability();
+      await _fetchAvailability();
     }
   }
 
-  void _handleSlotTap(CourtModel court, TimeSlotModel slot, double? price) {
+  Future<void> _setDuration(int minutes) async {
+    if (_durationMinutes == minutes) {
+      return;
+    }
+    await appSelectionHaptic();
+    setState(() {
+      _durationMinutes = minutes;
+      _availability = null;
+    });
+    await _fetchAvailability();
+  }
+
+  Future<void> _handleSlotTap(
+      CourtModel court, TimeSlotModel slot, double? price) async {
+    await appLightImpact();
     final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    context.push(
+    if (!mounted) {
+      return;
+    }
+    await context.push(
       '/booking/${court.id}',
       extra: {
         'date': dateStr,
         'start_time': slot.startTime,
+        'duration_minutes': _durationMinutes,
         'venue_name': _venue?.name ?? '',
         'court_name': court.name,
         'price': price,
       },
     );
+
+    if (mounted) {
+      await _fetchAvailability();
+    }
+  }
+
+  List<_CourtAvailabilitySlot> _slotsForCourt(CourtModel court) {
+    final slots = _availability?.timeSlots ?? [];
+    return slots
+        .map((value) {
+          final state = value.courts[court.id.toString()];
+          if (state == null) {
+            return null;
+          }
+          return _CourtAvailabilitySlot(slot: value, state: state);
+        })
+        .whereType<_CourtAvailabilitySlot>()
+        .toList();
   }
 
   @override
@@ -122,7 +158,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
     if (_loadingVenue) {
       return Scaffold(
         backgroundColor: AppColors.dark,
-        appBar: AppBar(backgroundColor: AppColors.surface),
+        appBar: AppBar(),
         body: const Center(child: LoadingSpinner()),
       );
     }
@@ -130,14 +166,20 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
     if (_error != null || _venue == null) {
       return Scaffold(
         backgroundColor: AppColors.dark,
-        appBar: AppBar(backgroundColor: AppColors.surface),
+        appBar: AppBar(),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(_error ?? 'Sede no encontrada', style: const TextStyle(color: AppColors.danger)),
+              Text(
+                _error ?? 'Club no encontrado',
+                style: const TextStyle(color: AppColors.danger),
+              ),
               const SizedBox(height: 12),
-              ElevatedButton(onPressed: () => context.pop(), child: const Text('Volver')),
+              FilledButton(
+                onPressed: () => context.pop(),
+                child: const Text('Volver'),
+              ),
             ],
           ),
         ),
@@ -145,261 +187,372 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
     }
 
     final venue = _venue!;
-    final courts = _availability?.courts ?? [];
-    final timeSlots = _availability?.timeSlots ?? [];
 
     return Scaffold(
       backgroundColor: AppColors.dark,
       appBar: AppBar(
         title: Text(venue.name),
-        backgroundColor: AppColors.surface,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Venue info card
-            Container(
-              padding: const EdgeInsets.all(16),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  venue.location,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _InfoPill(
+                  icon: isCupertinoPlatform
+                      ? CupertinoIcons.sportscourt
+                      : Icons.sports_tennis,
+                  label: '${venue.courtCount} pistas',
+                ),
+                const SizedBox(height: 8),
+                if (venue.openingTime != null)
+                  _InfoPill(
+                    icon: isCupertinoPlatform
+                        ? CupertinoIcons.time
+                        : Icons.schedule_outlined,
+                    label:
+                        '${venue.openingTime?.substring(0, 5)} - ${venue.closingTime?.substring(0, 5)}',
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Duracion del partido',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [60, 90, 120]
+                      .map(
+                        (minutes) => ChoiceChip(
+                          label: Text('$minutes min'),
+                          selected: _durationMinutes == minutes,
+                          selectedColor:
+                              AppColors.primary.withValues(alpha: 0.18),
+                          side: BorderSide(
+                            color: _durationMinutes == minutes
+                                ? AppColors.primary
+                                : AppColors.border,
+                          ),
+                          labelStyle: TextStyle(
+                            color: _durationMinutes == minutes
+                                ? Colors.white
+                                : AppColors.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          onSelected: (_) => _setDuration(minutes),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'La disponibilidad se filtra segun la duracion seleccionada.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          InkWell(
+            onTap: _pickDate,
+            borderRadius: BorderRadius.circular(22),
+            child: Container(
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(22),
                 border: Border.all(color: AppColors.border),
               ),
-              child: Column(
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on_outlined, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(venue.location, style: const TextStyle(color: Colors.white))),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.business, color: AppColors.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Text('${venue.courtCount} pistas', style: const TextStyle(color: Colors.white)),
-                    ],
-                  ),
-                  if (venue.openingTime != null) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.access_time, color: AppColors.primary, size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${venue.openingTime?.substring(0, 5)} - ${venue.closingTime?.substring(0, 5)}',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Courts list
-            if (venue.courts.isNotEmpty) ...[
-              const Text('Pistas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: venue.courts.map((court) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  Container(
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      color: AppColors.surface2,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.border),
+                      color: AppColors.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
                     ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      isCupertinoPlatform
+                          ? CupertinoIcons.calendar
+                          : Icons.calendar_month,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(court.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                        if (court.surfaceType != null)
-                          Text(court.surfaceType!, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-                        if (court.isIndoor != null)
-                          Text(
-                            court.isIndoor! ? 'Cubierta' : 'Exterior',
-                            style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                          ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Availability section
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_month, color: AppColors.primary, size: 20),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
+                        const Text(
                           'Disponibilidad',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: _pickDate,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface2,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.calendar_today, color: AppColors.muted, size: 16),
-                              const SizedBox(width: 6),
-                              Text(
-                                DateFormat('dd/MM/yyyy').format(_selectedDate),
-                                style: const TextStyle(color: Colors.white, fontSize: 13),
-                              ),
-                            ],
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (_loadingAvailability)
-                    const Center(child: LoadingSpinner())
-                  else if (courts.isEmpty || timeSlots.isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'No hay disponibilidad para esta fecha',
-                          style: TextStyle(color: AppColors.muted),
-                        ),
-                      ),
-                    )
-                  else ...[
-                    // Legend
-                    Row(
-                      children: [
-                        Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.green.withOpacity(0.5)),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat("EEEE d 'de' MMMM", 'es_ES')
+                              .format(_selectedDate),
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        const Text('Disponible', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                        const SizedBox(width: 16),
-                        Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.red.withOpacity(0.5)),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text('Ocupado', style: TextStyle(color: AppColors.muted, fontSize: 12)),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    // Availability grid
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor: WidgetStateProperty.all(AppColors.surface2),
-                        dataRowColor: WidgetStateProperty.all(AppColors.dark.withOpacity(0.3)),
-                        columnSpacing: 8,
-                        horizontalMargin: 8,
-                        columns: [
-                          const DataColumn(
-                            label: Text('Hora', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
-                          ),
-                          ...courts.map(
-                            (court) => DataColumn(
-                              label: Text(
-                                court.name,
-                                style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                        ],
-                        rows: timeSlots.map((slot) {
-                          return DataRow(
-                            cells: [
-                              DataCell(
-                                Text(
-                                  slot.startTime.length >= 5 ? slot.startTime.substring(0, 5) : slot.startTime,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                                ),
-                              ),
-                              ...courts.map((court) {
-                                final courtSlot = slot.courts[court.id.toString()];
-                                final isAvailable = courtSlot?.available ?? false;
-                                final price = courtSlot?.price;
-
-                                return DataCell(
-                                  GestureDetector(
-                                    onTap: isAvailable ? () => _handleSlotTap(court, slot, price) : null,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: isAvailable
-                                            ? Colors.green.withOpacity(0.15)
-                                            : Colors.red.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(
-                                          color: isAvailable
-                                              ? Colors.green.withOpacity(0.4)
-                                              : Colors.red.withOpacity(0.3),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        isAvailable
-                                            ? (price != null ? '${price.toStringAsFixed(0)}€' : 'Libre')
-                                            : 'Ocupado',
-                                        style: TextStyle(
-                                          color: isAvailable ? Colors.green : Colors.red.withOpacity(0.6),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ],
+                  ),
+                  Icon(
+                    isCupertinoPlatform
+                        ? CupertinoIcons.chevron_down
+                        : Icons.expand_more,
+                    color: AppColors.muted,
+                  ),
                 ],
               ),
             ),
-          ],
+          ),
+          const SizedBox(height: 18),
+          if (_loadingAvailability)
+            const LoadingSpinner()
+          else if ((_availability?.courts ?? []).isEmpty)
+            const _AvailabilityEmptyState()
+          else
+            ...(_availability!.courts.map((court) {
+              final slots = _slotsForCourt(court);
+              final availableSlots =
+                  slots.where((slot) => slot.state.available).length;
+              final blockedSlots =
+                  slots.where((slot) => !slot.state.available).length;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                court.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  if (court.surfaceType != null)
+                                    _SurfaceChip(label: court.surfaceType!),
+                                  if (court.isIndoor != null)
+                                    _SurfaceChip(
+                                      label: court.isIndoor!
+                                          ? 'Cubierta'
+                                          : 'Exterior',
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          blockedSlots > 0
+                              ? '$availableSlots libres · $blockedSlots ocupadas'
+                              : '$availableSlots libres',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    if (slots.isEmpty)
+                      const Text(
+                        'No quedan franjas disponibles para esta fecha.',
+                        style: TextStyle(color: AppColors.muted),
+                      )
+                    else
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: slots.map((courtSlot) {
+                          final price = courtSlot.state.price;
+                          return _AvailabilitySlotChip(
+                            label:
+                                '${courtSlot.slot.startTime.substring(0, 5)} · ${_durationMinutes}min${price != null ? ' · ${price.toStringAsFixed(0)}€' : ''}',
+                            available: courtSlot.state.available,
+                            onPressed: () =>
+                                _handleSlotTap(court, courtSlot.slot, price),
+                          );
+                        }).toList(),
+                      ),
+                  ],
+                ),
+              );
+            })),
+        ],
+      ),
+    );
+  }
+}
+
+class _CourtAvailabilitySlot {
+  final TimeSlotModel slot;
+  final CourtSlot state;
+
+  const _CourtAvailabilitySlot({required this.slot, required this.state});
+}
+
+class _InfoPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _InfoPill({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.primary, size: 18),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(color: Colors.white)),
+      ],
+    );
+  }
+}
+
+class _SurfaceChip extends StatelessWidget {
+  final String label;
+
+  const _SurfaceChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _AvailabilityEmptyState extends StatelessWidget {
+  const _AvailabilityEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.event_busy, color: AppColors.muted, size: 34),
+          SizedBox(height: 12),
+          Text(
+            'No hay disponibilidad para esta fecha.',
+            style: TextStyle(color: AppColors.muted),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AvailabilitySlotChip extends StatelessWidget {
+  final String label;
+  final bool available;
+  final VoidCallback onPressed;
+
+  const _AvailabilitySlotChip({
+    required this.label,
+    required this.available,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      backgroundColor:
+          available ? AppColors.surface2 : AppColors.muted.withValues(alpha: 0.22),
+      side: BorderSide(
+        color: available
+            ? AppColors.border
+            : AppColors.muted.withValues(alpha: 0.35),
+      ),
+      avatar: Icon(
+        Icons.access_time,
+        color: available ? AppColors.primary : AppColors.muted,
+        size: 16,
+      ),
+      label: Text(
+        label,
+        style: TextStyle(
+          color: available ? Colors.white : AppColors.muted,
+          fontWeight: available ? FontWeight.w600 : FontWeight.w500,
         ),
       ),
+      onPressed: available ? onPressed : null,
     );
   }
 }

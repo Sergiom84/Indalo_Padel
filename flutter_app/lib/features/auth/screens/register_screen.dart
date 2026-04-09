@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/brand_logo.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -49,7 +50,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         'sub_level': _subLevel,
         'preferred_side': _preferredSide,
       });
-      if (mounted) context.go('/');
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -77,14 +77,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
-          value: value,
+          initialValue: value,
           dropdownColor: AppColors.surface2,
           style: const TextStyle(color: Colors.white),
           decoration: const InputDecoration(
             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           ),
           items: options
-              .map((o) => DropdownMenuItem(value: o, child: Text(_capitalize(o))))
+              .map((o) =>
+                  DropdownMenuItem(value: o, child: Text(_capitalize(o))))
               .toList(),
           onChanged: (v) => v != null ? onChanged(v) : null,
         ),
@@ -92,7 +93,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  String _capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+  String _capitalize(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
   @override
   Widget build(BuildContext context) {
@@ -107,18 +109,26 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               const SizedBox(height: 16),
               // Header
               Center(
-                child: RichText(
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
+                child: Column(
+                  children: [
+                    const BrandLogo(size: 80, glow: true),
+                    const SizedBox(height: 18),
+                    RichText(
+                      text: const TextSpan(
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                        children: [
+                          TextSpan(text: 'Únete a Indalo'),
+                          TextSpan(
+                              text: '.',
+                              style: TextStyle(color: AppColors.primary)),
+                        ],
+                      ),
                     ),
-                    children: [
-                      TextSpan(text: 'Únete a Indalo'),
-                      TextSpan(text: '.', style: TextStyle(color: AppColors.primary)),
-                    ],
-                  ),
+                  ],
                 ),
               ),
               const SizedBox(height: 4),
@@ -135,13 +145,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withOpacity(0.1),
+                    color: AppColors.danger.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                    border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     _error!,
-                    style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                    style:
+                        const TextStyle(color: AppColors.danger, fontSize: 13),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -153,7 +165,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'Nombre',
-                  prefixIcon: Icon(Icons.person_outline, color: AppColors.muted, size: 20),
+                  prefixIcon: Icon(Icons.person_outline,
+                      color: AppColors.muted, size: 20),
                 ),
               ),
               const SizedBox(height: 12),
@@ -165,7 +178,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'tu@email.com',
-                  prefixIcon: Icon(Icons.mail_outline, color: AppColors.muted, size: 20),
+                  prefixIcon: Icon(Icons.mail_outline,
+                      color: AppColors.muted, size: 20),
                 ),
               ),
               const SizedBox(height: 12),
@@ -177,7 +191,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'Contraseña',
-                  prefixIcon: Icon(Icons.lock_outline, color: AppColors.muted, size: 20),
+                  prefixIcon: Icon(Icons.lock_outline,
+                      color: AppColors.muted, size: 20),
                 ),
               ),
               const SizedBox(height: 16),
@@ -224,12 +239,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.dark),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.dark),
                         )
                       : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('Crear mi cuenta', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                            Text('Crear mi cuenta',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900, fontSize: 15)),
                             SizedBox(width: 8),
                             Icon(Icons.arrow_forward, size: 18),
                           ],

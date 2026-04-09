@@ -5,6 +5,15 @@
 
 CREATE SCHEMA IF NOT EXISTS app;
 
+CREATE OR REPLACE FUNCTION app.set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+SET search_path = '';
+
 -- =============================================
 -- Users table (simplified for padel)
 -- =============================================
@@ -15,7 +24,8 @@ CREATE TABLE IF NOT EXISTS app.users (
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(20) DEFAULT 'user',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CHECK (role IN ('user', 'admin'))
 );
 
 -- =============================================
@@ -49,7 +59,9 @@ CREATE TABLE IF NOT EXISTS app.padel_courts (
   price_per_hour DECIMAL(6,2),
   peak_price_per_hour DECIMAL(6,2),
   is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(venue_id, name),
+  CHECK (court_type IN ('standard', 'cristal'))
 );
 
 -- =============================================
@@ -96,7 +108,8 @@ CREATE TABLE IF NOT EXISTS app.padel_bookings (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(court_id, booking_date, start_time),
-  CHECK (status IN ('pendiente', 'confirmada', 'cancelada', 'completada'))
+  CHECK (status IN ('pendiente', 'confirmada', 'cancelada', 'completada')),
+  CHECK (end_time > start_time)
 );
 
 -- =============================================
@@ -119,7 +132,13 @@ CREATE TABLE IF NOT EXISTS app.padel_matches (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   CHECK (match_type IN ('abierto', 'privado')),
-  CHECK (status IN ('buscando', 'completo', 'en_juego', 'finalizado', 'cancelado'))
+  CHECK (status IN ('buscando', 'completo', 'en_juego', 'finalizado', 'cancelado')),
+  CHECK (min_level BETWEEN 1 AND 9),
+  CHECK (max_level BETWEEN 1 AND 9),
+  CHECK (min_level <= max_level),
+  CHECK (max_players > 0),
+  CHECK (current_players >= 0),
+  CHECK (current_players <= max_players)
 );
 
 -- =============================================
@@ -132,7 +151,8 @@ CREATE TABLE IF NOT EXISTS app.padel_match_players (
   team INTEGER CHECK (team IN (1, 2)),
   status VARCHAR(20) DEFAULT 'confirmado',
   joined_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(match_id, user_id)
+  UNIQUE(match_id, user_id),
+  CHECK (status IN ('confirmado', 'pendiente', 'abandonado'))
 );
 
 -- =============================================
@@ -168,9 +188,111 @@ CREATE TABLE IF NOT EXISTS app.padel_favorites (
 CREATE INDEX IF NOT EXISTS idx_padel_courts_venue ON app.padel_courts(venue_id);
 CREATE INDEX IF NOT EXISTS idx_padel_bookings_court_date ON app.padel_bookings(court_id, booking_date);
 CREATE INDEX IF NOT EXISTS idx_padel_bookings_user ON app.padel_bookings(booked_by);
+CREATE INDEX IF NOT EXISTS idx_padel_bookings_date ON app.padel_bookings(booking_date);
 CREATE INDEX IF NOT EXISTS idx_padel_matches_date ON app.padel_matches(match_date);
 CREATE INDEX IF NOT EXISTS idx_padel_matches_status ON app.padel_matches(status);
 CREATE INDEX IF NOT EXISTS idx_padel_match_players_match ON app.padel_match_players(match_id);
+CREATE INDEX IF NOT EXISTS idx_padel_match_players_user ON app.padel_match_players(user_id);
 CREATE INDEX IF NOT EXISTS idx_padel_player_profiles_level ON app.padel_player_profiles(numeric_level);
 CREATE INDEX IF NOT EXISTS idx_padel_favorites_user ON app.padel_favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_padel_ratings_rated ON app.padel_player_ratings(rated_id);
+
+-- =============================================
+-- updated_at triggers
+-- =============================================
+DROP TRIGGER IF EXISTS trg_users_updated_at ON app.users;
+CREATE TRIGGER trg_users_updated_at
+BEFORE UPDATE ON app.users
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_venues_updated_at ON app.padel_venues;
+CREATE TRIGGER trg_venues_updated_at
+BEFORE UPDATE ON app.padel_venues
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_profiles_updated_at ON app.padel_player_profiles;
+CREATE TRIGGER trg_profiles_updated_at
+BEFORE UPDATE ON app.padel_player_profiles
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_bookings_updated_at ON app.padel_bookings;
+CREATE TRIGGER trg_bookings_updated_at
+BEFORE UPDATE ON app.padel_bookings
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_matches_updated_at ON app.padel_matches;
+CREATE TRIGGER trg_matches_updated_at
+BEFORE UPDATE ON app.padel_matches
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+-- =============================================
+-- Security hardening
+-- app is intended for server-side access.
+-- =============================================
+REVOKE ALL ON SCHEMA app FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA app FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA app FROM PUBLIC;
+
+ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_courts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_player_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_match_players ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_player_ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_favorites ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS users_server_only ON app.users;
+CREATE POLICY users_server_only ON app.users
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS venues_server_only ON app.padel_venues;
+CREATE POLICY venues_server_only ON app.padel_venues
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS courts_server_only ON app.padel_courts;
+CREATE POLICY courts_server_only ON app.padel_courts
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS profiles_server_only ON app.padel_player_profiles;
+CREATE POLICY profiles_server_only ON app.padel_player_profiles
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS bookings_server_only ON app.padel_bookings;
+CREATE POLICY bookings_server_only ON app.padel_bookings
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS matches_server_only ON app.padel_matches;
+CREATE POLICY matches_server_only ON app.padel_matches
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS match_players_server_only ON app.padel_match_players;
+CREATE POLICY match_players_server_only ON app.padel_match_players
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS ratings_server_only ON app.padel_player_ratings;
+CREATE POLICY ratings_server_only ON app.padel_player_ratings
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS favorites_server_only ON app.padel_favorites;
+CREATE POLICY favorites_server_only ON app.padel_favorites
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
