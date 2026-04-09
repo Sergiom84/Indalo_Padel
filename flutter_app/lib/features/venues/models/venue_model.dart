@@ -5,6 +5,7 @@ class VenueModel {
   final int courtCount;
   final String? openingTime;
   final String? closingTime;
+  final List<ScheduleWindowModel> scheduleWindows;
   final List<CourtModel> courts;
 
   const VenueModel({
@@ -14,12 +15,21 @@ class VenueModel {
     required this.courtCount,
     this.openingTime,
     this.closingTime,
+    this.scheduleWindows = const [],
     this.courts = const [],
   });
 
   factory VenueModel.fromJson(Map<String, dynamic> json) {
     final courtsList = (json['courts'] as List<dynamic>?)
             ?.map((c) => CourtModel.fromJson(c as Map<String, dynamic>))
+            .toList() ??
+        [];
+    final scheduleWindows = (json['schedule_windows'] as List<dynamic>?)
+            ?.map(
+              (window) => ScheduleWindowModel.fromJson(
+                window as Map<String, dynamic>,
+              ),
+            )
             .toList() ??
         [];
 
@@ -30,6 +40,7 @@ class VenueModel {
       courtCount: _asNullableInt(json['court_count']) ?? courtsList.length,
       openingTime: json['opening_time'] as String?,
       closingTime: json['closing_time'] as String?,
+      scheduleWindows: scheduleWindows,
       courts: courtsList,
     );
   }
@@ -61,8 +72,13 @@ class CourtModel {
 class AvailabilityModel {
   final List<CourtModel> courts;
   final List<TimeSlotModel> timeSlots;
+  final List<ScheduleWindowModel> scheduleWindows;
 
-  const AvailabilityModel({required this.courts, required this.timeSlots});
+  const AvailabilityModel({
+    required this.courts,
+    required this.timeSlots,
+    this.scheduleWindows = const [],
+  });
 
   factory AvailabilityModel.fromJson(Map<String, dynamic> json) {
     final courts = (json['courts'] as List<dynamic>?)
@@ -75,8 +91,46 @@ class AvailabilityModel {
     final timeSlots = rawSlots
         .map((s) => TimeSlotModel.fromJson(s as Map<String, dynamic>))
         .toList();
+    final scheduleWindows = (json['schedule_windows'] as List<dynamic>?)
+            ?.map(
+              (window) => ScheduleWindowModel.fromJson(
+                window as Map<String, dynamic>,
+              ),
+            )
+            .toList() ??
+        [];
 
-    return AvailabilityModel(courts: courts, timeSlots: timeSlots);
+    return AvailabilityModel(
+      courts: courts,
+      timeSlots: timeSlots,
+      scheduleWindows: scheduleWindows,
+    );
+  }
+}
+
+class ScheduleWindowModel {
+  final int? dayOfWeek;
+  final String startTime;
+  final String endTime;
+  final String? label;
+  final String? source;
+
+  const ScheduleWindowModel({
+    this.dayOfWeek,
+    required this.startTime,
+    required this.endTime,
+    this.label,
+    this.source,
+  });
+
+  factory ScheduleWindowModel.fromJson(Map<String, dynamic> json) {
+    return ScheduleWindowModel(
+      dayOfWeek: _asNullableInt(json['day_of_week']),
+      startTime: (json['start_time'] ?? '') as String,
+      endTime: (json['end_time'] ?? '') as String,
+      label: json['label'] as String?,
+      source: json['source'] as String?,
+    );
   }
 }
 

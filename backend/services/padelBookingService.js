@@ -186,6 +186,84 @@ function buildCalendarBuckets(bookings, currentUserId) {
   return { upcoming, history };
 }
 
+function normalizeScheduleWindow({ dayOfWeek = null, startTime, endTime, label = null, source = 'schedule' }) {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+    return null;
+  }
+
+  return {
+    day_of_week: dayOfWeek,
+    start_time: formatMinutesToTime(startMinutes),
+    end_time: formatMinutesToTime(endMinutes),
+    start_minutes: startMinutes,
+    end_minutes: endMinutes,
+    label,
+    source,
+  };
+}
+
+async function loadVenueScheduleWindowsForDate(client, {
+  venueId,
+  date,
+  fallbackOpeningTime = null,
+  fallbackClosingTime = null,
+}) {
+  const result = await client.query(
+    `SELECT day_of_week, start_time, end_time, label
+     FROM app.padel_venue_schedule_windows
+     WHERE venue_id = $1
+       AND is_active = true
+       AND ($2::date >= COALESCE(valid_from, $2::date))
+       AND ($2::date <= COALESCE(valid_until, $2::date))
+       AND (
+         day_of_week IS NULL
+         OR day_of_week = EXTRACT(ISODOW FROM $2::date)::int
+       )
+     ORDER BY start_time ASC`,
+    [venueId, date]
+  );
+
+  const scheduleWindows = result.rows
+    .map((row) => normalizeScheduleWindow({
+      dayOfWeek: row.day_of_week == null ? null : Number.parseInt(row.day_of_week, 10),
+      startTime: row.start_time,
+      endTime: row.end_time,
+      label: row.label || null,
+      source: 'schedule',
+    }))
+    .filter(Boolean);
+
+  if (scheduleWindows.length > 0) {
+    return scheduleWindows;
+  }
+
+  const fallbackWindow = normalizeScheduleWindow({
+    dayOfWeek: null,
+    startTime: fallbackOpeningTime,
+    endTime: fallbackClosingTime,
+    label: 'Horario general',
+    source: 'fallback',
+  });
+
+  return fallbackWindow ? [fallbackWindow] : [];
+}
+
+function isRangeInsideScheduleWindows({ startTime, endTime, scheduleWindows }) {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+    return false;
+  }
+
+  return scheduleWindows.some((window) => (
+    startMinutes >= window.start_minutes &&
+    endMinutes <= window.end_minutes
+  ));
+}
+
 export async function getVenueAvailability({ venueId, date, durationMinutes = DEFAULT_DURATION_MINUTES, slotStepMinutes = DEFAULT_SLOT_STEP_MINUTES }) {
   const client = await pool.connect();
   try {
@@ -216,55 +294,88 @@ export async function getVenueAvailability({ venueId, date, durationMinutes = DE
       [venueId, date]
     );
 
-    const openMinutes = parseTimeToMinutes(venue.opening_time);
-    const closeMinutes = parseTimeToMinutes(venue.closing_time);
+    const scheduleWindows = await loadVenueScheduleWindowsForDate(client, {
+      venueId,
+      date,
+      fallbackOpeningTime: venue.opening_time,
+      fallbackClosingTime: venue.closing_time,
+    });
     const normalizedDuration = clampDurationMinutes(durationMinutes, DEFAULT_DURATION_MINUTES);
     const normalizedStep = normalizeSlotStepMinutes(slotStepMinutes, DEFAULT_SLOT_STEP_MINUTES);
-    const slots = [];
+    const slotMap = new Map();
 
-    for (let currentMinutes = openMinutes; currentMinutes + normalizedDuration <= closeMinutes; currentMinutes += normalizedStep) {
-      const slotStart = formatMinutesToTime(currentMinutes);
-      const slotEnd = formatMinutesToTime(currentMinutes + normalizedDuration);
-      const courtSlots = courtsResult.rows.map((court) => {
-        const blockedByCourt = bookingsResult.rows.some((booking) => (
-          Number(booking.court_id) === Number(court.id) &&
-          isBookingOverlap({
-            bookingStartMinutes: parseTimeToMinutes(booking.start_time),
-            bookingEndMinutes: parseTimeToMinutes(booking.end_time),
-            candidateStartMinutes: currentMinutes,
-            candidateEndMinutes: currentMinutes + normalizedDuration,
-          })
-        ));
+    for (const window of scheduleWindows) {
+      for (
+        let currentMinutes = window.start_minutes;
+        currentMinutes + normalizedDuration <= window.end_minutes;
+        currentMinutes += normalizedStep
+      ) {
+        const slotStart = formatMinutesToTime(currentMinutes);
+        const slotEnd = formatMinutesToTime(currentMinutes + normalizedDuration);
+        const slotKey = `${slotStart}-${slotEnd}`;
+        if (slotMap.has(slotKey)) {
+          continue;
+        }
 
-        return {
-          court_id: court.id,
-          court_name: court.name,
-          available: !blockedByCourt,
-          price: calculatePrice({
-            pricePerHour: court.price_per_hour,
-            peakPricePerHour: court.peak_price_per_hour,
-            startTime: slotStart,
-            durationMinutes: normalizedDuration,
-          }),
-        };
-      });
+        const courtSlots = courtsResult.rows.map((court) => {
+          const blockedByCourt = bookingsResult.rows.some((booking) => (
+            Number(booking.court_id) === Number(court.id) &&
+            isBookingOverlap({
+              bookingStartMinutes: parseTimeToMinutes(booking.start_time),
+              bookingEndMinutes: parseTimeToMinutes(booking.end_time),
+              candidateStartMinutes: currentMinutes,
+              candidateEndMinutes: currentMinutes + normalizedDuration,
+            })
+          ));
 
-      slots.push({
-        time: slotStart,
-        start_time: slotStart,
-        end_time: slotEnd,
-        duration_minutes: normalizedDuration,
-        courts: courtSlots,
-      });
+          return {
+            court_id: court.id,
+            court_name: court.name,
+            available: !blockedByCourt,
+            price: calculatePrice({
+              pricePerHour: court.price_per_hour,
+              peakPricePerHour: court.peak_price_per_hour,
+              startTime: slotStart,
+              durationMinutes: normalizedDuration,
+            }),
+          };
+        });
+
+        slotMap.set(slotKey, {
+          time: slotStart,
+          start_time: slotStart,
+          end_time: slotEnd,
+          duration_minutes: normalizedDuration,
+          courts: courtSlots,
+        });
+      }
     }
+
+    const slots = Array.from(slotMap.values()).sort(
+      (a, b) => parseTimeToMinutes(a.start_time) - parseTimeToMinutes(b.start_time)
+    );
+
+    const openingTime = scheduleWindows.length > 0
+      ? scheduleWindows[0].start_time
+      : (venue.opening_time ?? null);
+    const closingTime = scheduleWindows.length > 0
+      ? scheduleWindows[scheduleWindows.length - 1].end_time
+      : (venue.closing_time ?? null);
 
     return {
       status: 200,
       body: {
         date,
         venue_id: Number.parseInt(venueId, 10),
-        opening_time: venue.opening_time,
-        closing_time: venue.closing_time,
+        opening_time: openingTime,
+        closing_time: closingTime,
+        schedule_windows: scheduleWindows.map((window) => ({
+          day_of_week: window.day_of_week,
+          start_time: window.start_time,
+          end_time: window.end_time,
+          label: window.label,
+          source: window.source,
+        })),
         courts: courtsResult.rows,
         slots,
         time_slots: slots,
@@ -292,12 +403,14 @@ export async function createBooking({ userId, courtId, bookingDate, startTime, d
 
     const endDateTime = calculateEndTime(bookingDate, startTime, normalizedDuration, APP_TIME_ZONE);
     const endTime = endDateTime.toFormat('HH:mm:ss');
-    const startMinutes = parseTimeToMinutes(startTime);
-    const endMinutes = parseTimeToMinutes(endTime);
-    const venueCloseMinutes = parseTimeToMinutes(courtBundle.closing_time);
-    const venueOpenMinutes = parseTimeToMinutes(courtBundle.opening_time);
+    const scheduleWindows = await loadVenueScheduleWindowsForDate(client, {
+      venueId: courtBundle.venue_id,
+      date: bookingDate,
+      fallbackOpeningTime: courtBundle.opening_time,
+      fallbackClosingTime: courtBundle.closing_time,
+    });
 
-    if (startMinutes < venueOpenMinutes || endMinutes > venueCloseMinutes || endMinutes <= startMinutes) {
+    if (!isRangeInsideScheduleWindows({ startTime, endTime, scheduleWindows })) {
       await client.query('ROLLBACK');
       return { status: 400, body: { error: 'La reserva no cabe dentro del horario de la sede' } };
     }
@@ -964,10 +1077,12 @@ export async function updateBooking({ bookingId, userId, payload }) {
     }
 
     const nextEndTime = calculateEndTime(nextBookingDate, nextStartTime, nextDurationMinutes, APP_TIME_ZONE).toFormat('HH:mm:ss');
-    const startMinutes = parseTimeToMinutes(nextStartTime);
-    const endMinutes = parseTimeToMinutes(nextEndTime);
-    const venueOpenMinutes = parseTimeToMinutes(courtBundle.opening_time);
-    const venueCloseMinutes = parseTimeToMinutes(courtBundle.closing_time);
+    const scheduleWindows = await loadVenueScheduleWindowsForDate(client, {
+      venueId: courtBundle.venue_id,
+      date: nextBookingDate,
+      fallbackOpeningTime: courtBundle.opening_time,
+      fallbackClosingTime: courtBundle.closing_time,
+    });
     const nextTotalPrice = calculatePrice({
       pricePerHour: courtBundle.price_per_hour,
       peakPricePerHour: courtBundle.peak_price_per_hour,
@@ -975,7 +1090,7 @@ export async function updateBooking({ bookingId, userId, payload }) {
       durationMinutes: nextDurationMinutes,
     });
 
-    if (startMinutes < venueOpenMinutes || endMinutes > venueCloseMinutes || endMinutes <= startMinutes) {
+    if (!isRangeInsideScheduleWindows({ startTime: nextStartTime, endTime: nextEndTime, scheduleWindows })) {
       await client.query('ROLLBACK');
       return { status: 400, body: { error: 'La reserva no cabe dentro del horario de la sede' } };
     }

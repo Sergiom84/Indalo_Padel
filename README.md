@@ -44,6 +44,44 @@ flutter build web
 
 El resultado queda en `flutter_app/build/web` y se puede publicar como static site en Render.
 
+## Distribución Android (Internal Testing)
+
+Prerequisitos:
+- Configurar identificador Android definitivo en la app (`com.indalopadel.app`).
+- Crear keystore de subida y `flutter_app/android/key.properties` (plantilla: `flutter_app/android/key.properties.example`).
+- Tener una URL pública para el backend API.
+
+Crear keystore (Windows, PowerShell):
+```powershell
+.\scripts\create_android_keystore.ps1
+```
+
+Si quieres ejecutar `keytool` manualmente sin tocar `PATH`:
+```powershell
+& "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" `
+  -genkeypair -v `
+  -keystore "$env:USERPROFILE\upload-keystore.jks" `
+  -storetype JKS `
+  -keyalg RSA -keysize 2048 -validity 10000 `
+  -alias upload
+```
+
+Build release firmada:
+```powershell
+.\scripts\build_android_release.ps1 `
+  -ApiBaseUrl "https://TU_API_PUBLICA/api" `
+  -BuildName "1.0.1" `
+  -BuildNumber "2"
+```
+
+El bundle generado queda en:
+- `flutter_app/build/app/outputs/bundle/release/app-release.aab`
+
+Siguiente paso en Play Console:
+- Crear release en `Testing > Internal testing`.
+- Subir ese `.aab`.
+- Añadir emails de testers y compartir el enlace de prueba.
+
 ## Variables de entorno
 
 El backend carga el `.env` de la raíz del proyecto.

@@ -24,6 +24,27 @@ Para un dispositivo físico o un backend remoto:
 flutter run --dart-define=API_BASE_URL=http://TU_IP:3011/api
 ```
 
+## Build Android release (AAB)
+
+1. Desde la raíz del repo, crea el keystore:
+
+```powershell
+.\scripts\create_android_keystore.ps1
+```
+
+2. Verifica y completa contraseñas en `android/key.properties`.
+3. Ejecuta desde la raíz del repo:
+
+```powershell
+.\scripts\build_android_release.ps1 `
+  -ApiBaseUrl "https://TU_API_PUBLICA/api" `
+  -BuildName "1.0.1" `
+  -BuildNumber "2"
+```
+
+Salida:
+- `build/app/outputs/bundle/release/app-release.aab`
+
 ## Estado de la app
 
 - Shell nativa completa con carpetas `android/` e `ios/`

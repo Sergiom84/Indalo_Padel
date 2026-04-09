@@ -1,4 +1,4 @@
-package com.example.indalo_padel
+package com.indalopadel.app
 
 import io.flutter.embedding.android.FlutterActivity
 

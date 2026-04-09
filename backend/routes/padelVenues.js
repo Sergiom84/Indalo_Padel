@@ -61,9 +61,25 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
 
+    const scheduleResult = await pool.query(
+      `SELECT
+          day_of_week,
+          start_time,
+          end_time,
+          valid_from,
+          valid_until,
+          label
+       FROM app.padel_venue_schedule_windows
+       WHERE venue_id = $1
+         AND is_active = true
+       ORDER BY day_of_week ASC NULLS LAST, start_time ASC`,
+      [req.params.id]
+    );
+
     res.json({
       venue: venueResult.rows[0],
-      courts: courtsResult.rows
+      courts: courtsResult.rows,
+      schedule_windows: scheduleResult.rows,
     });
   } catch (error) {
     console.error('Error obteniendo sede:', error);

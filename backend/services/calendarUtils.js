@@ -185,9 +185,23 @@ export function calculatePrice({
   startTime,
   durationMinutes,
 }) {
+  const hasBasePrice = pricePerHour !== null && pricePerHour !== undefined && pricePerHour !== '';
+  const hasPeakPrice = peakPricePerHour !== null && peakPricePerHour !== undefined && peakPricePerHour !== '';
+
+  if (!hasBasePrice && !hasPeakPrice) {
+    return null;
+  }
+
   const hour = Number.parseInt(String(startTime).split(':')[0], 10);
-  const rate = hour >= 18 && hour < 22 ? peakPricePerHour : pricePerHour;
-  return Number(rate || 0) * (durationMinutes / 60);
+  const preferredRate = hour >= 18 && hour < 22 ? peakPricePerHour : pricePerHour;
+  const fallbackRate = hour >= 18 && hour < 22 ? pricePerHour : peakPricePerHour;
+  const rate = preferredRate ?? fallbackRate;
+
+  if (rate === null || rate === undefined || rate === '') {
+    return null;
+  }
+
+  return Number(rate) * (durationMinutes / 60);
 }
 
 export function normalizeGoogleResponseStatus(status) {

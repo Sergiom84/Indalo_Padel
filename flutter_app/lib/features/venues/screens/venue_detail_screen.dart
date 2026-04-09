@@ -42,6 +42,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
               ? {
                   ...Map<String, dynamic>.from(data['venue'] as Map),
                   'courts': data['courts'] ?? [],
+                  'schedule_windows': data['schedule_windows'] ?? [],
                 }
               : Map<String, dynamic>.from(data))
           : <String, dynamic>{};
@@ -153,6 +154,41 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
         .toList();
   }
 
+  String _formatHour(String raw) => raw.length >= 5 ? raw.substring(0, 5) : raw;
+
+  String _buildCourtCountLabel(int courtCount) {
+    if (courtCount <= 0) {
+      return 'Pistas no localizadas públicamente';
+    }
+    return '$courtCount ${courtCount == 1 ? 'pista' : 'pistas'}';
+  }
+
+  String? _buildScheduleLabel(VenueModel venue) {
+    final windows = _availability?.scheduleWindows ?? const [];
+    if (windows.isNotEmpty) {
+      return windows
+          .map((window) =>
+              '${_formatHour(window.startTime)}-${_formatHour(window.endTime)}')
+          .join(' · ');
+    }
+
+    final venueGenericWindows = venue.scheduleWindows
+        .where((window) => window.dayOfWeek == null)
+        .toList();
+    if (venueGenericWindows.isNotEmpty) {
+      return venueGenericWindows
+          .map((window) =>
+              '${_formatHour(window.startTime)}-${_formatHour(window.endTime)}')
+          .join(' · ');
+    }
+
+    if (venue.openingTime != null && venue.closingTime != null) {
+      return '${_formatHour(venue.openingTime!)}-${_formatHour(venue.closingTime!)}';
+    }
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loadingVenue) {
@@ -187,6 +223,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
     }
 
     final venue = _venue!;
+    final scheduleLabel = _buildScheduleLabel(venue);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -219,17 +256,15 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
                   icon: isCupertinoPlatform
                       ? CupertinoIcons.sportscourt
                       : Icons.sports_tennis,
-                  label: '${venue.courtCount} pistas',
+                  label: _buildCourtCountLabel(venue.courtCount),
                 ),
                 const SizedBox(height: 8),
-                if (venue.openingTime != null)
-                  _InfoPill(
-                    icon: isCupertinoPlatform
-                        ? CupertinoIcons.time
-                        : Icons.schedule_outlined,
-                    label:
-                        '${venue.openingTime?.substring(0, 5)} - ${venue.closingTime?.substring(0, 5)}',
-                  ),
+                _InfoPill(
+                  icon: isCupertinoPlatform
+                      ? CupertinoIcons.time
+                      : Icons.schedule_outlined,
+                  label: scheduleLabel ?? 'Horario no localizado públicamente',
+                ),
               ],
             ),
           ),
@@ -353,7 +388,11 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
           if (_loadingAvailability)
             const LoadingSpinner()
           else if ((_availability?.courts ?? []).isEmpty)
-            const _AvailabilityEmptyState()
+            _AvailabilityEmptyState(
+              message: venue.courtCount <= 0
+                  ? 'No hay pistas publicadas con número confirmado para este centro.'
+                  : 'No hay disponibilidad para esta fecha.',
+            )
           else
             ...(_availability!.courts.map((court) {
               final slots = _slotsForCourt(court);
@@ -493,7 +532,9 @@ class _SurfaceChip extends StatelessWidget {
 }
 
 class _AvailabilityEmptyState extends StatelessWidget {
-  const _AvailabilityEmptyState();
+  final String message;
+
+  const _AvailabilityEmptyState({required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -504,13 +545,13 @@ class _AvailabilityEmptyState extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Column(
+      child: Column(
         children: [
-          Icon(Icons.event_busy, color: AppColors.muted, size: 34),
-          SizedBox(height: 12),
+          const Icon(Icons.event_busy, color: AppColors.muted, size: 34),
+          const SizedBox(height: 12),
           Text(
-            'No hay disponibilidad para esta fecha.',
-            style: TextStyle(color: AppColors.muted),
+            message,
+            style: const TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
           ),
         ],
@@ -533,8 +574,9 @@ class _AvailabilitySlotChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ActionChip(
-      backgroundColor:
-          available ? AppColors.surface2 : AppColors.muted.withValues(alpha: 0.22),
+      backgroundColor: available
+          ? AppColors.surface2
+          : AppColors.muted.withValues(alpha: 0.22),
       side: BorderSide(
         color: available
             ? AppColors.border

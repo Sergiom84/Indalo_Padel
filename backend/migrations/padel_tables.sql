@@ -65,6 +65,25 @@ CREATE TABLE IF NOT EXISTS app.padel_courts (
 );
 
 -- =============================================
+-- Padel Venue Schedule Windows (Franjas horarias)
+-- =============================================
+CREATE TABLE IF NOT EXISTS app.padel_venue_schedule_windows (
+  id SERIAL PRIMARY KEY,
+  venue_id INTEGER NOT NULL REFERENCES app.padel_venues(id) ON DELETE CASCADE,
+  day_of_week SMALLINT CHECK (day_of_week BETWEEN 1 AND 7),
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  valid_from DATE,
+  valid_until DATE,
+  label VARCHAR(80),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CHECK (end_time > start_time),
+  CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
+);
+
+-- =============================================
 -- Padel Player Profiles
 -- =============================================
 CREATE TABLE IF NOT EXISTS app.padel_player_profiles (
@@ -186,6 +205,9 @@ CREATE TABLE IF NOT EXISTS app.padel_favorites (
 -- Indexes
 -- =============================================
 CREATE INDEX IF NOT EXISTS idx_padel_courts_venue ON app.padel_courts(venue_id);
+CREATE INDEX IF NOT EXISTS idx_padel_venue_schedule_venue_day
+  ON app.padel_venue_schedule_windows(venue_id, day_of_week, start_time)
+  WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_padel_bookings_court_date ON app.padel_bookings(court_id, booking_date);
 CREATE INDEX IF NOT EXISTS idx_padel_bookings_user ON app.padel_bookings(booked_by);
 CREATE INDEX IF NOT EXISTS idx_padel_bookings_date ON app.padel_bookings(booking_date);
@@ -208,6 +230,11 @@ FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
 DROP TRIGGER IF EXISTS trg_venues_updated_at ON app.padel_venues;
 CREATE TRIGGER trg_venues_updated_at
 BEFORE UPDATE ON app.padel_venues
+FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_venue_schedule_windows_updated_at ON app.padel_venue_schedule_windows;
+CREATE TRIGGER trg_venue_schedule_windows_updated_at
+BEFORE UPDATE ON app.padel_venue_schedule_windows
 FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_profiles_updated_at ON app.padel_player_profiles;
@@ -236,6 +263,7 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA app FROM PUBLIC;
 ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.padel_venues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.padel_courts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.padel_venue_schedule_windows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.padel_player_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.padel_bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.padel_matches ENABLE ROW LEVEL SECURITY;
@@ -257,6 +285,12 @@ CREATE POLICY venues_server_only ON app.padel_venues
 
 DROP POLICY IF EXISTS courts_server_only ON app.padel_courts;
 CREATE POLICY courts_server_only ON app.padel_courts
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+DROP POLICY IF EXISTS venue_schedule_server_only ON app.padel_venue_schedule_windows;
+CREATE POLICY venue_schedule_server_only ON app.padel_venue_schedule_windows
   FOR ALL
   USING (false)
   WITH CHECK (false);

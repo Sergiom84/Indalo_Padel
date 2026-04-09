@@ -58,6 +58,9 @@ class VenueListScreen extends ConsumerWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final venue = venues[index];
+                    final courtsLabel = venue.courtCount > 0
+                        ? '${venue.courtCount} ${venue.courtCount == 1 ? 'pista' : 'pistas'}'
+                        : 'Pistas no localizadas';
                     return PadelCard(
                       onTap: () => context.push('/venues/${venue.id}'),
                       child: Row(
@@ -98,7 +101,7 @@ class VenueListScreen extends ConsumerWidget {
                                         color: AppColors.muted, size: 14),
                                     const SizedBox(width: 4),
                                     Text(
-                                      '${venue.courtCount} ${venue.courtCount == 1 ? 'pista' : 'pistas'}',
+                                      courtsLabel,
                                       style: const TextStyle(
                                           color: AppColors.muted, fontSize: 13),
                                     ),

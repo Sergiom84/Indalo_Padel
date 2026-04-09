@@ -1,0 +1,116 @@
+1) Pistas de pádel en Mojácar, Garrucha, Vera y alrededores
+He cruzado resultados públicos. Donde el dato no aparece claro, te lo marco como no localizado para no inventar.
+
+Mojácar
+1) Pistas municipales de Mojácar (Paraje La Mata)
+Horario:
+Jueves a domingo: 10:30–13:00
+Lunes a sábado: 17:00–22:00
+Precio: 10 €/hora
+Nº de pistas: no localizado en fuente pública clara
+Reserva / contacto: 660 528 852
+Fuente:
+https://www.dipalme.org/servicios/informacion/informacion.nsf/referencia/Ayuntamiento+de+Mojacar+Ayto.Mojacar+064-IF-500-02
+2) Hotel Servigroup Marina Playa (Mojácar)
+Nº de pistas: 4 pistas
+Tipos de pista: aparecen referencias a césped y cristal
+Precios localizados:
+Césped: 10 € / 1h o 15 € / 1h30
+Cristal: 12 € / 1h o 18 € / 1h30
+Horario: he encontrado una referencia antigua con:
+Invierno: 9:00–23:00
+Verano: 8:00–24:00
+Reserva / contacto: 950 548 500
+Comentario: aquí conviene validar precios/horarios actuales si lo quieres meter en producto real.
+Fuentes:
+https://www.servigroup.com/es/hotel-marina-playa-mojacar/especial-deporte/
+https://padelgood.com/club-de-padel-marina-playa-en-las-playas-de-mojacar-almeria/
+https://www.dipalme.org/servicios/informacion/informacion.nsf/referencia/Ayuntamiento+de+Mojacar+Ayto.Mojacar+064-IF-500-02
+Vera
+3) Centro Deportivo Puerto Rey (Vera Playa)
+Nº de pistas: 11 pistas de pádel, de ellas 2 de cristal con gradas
+Horario de pistas: lunes a domingo, 9:00–23:00
+(la web indica que en verano amplían horario)
+Precio:
+referencia municipal: 15 €/hora
+Reserva: web/contacto
+Observación: es probablemente el referente más fuerte de la zona por volumen e instalaciones.
+Fuentes:
+https://centrodeportivopuertorey.com/homepages/padel-vera/
+https://centrodeportivopuertorey.com/homepages/padel/
+https://centrodeportivopuertorey.com/
+https://www.dipalme.org/servicios/informacion/informacion.nsf/referencia/Ayuntamiento+de+Mojacar+Ayto.Mojacar+064-IF-500-02
+4) P4 Pádel Vera (zona Valle del Este)
+Nº de pistas: 4 pistas reformadas, tipo glass backed
+Horario: no localizado de forma pública clara
+Precio: no vi precio abierto en la home
+pero en el directorio municipal de la zona aparece Valle del Este: 15 €/hora
+Reserva: online vía Sporttia / contacto directo
+Contacto localizado: 634 367 329
+Comentario: parece trabajar combinación de membresía + no socio + reserva online
+Fuentes:
+http://p4padel-vera.es/
+http://p4padel-vera.es/how-to-book-or-join/
+https://app.sporttia.com/scs/3123/profile
+https://www.dipalme.org/servicios/informacion/informacion.nsf/referencia/Ayuntamiento+de+Mojacar+Ayto.Mojacar+064-IF-500-02
+5) Club Vera de Mar
+Nº de pistas: no localizado
+Horario: no localizado
+Precio:
+No socios: 2 €/hora por persona
+Socios: 50% descuento
+Reserva: la reserva debe hacerla siempre un socio
+Contacto: 674 43 53 84
+Comentario: interesante como modelo “semi-club” con acceso mediado por socio.
+Fuente:
+https://clubverademar.com/actividades-deportivas/
+6) Tenis Academia y Padel Indalo (Vera)
+Precio pádel: 12 €/hora
+Horario: no localizado
+Nº de pistas: no localizado
+Contacto: 950 592 877
+Fuente:
+https://www.dipalme.org/servicios/informacion/informacion.nsf/referencia/Ayuntamiento+de+Mojacar+Ayto.Mojacar+064-IF-500-02
+Garrucha
+7) Pistas municipales de Garrucha
+Nº de pistas: encontré referencia a 2 pistas públicas
+Horario localizado (referencia de reapertura):
+Lunes a viernes: 9:00–14:00 y 17:00–21:00
+Reserva: vía Sporttia
+Precio: no localizado claramente en abierto
+Comentario: parece modelo municipal clásico: reserva online + gestión deportiva local.
+Fuentes:
+https://www.garrucha.es/
+https://www.garrucha.es/Servicios/cmsdipro/index.nsf/informacion.xsp?p=Garrucha&documentId=8890118C0A339108C125828100640434
+https://www.facebook.com/DeportesGarrucha/posts/apertura-pistas-de-pádel-y-tenis-playa-a-partir-de-mañana-viernes-29-de-mayo-se-/163264611869515/
+https://www.facebook.com/AytoGarrucha/posts/apertura-pistas-de-pádel-y-tenis-playa-/3416027741754836/
+https://www.ideal.es/almeria/v/20101109/provincia/garrucha-cuenta-pistas-padel-20101109.html
+Alrededores
+8) Cuevas del Almanzora – Polideportivo Municipal
+Nº de pistas: la página de reserva habla en singular de “Pista de Padel”; prudente asumir al menos 1
+Horario: no visible claro en la pantalla pública de reserva
+Precio: no localizado
+Reserva: online municipal
+Reglas interesantes del sistema:
+pago por tarjeta o en recepción
+con antelación
+cancelación con 1 día
+límite de reservas semanales
+Fuente:
+https://www.dipalme.org/Servicios/Recursos/reservas.nsf/porreferencia/035-RS-padel?OpenDocument
+9) Padel Al-Mansura (Cuevas del Almanzora)
+Nº de pistas: 4 pistas indoor
+Horario: no localizado
+Precio: no localizado
+Comentario: muy interesante por el enfoque indoor y por ser un club más “serio” que una simple pista municipal.
+Fuentes:
+https://www.padelnest.com/club/padel-al-mansura/MDP79UZU18
+https://www.padelenjuego.com/almeria
+10) Pista de Pádel de Los Gallardos
+Nº de pistas: 1 pista
+Tipo: exterior, césped artificial, iluminación
+Horario: no localizado
+Precio: no localizado, pero al ser municipal probablemente competitivo
+Reserva / contacto deportes: 678 49 99 57
+Fuente:
+https://padelgo.es/padel/pista-de-padel-los-gallardos/
