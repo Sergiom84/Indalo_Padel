@@ -97,6 +97,10 @@ if (!rawConnStr || explicitDemoMode) {
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
     options: `--search_path=${DB_SEARCH_PATH}`,
+    // Render free tier no tiene salida IPv6. Forzamos IPv4 para que el pool
+    // no intente conectar a la IP IPv6 que devuelve el DNS de Supabase
+    // (ENETUNREACH) ni confunda la falta de ruta con un fallo de DNS.
+    family: 4,
   });
 
   // CRITICO: pg-pool emite 'error' cuando un cliente idle del pool falla (por
