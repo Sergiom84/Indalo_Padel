@@ -98,6 +98,15 @@ if (!rawConnStr || explicitDemoMode) {
     keepAliveInitialDelayMillis: 10000,
     options: `--search_path=${DB_SEARCH_PATH}`,
   });
+
+  // CRITICO: pg-pool emite 'error' cuando un cliente idle del pool falla (por
+  // ejemplo ante un EAI_AGAIN/ECONNRESET hacia Supabase). Si nadie escucha el
+  // evento, Node lo escala a uncaughtException y mata el proceso con exit 2.
+  // Render reinicia entonces el servicio y el usuario ve la API caida varios
+  // minutos. Lo capturamos aqui para que el pool se recupere por su cuenta.
+  poolInstance.on('error', (err) => {
+    console.error('⚠️ Error idle del pool de PostgreSQL (recuperable):', err.message);
+  });
 }
 
 export const pool = poolInstance;

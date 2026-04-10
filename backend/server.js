@@ -13,7 +13,21 @@ import { startCalendarSyncJob } from './services/padelCalendarSync.js';
 const app = express();
 const PORT = process.env.PORT || 3011;
 
-// Verificar search_path al arrancar
+// Red de seguridad global: capturamos errores no manejados para evitar que un
+// hipo transitorio (DNS EAI_AGAIN hacia Supabase, ECONNRESET en Google Calendar,
+// etc.) tumbe el proceso entero y obligue a Render a reiniciar el contenedor.
+// Solo logueamos: las rutas Express ya tienen su propio error handler y los
+// recursos en uso (pool de pg) se recuperan por su cuenta.
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Unhandled promise rejection (no se mata el proceso):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught exception (no se mata el proceso):', err);
+});
+
+// Verificar search_path al arrancar. Si falla por un fallo transitorio de red
+// no se considera bloqueante: Render seguira reportando el servicio como vivo
+// gracias al healthcheck y la primera query real reintentara la conexion.
 (async () => {
   if (!hasDatabaseConnection) {
     console.log('ℹ️ Backend arrancado sin PostgreSQL porque el modo demo está activo');
@@ -24,7 +38,7 @@ const PORT = process.env.PORT || 3011;
     const { rows } = await pool.query('SHOW search_path;');
     console.log('📂 search_path actual:', rows[0].search_path);
   } catch (err) {
-    console.error('❌ Error en inicialización:', err);
+    console.error('❌ Error en inicialización (no bloqueante):', err.message);
   }
 })();
 
