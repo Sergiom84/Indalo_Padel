@@ -44,6 +44,52 @@
 - Parar proceso en conflicto o cambiar `PORT`.
 - Mantener alineadas docs y `API_BASE_URL` Flutter.
 
+## 5) Backend Render "Instance failed: Exited with status 2"
+
+### Síntomas
+- Dashboard Render muestra `Instance failed: srv-xxx, Exited with status 2` de forma periódica.
+- En logs: `connect ENETUNREACH 2a05:d012:xxx::xxxx` (dirección IPv6) o `getaddrinfo EAI_AGAIN db.PROJECT.supabase.co`
+- La API deja de responder hasta que Render reinicia el contenedor (varios minutos).
+
+### Causa raíz
+La `DATABASE_URL` apunta a la conexión directa de Supabase (`db.PROJECT.supabase.co`), cuyo DNS resuelve **solo a IPv6**. Render free tier **no tiene conectividad IPv6 de salida** → `ENETUNREACH` → el proceso Node muere con exit 2.
+
+### Diagnóstico rápido
+```bash
+# Comprueba si la dirección IP en los logs es IPv6 (2a05:..., ::, etc.)
+# Si es IPv6 → DATABASE_URL apunta a conexión directa, no al pooler
+curl https://indalo-padel.onrender.com/api/health
+# Si devuelve {"mode":"demo"} en lugar de "database" → confirmado
+```
+
+### Acciones
+1. Ir a **Render → Service → Environment**
+2. Cambiar `DATABASE_URL` al Transaction Pooler de Supabase:
+   ```
+   postgresql://postgres.PROJECT:PASS@aws-1-eu-central-1.pooler.supabase.com:5432/postgres
+   ```
+3. Render reiniciará automáticamente. Verificar en logs:
+   ```
+   ✅ Conexión a PostgreSQL exitosa
+   ✅ Tabla users encontrada
+   📂 search_path actual: app,public
+   ```
+4. Confirmar con health check: `{"status":"ok","mode":"database"}`
+
+### Por qué el pooler funciona y la directa no
+| Hostname | Resuelve a | Render free |
+|---|---|---|
+| `db.PROJECT.supabase.co` | IPv6 únicamente | ❌ ENETUNREACH |
+| `aws-1-eu-central-1.pooler.supabase.com` | IPv4 únicamente | ✅ OK |
+
+### Fixes preventivos ya aplicados en el código
+- `pool.on('error')` en `db.js` — evita que errores idle escalen
+- `process.on('unhandledRejection/uncaughtException')` en `server.js` — red de seguridad global
+- Backoff exponencial en `padelCalendarSync.js` — no martillea el pool durante outages de red
+- `--dns-result-order=ipv4first` en el start script de `package.json`
+
+---
+
 ## 4) Inconsistencia de datos (reservas/partidos)
 ### Síntomas
 - Contadores incorrectos en partidos.

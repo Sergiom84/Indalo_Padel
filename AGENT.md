@@ -218,3 +218,39 @@ Checklist rápido:
   - CORS/orígenes
   - conflictos de puerto
   - consistencia de datos en reservas/partidos
+  - **crashes Render / "Instance failed: Exited with status 2"** (nuevo)
+
+## 14) Infraestructura Render + Supabase — Lecciones aprendidas
+
+### Problema raíz: Render free tier no tiene IPv6 de salida
+
+**Síntoma:** El servicio en Render aparece como `Instance failed: Exited with status 2` de forma periódica.
+**Logs:** `connect ENETUNREACH 2a05:d012:xxx::xxxx` o `getaddrinfo EAI_AGAIN db.PROJECT.supabase.co`
+
+**Causa:** La URL de conexión directa de Supabase (`db.PROJECT.supabase.co`) resuelve **solo a IPv6**. Render free tier no tiene conectividad IPv6 de salida → `ENETUNREACH` → `uncaughtException` → Node muere con exit 2 → Render reinicia el contenedor → bucle.
+
+### Regla permanente: usar Transaction Pooler
+
+La `DATABASE_URL` en variables de entorno de Render **siempre debe apuntar al pooler**:
+```
+postgresql://postgres.PROJECT:PASS@aws-1-eu-central-1.pooler.supabase.com:5432/postgres
+```
+
+| URL | Resultado en Render |
+|---|---|
+| `db.PROJECT.supabase.co` | ❌ ENETUNREACH (IPv6 only) |
+| `aws-1-eu-central-1.pooler.supabase.com` | ✅ Funciona (IPv4 only) |
+
+### Fixes de estabilidad aplicados en el código
+
+1. **`backend/db.js`** — `pool.on('error', handler)`: captura errores de clientes idle del pool antes de que escalen a `uncaughtException`
+2. **`backend/server.js`** — `process.on('unhandledRejection')` + `process.on('uncaughtException')`: red de seguridad global para errores DNS/red transitorios
+3. **`backend/package.json`** — `node --dns-result-order=ipv4first server.js`: fuerza resolución IPv4 primero
+4. **`backend/services/padelCalendarSync.js`** — backoff exponencial (base × 2^n, cap 30 min): evita martillear el pool durante ventanas de red rota
+
+### Flutter: cold starts de Render free tier
+
+Render free tier duerme el servicio tras ~15 min de inactividad. La primera request puede tardar 30-60s.
+
+- **`flutter_app/lib/core/api/api_client.dart`**: `connectTimeout: 60s`, `receiveTimeout: 90s`
+- **`flutter_app/lib/features/auth/screens/login_screen.dart`**: pre-warm con `GET /health` en `initState()` mientras el usuario teclea credenciales

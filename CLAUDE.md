@@ -93,6 +93,50 @@ cd backend && node migrations/run.js
 5. **Tests mínimos** — Backend: 0 tests. Flutter: 2 archivos de test básicos.
 6. **Sin push notifications** — No hay infraestructura de notificaciones.
 
+## Infraestructura — Render + Supabase
+
+### Render free tier: limitaciones críticas
+
+| Limitación | Efecto | Solución aplicada |
+|---|---|---|
+| **Sin IPv6 de salida** | `ENETUNREACH` + proceso Node mata con exit 2 | Usar pooler Supabase (IPv4) |
+| **Cold start tras ~15 min de inactividad** | Primera request tarda 30-60s → timeout en cliente | Timeouts Flutter 60/90s + pre-warm en login |
+| **Reinicio automático si exit ≠ 0** | La API aparece como "Instance failed" en el dashboard | Global handlers + `pool.on('error')` |
+
+### Supabase: qué URL usar en Render
+
+**REGLA CRÍTICA:** En Render (y cualquier entorno sin IPv6), usar siempre la URL del **Transaction Pooler**, no la conexión directa.
+
+| Tipo de URL | Hostname | IPv4/IPv6 | ¿Funciona en Render? |
+|---|---|---|---|
+| Conexión directa | `db.PROJECT.supabase.co` | **Solo IPv6** | ❌ NUNCA |
+| Transaction Pooler | `aws-1-eu-central-1.pooler.supabase.com:6543` | **Solo IPv4** | ✅ SÍ |
+| Session Pooler | `aws-1-eu-central-1.pooler.supabase.com:5432` | **Solo IPv4** | ✅ SÍ |
+
+La `DATABASE_URL` en Render debe apuntar al pooler:
+```
+postgresql://postgres.PROJECT:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres
+```
+
+### Síntomas del problema IPv6
+
+Si ves en los logs de Render alguno de estos mensajes, el `DATABASE_URL` apunta a la conexión directa (IPv6):
+```
+❌ Error conectando a PostgreSQL: connect ENETUNREACH 2a05:d012:xxx:xxxx::xxxx:xxxx:1234
+Instance failed: srv-xxx, Exited with status 2
+```
+
+**Acción:** Ir a Render → Environment → cambiar `DATABASE_URL` al pooler. El servicio se reinicia automáticamente.
+
+### Estabilidad del proceso Node en Render
+
+Se han aplicado estas defensas en el código para evitar crashes por red transitoria:
+
+- `pool.on('error', handler)` en `backend/db.js` — captura errores de clientes idle antes de que escalen
+- `process.on('unhandledRejection')` + `process.on('uncaughtException')` en `backend/server.js`
+- `--dns-result-order=ipv4first` en `package.json` start script
+- Backoff exponencial en `padelCalendarSync.js` (base × 2^n, cap 30 min)
+
 ## NO hacer
 
 - **NO** tocar `quarantine/react-vite-web/`
@@ -102,6 +146,7 @@ cd backend && node migrations/run.js
 - **NO** commitear secretos (.env, tokens, claves Google)
 - **NO** modificar migraciones ya aplicadas; crear migración nueva
 - **NO** bloquear la API por errores de Google Calendar (tratar como fallo recuperable)
+- **NO** usar la URL de conexión directa de Supabase (`db.PROJECT.supabase.co`) en Render — es IPv6 y Render free no tiene IPv6 de salida. Usar siempre el pooler (`aws-1-eu-central-1.pooler.supabase.com`)
 
 ## Skills del proyecto
 
