@@ -1,3 +1,9 @@
+// Render free tier no tiene salida IPv6. Forzamos IPv4 antes de cualquier
+// import que pueda abrir sockets (pg, Google APIs, etc.) para que el DNS
+// no devuelva una IP IPv6 inalcanzable causando ENETUNREACH o EAI_AGAIN.
+import { setDefaultResultOrder } from 'dns';
+setDefaultResultOrder('ipv4first');
+
 import express from 'express';
 import cors from 'cors';
 
