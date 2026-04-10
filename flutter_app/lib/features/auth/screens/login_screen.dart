@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/brand_logo.dart';
 import '../providers/auth_provider.dart';
@@ -16,7 +17,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
+  bool _warming = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-warm del backend: el plan free de Render duerme el servicio tras
+    // ~15 min de inactividad y la primera peticion puede tardar 30-60s en
+    // despertarlo. Disparamos un /health en background mientras el usuario
+    // teclea credenciales para que el login real ya encuentre la API caliente.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _warmUpBackend());
+  }
+
+  Future<void> _warmUpBackend() async {
+    if (!mounted) return;
+    setState(() => _warming = true);
+    try {
+      await ref.read(apiClientProvider).get('/health');
+    } catch (_) {
+      // Silencioso: si falla el warm-up no debe bloquear el login. El error
+      // real se mostrara cuando el usuario intente entrar.
+    } finally {
+      if (mounted) setState(() => _warming = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -53,27 +78,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
-              const BrandLogo(size: 88, glow: true),
-              const SizedBox(height: 20),
-              RichText(
-                text: const TextSpan(
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
-                  children: [
-                    TextSpan(text: 'Indalo'),
-                    TextSpan(
-                        text: '.', style: TextStyle(color: AppColors.primary)),
-                  ],
-                ),
+              const BrandLogo(
+                size: 120,
+                glow: true,
+                shape: BrandLogoShape.circle,
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 18),
               const Text(
                 'Tu club de pádel, siempre contigo',
                 style: TextStyle(color: AppColors.muted, fontSize: 14),
+                textAlign: TextAlign.center,
               ),
+              if (_warming) ...[
+                const SizedBox(height: 12),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Conectando con el servidor…',
+                      style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 40),
 
               // Error

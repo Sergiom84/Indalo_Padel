@@ -6,9 +6,13 @@ import '../storage/secure_storage.dart';
 const String _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
 const int _defaultApiPort = 3011;
 
-String resolveBaseUrl() {
-  if (_configuredBaseUrl.isNotEmpty) {
-    return _configuredBaseUrl;
+String? resolveBaseUrl() {
+  if (_configuredBaseUrl.trim().isNotEmpty) {
+    return _normalizeBaseUrl(_configuredBaseUrl);
+  }
+
+  if (kReleaseMode) {
+    return null;
   }
 
   if (kIsWeb ||
@@ -26,20 +30,48 @@ String resolveBaseUrl() {
   return 'http://localhost:$_defaultApiPort/api';
 }
 
+String _normalizeBaseUrl(String baseUrl) {
+  final trimmed = baseUrl.trim();
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+    return trimmed;
+  }
+
+  final normalizedPath = uri.path == '/' || uri.path.isEmpty
+      ? '/api'
+      : uri.path.replaceFirst(RegExp(r'/+$'), '');
+
+  return uri.replace(path: normalizedPath).toString();
+}
+
 class ApiClient {
   late final Dio _dio;
+  final String? _baseUrl;
 
   void Function()? onUnauthorized;
 
-  ApiClient() {
+  ApiClient() : _baseUrl = resolveBaseUrl() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: resolveBaseUrl(),
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 30),
+        baseUrl: _baseUrl ?? '',
+        // Render free tier puede tardar 30-60s en despertar tras un cold start.
+        // Mantenemos timeouts generosos para tolerarlo sin abortar la primera
+        // petición tras periodos de inactividad.
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 90),
+        sendTimeout: const Duration(seconds: 60),
         headers: {'Content-Type': 'application/json'},
       ),
     );
+
+    if (_baseUrl == null) {
+      debugPrint(
+        'API_BASE_URL no configurada para release. '
+        'La app no podra conectar hasta recompilar con --dart-define.',
+      );
+    } else {
+      debugPrint('Usando API base URL: $_baseUrl');
+    }
 
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -63,6 +95,7 @@ class ApiClient {
 
   Future<dynamic> get(String path,
       {Map<String, dynamic>? queryParameters}) async {
+    _ensureBaseUrlConfigured();
     try {
       final response = await _dio.get(path, queryParameters: queryParameters);
       return response.data;
@@ -72,6 +105,7 @@ class ApiClient {
   }
 
   Future<dynamic> post(String path, {dynamic data}) async {
+    _ensureBaseUrlConfigured();
     try {
       final response = await _dio.post(path, data: data);
       return response.data;
@@ -81,6 +115,7 @@ class ApiClient {
   }
 
   Future<dynamic> put(String path, {dynamic data}) async {
+    _ensureBaseUrlConfigured();
     try {
       final response = await _dio.put(path, data: data);
       return response.data;
@@ -90,12 +125,24 @@ class ApiClient {
   }
 
   Future<dynamic> delete(String path) async {
+    _ensureBaseUrlConfigured();
     try {
       final response = await _dio.delete(path);
       return response.data;
     } on DioException catch (e) {
       throw _handleError(e);
     }
+  }
+
+  void _ensureBaseUrlConfigured() {
+    if (_baseUrl != null && _baseUrl!.isNotEmpty) {
+      return;
+    }
+
+    throw const ApiConfigurationException(
+      'La build release no tiene API_BASE_URL configurada. '
+      'Genera el AAB con --dart-define=API_BASE_URL=https://TU_API_PUBLICA/api',
+    );
   }
 
   Exception _handleError(DioException e) {
@@ -114,6 +161,14 @@ class ApiException implements Exception {
   final String message;
   final int? statusCode;
   const ApiException(this.message, {this.statusCode});
+
+  @override
+  String toString() => message;
+}
+
+class ApiConfigurationException implements Exception {
+  final String message;
+  const ApiConfigurationException(this.message);
 
   @override
   String toString() => message;
