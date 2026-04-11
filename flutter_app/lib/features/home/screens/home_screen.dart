@@ -4,10 +4,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/platform/platform_helper.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/utils/chronology.dart';
 import '../../../shared/widgets/loading_spinner.dart';
-import '../../../shared/widgets/brand_logo.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../profile/providers/current_profile_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -17,7 +19,9 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  bool _loading = true;
+  bool _loadingVenues = true;
+  bool _loadingBookings = true;
+  bool _loadingMatches = true;
   List<dynamic> _venues = [];
   Map<String, dynamic> _bookings = {'upcoming': [], 'past': []};
   List<dynamic> _matches = [];
@@ -30,32 +34,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _fetchData() async {
     final api = ref.read(apiClientProvider);
-    try {
-      final results = await Future.wait([
-        api.get('/padel/venues').catchError((_) => {'venues': []}),
-        api
-            .get('/padel/bookings/my')
-            .catchError((_) => {'upcoming': [], 'past': []}),
-        api.get('/padel/matches').catchError((_) => []),
-      ]);
+    if (mounted) {
+      setState(() {
+        _loadingVenues = true;
+        _loadingBookings = true;
+        _loadingMatches = true;
+      });
+    }
+
+    final venuesFuture = api
+        .get('/padel/venues?limit=3')
+        .catchError((_) => {'venues': []})
+        .then((result) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _venues =
-            _asList(results[0] is Map ? results[0]['venues'] : results[0]);
-        _bookings = results[1] is Map<String, dynamic>
-            ? results[1] as Map<String, dynamic>
-            : {'upcoming': [], 'past': []};
-        _matches =
-            _asList(results[2] is Map ? results[2]['matches'] : results[2]);
-        _loading = false;
+        _venues = _asList(result is Map ? result['venues'] : result);
+        _loadingVenues = false;
       });
-    } catch (_) {
-      if (mounted) {
-        setState(() => _loading = false);
+    });
+
+    final bookingsFuture = api
+        .get('/padel/bookings/my')
+        .catchError((_) => {'upcoming': [], 'past': []})
+        .then((result) {
+      if (!mounted) {
+        return;
       }
-    }
+      setState(() {
+        _bookings = result is Map<String, dynamic>
+            ? result
+            : {'upcoming': [], 'past': []};
+        _loadingBookings = false;
+      });
+    });
+
+    final matchesFuture = api
+        .get('/padel/matches?limit=12')
+        .catchError((_) => {'matches': []})
+        .then((result) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _matches = _asList(result is Map ? result['matches'] : result);
+        _loadingMatches = false;
+      });
+    });
+
+    await Future.wait([venuesFuture, bookingsFuture, matchesFuture]);
   }
 
   List<dynamic> _asList(dynamic value) {
@@ -65,19 +93,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return [];
   }
 
-  List<dynamic> get _openMatches => _matches
-      .where((match) =>
-          match['status'] == 'buscando' || match['status'] == 'abierto')
-      .take(3)
-      .toList();
+  List<dynamic> get _openMatches {
+    final matches = _matches
+        .whereType<Map>()
+        .map((match) => Map<String, dynamic>.from(match))
+        .where((match) =>
+            match['status'] == 'buscando' || match['status'] == 'abierto')
+        .toList();
 
-  List<dynamic> get _upcomingBookings =>
-      _asList(_bookings['upcoming']).take(3).toList();
+    matches.sort((left, right) {
+      final comparison = compareChronology(
+        leftDate: left['match_date']?.toString(),
+        leftTime: left['start_time']?.toString() ?? left['hora']?.toString(),
+        rightDate: right['match_date']?.toString(),
+        rightTime: right['start_time']?.toString() ?? right['hora']?.toString(),
+      );
+      if (comparison != 0) {
+        return comparison;
+      }
+      final leftId = (left['id'] as num?)?.toInt() ?? 0;
+      final rightId = (right['id'] as num?)?.toInt() ?? 0;
+      return leftId.compareTo(rightId);
+    });
+
+    return matches.take(3).toList();
+  }
+
+  List<dynamic> get _upcomingBookings {
+    final bookings = _asList(_bookings['upcoming'])
+        .whereType<Map>()
+        .map((booking) => Map<String, dynamic>.from(booking))
+        .toList();
+
+    bookings.sort((left, right) {
+      final comparison = compareChronology(
+        leftDate: left['booking_date']?.toString() ?? left['fecha']?.toString(),
+        leftTime:
+            left['start_time']?.toString() ?? left['hora_inicio']?.toString(),
+        rightDate:
+            right['booking_date']?.toString() ?? right['fecha']?.toString(),
+        rightTime:
+            right['start_time']?.toString() ?? right['hora_inicio']?.toString(),
+      );
+      if (comparison != 0) {
+        return comparison;
+      }
+      final leftId = (left['id'] as num?)?.toInt() ?? 0;
+      final rightId = (right['id'] as num?)?.toInt() ?? 0;
+      return leftId.compareTo(rightId);
+    });
+
+    return bookings.take(3).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
-    final greeting = user?.nombre ?? 'Jugador';
+    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final greeting = (profile?['display_name'] ??
+            profile?['nombre'] ??
+            user?.nombre ??
+            'Jugador')
+        .toString();
+    final avatarUrl = profile?['avatar_url']?.toString();
+    final loadingSummary =
+        _loadingVenues || _loadingBookings || _loadingMatches;
+    final upcomingBookings = _upcomingBookings;
+    final openMatches = _openMatches;
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -94,8 +176,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const _HomeBrandPill(),
-                      const SizedBox(height: 14),
                       Text(
                         _headlineDate(),
                         style: const TextStyle(
@@ -121,23 +201,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     appLightImpact();
                     context.push('/profile');
                   },
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      greeting.isNotEmpty ? greeting[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  child: UserAvatar(
+                    displayName: greeting,
+                    avatarUrl: avatarUrl,
+                    size: 56,
+                    fontSize: 20,
+                    backgroundColor: AppColors.surface,
+                    borderColor: AppColors.border,
                   ),
                 ),
               ],
@@ -176,21 +246,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       Expanded(
                         child: _MetricTile(
                           label: 'Clubes',
-                          value: _loading ? '—' : '${_venues.length}',
+                          value: _loadingVenues ? '—' : '${_venues.length}',
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _MetricTile(
                           label: 'Reservas',
-                          value: _loading ? '—' : '${_upcomingBookings.length}',
+                          value: _loadingBookings
+                              ? '—'
+                              : '${upcomingBookings.length}',
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _MetricTile(
                           label: 'Partidos',
-                          value: _loading ? '—' : '${_openMatches.length}',
+                          value:
+                              _loadingMatches ? '—' : '${openMatches.length}',
                         ),
                       ),
                     ],
@@ -203,15 +276,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Próximas reservas',
               actionLabel: 'Ver calendario',
               onAction: () => context.go('/calendar'),
-              child: _loading
+              child: _loadingBookings && upcomingBookings.isEmpty
                   ? const LoadingSpinner()
-                  : _upcomingBookings.isEmpty
+                  : upcomingBookings.isEmpty
                       ? const _EmptyState(
                           icon: Icons.calendar_today_outlined,
                           message: 'No tienes reservas próximas.',
                         )
                       : Column(
-                          children: _upcomingBookings
+                          children: upcomingBookings
                               .map((booking) =>
                                   _BookingPreviewCard(booking: booking))
                               .toList(),
@@ -222,7 +295,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Clubes destacados',
               actionLabel: 'Abrir clubes',
               onAction: () => context.go('/venues'),
-              child: _loading
+              child: _loadingVenues && _venues.isEmpty
                   ? const LoadingSpinner()
                   : _venues.isEmpty
                       ? const _EmptyState(
@@ -242,19 +315,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Partidos abiertos',
               actionLabel: 'Ir a partidos',
               onAction: () => context.go('/matches'),
-              child: _loading
+              child: _loadingMatches && openMatches.isEmpty
                   ? const LoadingSpinner()
-                  : _openMatches.isEmpty
+                  : openMatches.isEmpty
                       ? const _EmptyState(
                           icon: Icons.emoji_events_outlined,
                           message: 'No hay partidos abiertos ahora mismo.',
                         )
                       : Column(
-                          children: _openMatches
+                          children: openMatches
                               .map((match) => _MatchPreviewCard(match: match))
                               .toList(),
                         ),
             ),
+            if (loadingSummary)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Actualizando contenido...',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ),
           ],
         ),
       ),
@@ -318,37 +400,6 @@ class _MetricTile extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HomeBrandPill extends StatelessWidget {
-  const _HomeBrandPill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          BrandLogo(size: 30),
-          SizedBox(width: 10),
-          Text(
-            'Indalo Padel',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
           ),
         ],
       ),

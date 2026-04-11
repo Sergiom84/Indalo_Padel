@@ -74,6 +74,10 @@ Build release firmada:
   -BuildNumber "2"
 ```
 
+Importante:
+- La release de Play Console no puede usar `localhost` ni `10.0.2.2`.
+- Si subes un `.aab` sin `API_BASE_URL`, Android intentará conectar al backend local del emulador y acabará en timeout.
+
 El bundle generado queda en:
 - `flutter_app/build/app/outputs/bundle/release/app-release.aab`
 

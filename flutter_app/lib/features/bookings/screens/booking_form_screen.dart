@@ -416,7 +416,7 @@ class _BookingFormScreenState extends ConsumerState<BookingFormScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Solo se mostraran usuarios registrados de la app.',
+                  'Tu usuario ya esta incluido como organizador. Aqui solo eliges a los invitados registrados en la app.',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
                 const SizedBox(height: 12),

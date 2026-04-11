@@ -142,7 +142,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
 
   List<_CourtAvailabilitySlot> _slotsForCourt(CourtModel court) {
     final slots = _availability?.timeSlots ?? [];
-    return slots
+    final courtSlots = slots
         .map((value) {
           final state = value.courts[court.id.toString()];
           if (state == null) {
@@ -152,6 +152,72 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
         })
         .whereType<_CourtAvailabilitySlot>()
         .toList();
+
+    courtSlots.sort(
+      (left, right) => left.slot.startTime.compareTo(right.slot.startTime),
+    );
+    return courtSlots;
+  }
+
+  List<_CourtTimeSlotGroup> _groupSlotsByDayPeriod(
+    List<_CourtAvailabilitySlot> slots,
+  ) {
+    final morning = <_CourtAvailabilitySlot>[];
+    final midday = <_CourtAvailabilitySlot>[];
+    final afternoon = <_CourtAvailabilitySlot>[];
+
+    for (final slot in slots) {
+      final hour = _hourFromTime(slot.slot.startTime);
+      if (hour == null || hour < 13) {
+        morning.add(slot);
+      } else if (hour < 17) {
+        midday.add(slot);
+      } else {
+        afternoon.add(slot);
+      }
+    }
+
+    return [
+      if (morning.isNotEmpty)
+        _CourtTimeSlotGroup(
+          label: 'Mañana',
+          slots: morning,
+          subtitle: _buildTimeRange(morning),
+        ),
+      if (midday.isNotEmpty)
+        _CourtTimeSlotGroup(
+          label: 'Mediodía',
+          slots: midday,
+          subtitle: _buildTimeRange(midday),
+        ),
+      if (afternoon.isNotEmpty)
+        _CourtTimeSlotGroup(
+          label: 'Tarde',
+          slots: afternoon,
+          subtitle: _buildTimeRange(afternoon),
+        ),
+    ];
+  }
+
+  int? _hourFromTime(String rawTime) {
+    final match = RegExp(r'^(\d{1,2})').firstMatch(rawTime);
+    if (match == null) {
+      return null;
+    }
+    return int.tryParse(match.group(1)!);
+  }
+
+  String _buildTimeRange(List<_CourtAvailabilitySlot> slots) {
+    if (slots.isEmpty) {
+      return '';
+    }
+
+    final first = _formatHour(slots.first.slot.startTime);
+    final last = _formatHour(slots.last.slot.startTime);
+    if (slots.length == 1 || first == last) {
+      return first;
+    }
+    return '$first - $last';
   }
 
   String _formatHour(String raw) => raw.length >= 5 ? raw.substring(0, 5) : raw;
@@ -461,19 +527,30 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
                         style: TextStyle(color: AppColors.muted),
                       )
                     else
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: slots.map((courtSlot) {
-                          final price = courtSlot.state.price;
-                          return _AvailabilitySlotChip(
-                            label:
-                                '${courtSlot.slot.startTime.substring(0, 5)} · ${_durationMinutes}min${price != null ? ' · ${price.toStringAsFixed(0)}€' : ''}',
-                            available: courtSlot.state.available,
-                            onPressed: () =>
-                                _handleSlotTap(court, courtSlot.slot, price),
-                          );
-                        }).toList(),
+                      Column(
+                        children: _groupSlotsByDayPeriod(slots)
+                            .map(
+                              (group) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _CourtTimeSlotGroupTile(
+                                  group: group,
+                                  slotBuilder: (courtSlot) {
+                                    final price = courtSlot.state.price;
+                                    return _AvailabilitySlotChip(
+                                      label:
+                                          '${courtSlot.slot.startTime.substring(0, 5)} · ${_durationMinutes}min${price != null ? ' · ${price.toStringAsFixed(0)}€' : ''}',
+                                      available: courtSlot.state.available,
+                                      onPressed: () => _handleSlotTap(
+                                        court,
+                                        courtSlot.slot,
+                                        price,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
                   ],
                 ),
@@ -490,6 +567,18 @@ class _CourtAvailabilitySlot {
   final CourtSlot state;
 
   const _CourtAvailabilitySlot({required this.slot, required this.state});
+}
+
+class _CourtTimeSlotGroup {
+  final String label;
+  final String subtitle;
+  final List<_CourtAvailabilitySlot> slots;
+
+  const _CourtTimeSlotGroup({
+    required this.label,
+    required this.subtitle,
+    required this.slots,
+  });
 }
 
 class _InfoPill extends StatelessWidget {
@@ -595,6 +684,73 @@ class _AvailabilitySlotChip extends StatelessWidget {
         ),
       ),
       onPressed: available ? onPressed : null,
+    );
+  }
+}
+
+class _CourtTimeSlotGroupTile extends StatelessWidget {
+  final _CourtTimeSlotGroup group;
+  final Widget Function(_CourtAvailabilitySlot courtSlot) slotBuilder;
+
+  const _CourtTimeSlotGroupTile({
+    required this.group,
+    required this.slotBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface2.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            dividerColor: Colors.transparent,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+          ),
+          child: ExpansionTile(
+            initiallyExpanded: false,
+            tilePadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            iconColor: AppColors.primary,
+            collapsedIconColor: AppColors.muted,
+            title: Text(
+              group.label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
+            ),
+            subtitle: Text(
+              group.subtitle.isEmpty
+                  ? '${group.slots.length} franjas'
+                  : '${group.subtitle} · ${group.slots.length} franjas',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+              ),
+            ),
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: group.slots.map(slotBuilder).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

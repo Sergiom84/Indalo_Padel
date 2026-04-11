@@ -40,4 +40,5 @@ export const matchQuerySchema = z.object({
   level: z.coerce.number().int().min(0).max(9).optional(),
   date: z.string().regex(dateRegex).optional(),
   venue_id: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });

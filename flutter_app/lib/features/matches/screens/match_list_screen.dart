@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
+import '../../../shared/utils/chronology.dart';
 import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
@@ -71,8 +72,10 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
         api.get('/padel/venues').catchError((_) => {'venues': []}),
       ]);
 
-      final matchesRaw = _asList(results[0] is Map ? results[0]['matches'] : results[0]);
-      final venuesRaw = _asList(results[1] is Map ? results[1]['venues'] : results[1]);
+      final matchesRaw =
+          _asList(results[0] is Map ? results[0]['matches'] : results[0]);
+      final venuesRaw =
+          _asList(results[1] is Map ? results[1]['venues'] : results[1]);
 
       if (mounted) {
         setState(() {
@@ -96,15 +99,32 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
   }
 
   List<MatchModel> get _filtered {
-    return _matches.where((m) {
-      if (_filterVenueId.isNotEmpty && m.venueId?.toString() != _filterVenueId) {
+    final matches = _matches.where((m) {
+      if (_filterVenueId.isNotEmpty &&
+          m.venueId?.toString() != _filterVenueId) {
         return false;
       }
-      if (_filterDate.isNotEmpty && (m.matchDate?.substring(0, 10) ?? '') != _filterDate) {
+      if (_filterDate.isNotEmpty &&
+          (m.matchDate?.substring(0, 10) ?? '') != _filterDate) {
         return false;
       }
       return true;
     }).toList();
+
+    matches.sort((left, right) {
+      final comparison = compareChronology(
+        leftDate: left.matchDate,
+        leftTime: left.startTime,
+        rightDate: right.matchDate,
+        rightTime: right.startTime,
+      );
+      if (comparison != 0) {
+        return comparison;
+      }
+      return left.id.compareTo(right.id);
+    });
+
+    return matches;
   }
 
   String _formatDate(String? dateStr) {
@@ -158,25 +178,32 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                     child: Column(
                       children: [
                         DropdownButtonFormField<String>(
-                          initialValue: _filterVenueId.isEmpty ? null : _filterVenueId,
+                          initialValue:
+                              _filterVenueId.isEmpty ? null : _filterVenueId,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
                             labelText: 'Sede',
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                           ),
-                          hint: const Text('Todas las sedes', style: TextStyle(color: AppColors.muted)),
+                          hint: const Text('Todas las sedes',
+                              style: TextStyle(color: AppColors.muted)),
                           items: [
                             const DropdownMenuItem<String>(
                               value: null,
-                              child: Text('Todas las sedes', style: TextStyle(color: AppColors.muted)),
+                              child: Text('Todas las sedes',
+                                  style: TextStyle(color: AppColors.muted)),
                             ),
                             ..._venues.map((v) => DropdownMenuItem<String>(
-                              value: v['id']?.toString() ?? '',
-                              child: Text(v['name'] ?? v['nombre'] ?? '', style: const TextStyle(color: Colors.white)),
-                            )),
+                                  value: v['id']?.toString() ?? '',
+                                  child: Text(v['name'] ?? v['nombre'] ?? '',
+                                      style:
+                                          const TextStyle(color: Colors.white)),
+                                )),
                           ],
-                          onChanged: (v) => setState(() => _filterVenueId = v ?? ''),
+                          onChanged: (v) =>
+                              setState(() => _filterVenueId = v ?? ''),
                         ),
                         const SizedBox(height: 8),
                         Row(
@@ -184,30 +211,41 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                             Expanded(
                               child: TextButton.icon(
                                 onPressed: () async {
-                                  final picked = await showAdaptiveAppDatePicker(
+                                  final picked =
+                                      await showAdaptiveAppDatePicker(
                                     context: context,
                                     initialDate: DateTime.now(),
-                                    firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                                    lastDate: DateTime.now().add(const Duration(days: 60)),
+                                    firstDate: DateTime.now()
+                                        .subtract(const Duration(days: 30)),
+                                    lastDate: DateTime.now()
+                                        .add(const Duration(days: 60)),
                                   );
                                   if (picked != null) {
-                                    setState(() => _filterDate = DateFormat('yyyy-MM-dd').format(picked));
+                                    setState(() => _filterDate =
+                                        DateFormat('yyyy-MM-dd')
+                                            .format(picked));
                                   }
                                 },
-                                icon: const Icon(Icons.calendar_today, size: 16),
+                                icon:
+                                    const Icon(Icons.calendar_today, size: 16),
                                 label: Text(
-                                  _filterDate.isEmpty ? 'Filtrar por fecha' : _filterDate,
+                                  _filterDate.isEmpty
+                                      ? 'Filtrar por fecha'
+                                      : _filterDate,
                                   style: const TextStyle(fontSize: 13),
                                 ),
                               ),
                             ),
-                            if (_filterVenueId.isNotEmpty || _filterDate.isNotEmpty)
+                            if (_filterVenueId.isNotEmpty ||
+                                _filterDate.isNotEmpty)
                               TextButton(
                                 onPressed: () => setState(() {
                                   _filterVenueId = '';
                                   _filterDate = '';
                                 }),
-                                child: const Text('Limpiar', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                                child: const Text('Limpiar',
+                                    style: TextStyle(
+                                        color: AppColors.muted, fontSize: 13)),
                               ),
                           ],
                         ),
@@ -222,13 +260,17 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.emoji_events, color: AppColors.border, size: 48),
+                              const Icon(Icons.emoji_events,
+                                  color: AppColors.border, size: 48),
                               const SizedBox(height: 12),
-                              const Text('No se encontraron partidos', style: TextStyle(color: AppColors.muted)),
+                              const Text('No se encontraron partidos',
+                                  style: TextStyle(color: AppColors.muted)),
                               const SizedBox(height: 12),
                               TextButton(
-                                onPressed: () => context.push('/matches/create'),
-                                child: const Text('Crear el primero', style: TextStyle(color: AppColors.primary)),
+                                onPressed: () =>
+                                    context.push('/matches/create'),
+                                child: const Text('Crear el primero',
+                                    style: TextStyle(color: AppColors.primary)),
                               ),
                             ],
                           ),
@@ -240,11 +282,13 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                           child: ListView.separated(
                             padding: const EdgeInsets.all(16),
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final match = filtered[index];
                               return GestureDetector(
-                                onTap: () => context.push('/matches/${match.id}'),
+                                onTap: () =>
+                                    context.push('/matches/${match.id}'),
                                 child: Container(
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
@@ -253,14 +297,18 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                                     border: Border.all(color: AppColors.border),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
                                         children: [
                                           Row(
                                             children: [
-                                              const Icon(Icons.emoji_events, color: AppColors.primary, size: 18),
+                                              const Icon(Icons.emoji_events,
+                                                  color: AppColors.primary,
+                                                  size: 18),
                                               const SizedBox(width: 8),
                                               Text(
                                                 _formatDate(match.matchDate),
@@ -273,8 +321,10 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                                             ],
                                           ),
                                           PadelBadge(
-                                            label: _matchStatusLabel(match.status),
-                                            variant: _matchStatusVariant(match.status),
+                                            label:
+                                                _matchStatusLabel(match.status),
+                                            variant: _matchStatusVariant(
+                                                match.status),
                                           ),
                                         ],
                                       ),
@@ -282,45 +332,59 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                                       if (match.startTime != null)
                                         Row(
                                           children: [
-                                            const Icon(Icons.access_time, color: AppColors.muted, size: 14),
+                                            const Icon(Icons.access_time,
+                                                color: AppColors.muted,
+                                                size: 14),
                                             const SizedBox(width: 6),
                                             Text(
                                               match.startTime!.length >= 5
-                                                  ? match.startTime!.substring(0, 5)
+                                                  ? match.startTime!
+                                                      .substring(0, 5)
                                                   : match.startTime!,
-                                              style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                                              style: const TextStyle(
+                                                  color: AppColors.muted,
+                                                  fontSize: 13),
                                             ),
                                           ],
                                         ),
                                       const SizedBox(height: 4),
                                       Row(
                                         children: [
-                                          const Icon(Icons.location_on_outlined, color: AppColors.muted, size: 14),
+                                          const Icon(Icons.location_on_outlined,
+                                              color: AppColors.muted, size: 14),
                                           const SizedBox(width: 6),
                                           Text(
                                             match.venueName ?? 'Sin sede',
-                                            style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                                            style: const TextStyle(
+                                                color: AppColors.muted,
+                                                fontSize: 13),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 4),
                                       Row(
                                         children: [
-                                          const Icon(Icons.people_outline, color: AppColors.muted, size: 14),
+                                          const Icon(Icons.people_outline,
+                                              color: AppColors.muted, size: 14),
                                           const SizedBox(width: 6),
                                           Text(
                                             '${match.playerCount} / ${match.maxPlayers} jugadores',
-                                            style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                                            style: const TextStyle(
+                                                color: AppColors.muted,
+                                                fontSize: 13),
                                           ),
                                         ],
                                       ),
-                                      if (match.minLevel != null && match.maxLevel != null) ...[
+                                      if (match.minLevel != null &&
+                                          match.maxLevel != null) ...[
                                         const SizedBox(height: 8),
                                         Row(
                                           children: [
                                             LevelBadge(level: match.minLevel),
                                             const SizedBox(width: 4),
-                                            const Text('—', style: TextStyle(color: AppColors.muted)),
+                                            const Text('—',
+                                                style: TextStyle(
+                                                    color: AppColors.muted)),
                                             const SizedBox(width: 4),
                                             LevelBadge(level: match.maxLevel),
                                           ],
@@ -330,7 +394,9 @@ class _MatchListScreenState extends ConsumerState<MatchListScreen> {
                                         const SizedBox(height: 4),
                                         Text(
                                           'Creado por ${match.creatorName}',
-                                          style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                          style: const TextStyle(
+                                              color: AppColors.muted,
+                                              fontSize: 12),
                                         ),
                                       ],
                                     ],

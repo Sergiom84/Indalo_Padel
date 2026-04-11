@@ -12,7 +12,12 @@ const router = express.Router();
 // GET /api/padel/venues - Listar sedes activas
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(`
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(requestedLimit, 50))
+        : null;
+
+    let query = `
       WITH venues_with_courts AS (
         SELECT
           v.*,
@@ -36,7 +41,15 @@ router.get('/', async (req, res) => {
           id ASC
       ) deduped
       ORDER BY name, id
-    `);
+    `;
+
+    const params = [];
+    if (limit != null) {
+      query += ` LIMIT $1`;
+      params.push(limit);
+    }
+
+    const result = await pool.query(query, params);
     res.json({ venues: result.rows });
   } catch (error) {
     console.error('Error listando sedes:', error);

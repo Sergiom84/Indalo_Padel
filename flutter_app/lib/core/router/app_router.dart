@@ -21,7 +21,13 @@ import '../../features/venues/screens/venue_list_screen.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
-final _shellNavigatorKey = GlobalKey<NavigatorState>();
+final _homeNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'home');
+final _venuesNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'venues');
+final _calendarNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'calendar');
+final _communityNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'community');
+final _playersNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'players');
+final _profileNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'profile');
 
 class _RouterRefreshNotifier extends ChangeNotifier {
   void refresh() => notifyListeners();
@@ -77,84 +83,116 @@ final routerProvider = Provider<GoRouter>((ref) {
           return BookingConfirmationScreen(bookingData: extra);
         },
       ),
-      ShellRoute(
-        navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) {
-          return AppShell(location: state.matchedLocation, child: child);
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppShell(navigationShell: navigationShell);
         },
-        routes: [
-          GoRoute(
-            path: '/',
-            builder: (context, state) => const HomeScreen(),
-          ),
-          GoRoute(
-            path: '/venues',
-            builder: (context, state) => const VenueListScreen(),
+        branches: [
+          StatefulShellBranch(
+            navigatorKey: _homeNavigatorKey,
             routes: [
               GoRoute(
-                path: ':id',
+                path: '/',
+                builder: (context, state) => const HomeScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _venuesNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/venues',
+                builder: (context, state) => const VenueListScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = state.pathParameters['id']!;
+                      return VenueDetailScreen(venueId: id);
+                    },
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: '/booking/:courtId',
                 builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return VenueDetailScreen(venueId: id);
+                  final courtId = state.pathParameters['courtId']!;
+                  final extra = state.extra as Map<String, dynamic>? ?? {};
+                  return BookingFormScreen(
+                    courtId: courtId,
+                    bookingState: extra,
+                  );
                 },
               ),
             ],
           ),
-          GoRoute(
-            path: '/booking/:courtId',
-            builder: (context, state) {
-              final courtId = state.pathParameters['courtId']!;
-              final extra = state.extra as Map<String, dynamic>? ?? {};
-              return BookingFormScreen(courtId: courtId, bookingState: extra);
-            },
-          ),
-          GoRoute(
-            path: '/my-bookings',
-            builder: (context, state) => const MyBookingsScreen(),
-          ),
-          GoRoute(
-            path: '/calendar',
-            builder: (context, state) => const MyBookingsScreen(),
-          ),
-          GoRoute(
-            path: '/community',
-            builder: (context, state) => const CommunityScreen(),
-          ),
-          GoRoute(
-            path: '/matches',
-            builder: (context, state) => const MatchListScreen(),
+          StatefulShellBranch(
+            navigatorKey: _calendarNavigatorKey,
             routes: [
               GoRoute(
-                path: 'create',
-                builder: (context, state) => const MatchCreateScreen(),
+                path: '/calendar',
+                builder: (context, state) => const MyBookingsScreen(),
               ),
               GoRoute(
-                path: ':id',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return MatchDetailScreen(matchId: id);
-                },
+                path: '/my-bookings',
+                builder: (context, state) => const MyBookingsScreen(),
               ),
             ],
           ),
-          GoRoute(
-            path: '/profile',
-            builder: (context, state) => const ProfileScreen(),
-          ),
-          GoRoute(
-            path: '/players',
-            builder: (context, state) => const PlayerSearchScreen(),
+          StatefulShellBranch(
+            navigatorKey: _communityNavigatorKey,
             routes: [
               GoRoute(
-                path: 'favorites',
-                builder: (context, state) => const FavoritesListScreen(),
+                path: '/community',
+                builder: (context, state) => const CommunityScreen(),
               ),
               GoRoute(
-                path: ':id',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return PlayerProfileScreen(playerId: id);
-                },
+                path: '/matches',
+                builder: (context, state) => const MatchListScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'create',
+                    builder: (context, state) => const MatchCreateScreen(),
+                  ),
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = state.pathParameters['id']!;
+                      return MatchDetailScreen(matchId: id);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _playersNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/players',
+                builder: (context, state) => const PlayerSearchScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'favorites',
+                    builder: (context, state) => const FavoritesListScreen(),
+                  ),
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = state.pathParameters['id']!;
+                      return PlayerProfileScreen(playerId: id);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _profileNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/profile',
+                builder: (context, state) => const ProfileScreen(),
               ),
             ],
           ),

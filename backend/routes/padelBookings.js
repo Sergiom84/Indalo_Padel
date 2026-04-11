@@ -12,7 +12,7 @@ import {
   respondToBooking,
   updateBooking,
 } from '../services/padelBookingService.js';
-import { runCalendarSyncCycle } from '../services/padelCalendarSync.js';
+import { scheduleCalendarSyncCycle } from '../services/padelCalendarSync.js';
 
 const router = express.Router();
 
@@ -36,9 +36,7 @@ router.post('/', authenticateToken, validate(createBookingSchema), async (req, r
 
 router.get('/my-calendar', authenticateToken, async (req, res) => {
   try {
-    await runCalendarSyncCycle().catch((error) => {
-      console.error('Error sincronizando calendario antes de responder /my-calendar:', error.message);
-    });
+    scheduleCalendarSyncCycle();
     const result = await getCalendarData(req.user.userId);
     return res.json(result);
   } catch (error) {

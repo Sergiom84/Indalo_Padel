@@ -6,6 +6,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/utils/chronology.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../models/calendar_booking_model.dart';
@@ -28,6 +29,35 @@ PadelBadgeVariant _statusVariant(String status) {
     default:
       return PadelBadgeVariant.neutral;
   }
+}
+
+List<CalendarBookingModel> mergeUniqueCalendarBookings({
+  required List<CalendarBookingModel> primary,
+  required List<CalendarBookingModel> secondary,
+}) {
+  final unique = <int, CalendarBookingModel>{};
+
+  for (final booking in [...primary, ...secondary]) {
+    unique.putIfAbsent(booking.id, () => booking);
+  }
+
+  return unique.values.toList();
+}
+
+int compareCalendarBookingsChronologically(
+  CalendarBookingModel left,
+  CalendarBookingModel right,
+) {
+  final comparison = compareChronology(
+    leftDate: left.bookingDate,
+    leftTime: left.startTime,
+    rightDate: right.bookingDate,
+    rightTime: right.startTime,
+  );
+  if (comparison != 0) {
+    return comparison;
+  }
+  return left.id.compareTo(right.id);
 }
 
 class MyBookingsScreen extends ConsumerStatefulWidget {
@@ -156,22 +186,22 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
         managedHistory: [],
       );
 
-  /// All upcoming bookings merged and sorted by date.
+  /// All upcoming bookings merged and sorted by date and start time.
   List<CalendarBookingModel> get _allUpcoming {
-    final all = [
-      ..._feedOrEmpty.agendaUpcoming,
-      ..._feedOrEmpty.managedUpcoming,
-    ];
-    all.sort((a, b) => (a.bookingDate ?? '').compareTo(b.bookingDate ?? ''));
+    final all = mergeUniqueCalendarBookings(
+      primary: _feedOrEmpty.managedUpcoming,
+      secondary: _feedOrEmpty.agendaUpcoming,
+    );
+    all.sort(compareCalendarBookingsChronologically);
     return all;
   }
 
   List<CalendarBookingModel> get _allHistory {
-    final all = [
-      ..._feedOrEmpty.agendaHistory,
-      ..._feedOrEmpty.managedHistory,
-    ];
-    all.sort((a, b) => (b.bookingDate ?? '').compareTo(a.bookingDate ?? ''));
+    final all = mergeUniqueCalendarBookings(
+      primary: _feedOrEmpty.managedHistory,
+      secondary: _feedOrEmpty.agendaHistory,
+    );
+    all.sort(compareCalendarBookingsChronologically);
     return all;
   }
 
@@ -199,15 +229,15 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
 
   List<CalendarBookingModel> _bookingsForDay(DateTime day) {
     final all = [..._allUpcoming, ..._allHistory];
-    return all.where((b) {
-      if (b.bookingDate == null) return false;
-      try {
-        final d = DateTime.parse(b.bookingDate!);
-        return d.year == day.year && d.month == day.month && d.day == day.day;
-      } catch (_) {
-        return false;
-      }
+    final bookings = all.where((b) {
+      final bookingDateTime = chronologyDateTime(b.bookingDate, b.startTime);
+      if (bookingDateTime == null) return false;
+      return bookingDateTime.year == day.year &&
+          bookingDateTime.month == day.month &&
+          bookingDateTime.day == day.day;
     }).toList();
+    bookings.sort(compareCalendarBookingsChronologically);
+    return bookings;
   }
 
   String _formatDate(String? dateStr) {
@@ -361,8 +391,9 @@ class _AgendaTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedBookings =
-        selectedDay != null ? bookingsForDay(selectedDay!) : <CalendarBookingModel>[];
+    final selectedBookings = selectedDay != null
+        ? bookingsForDay(selectedDay!)
+        : <CalendarBookingModel>[];
     final next3 = upcoming.take(3).toList();
 
     return RefreshIndicator(
@@ -614,6 +645,28 @@ class _CompactBookingCard extends StatefulWidget {
 class _CompactBookingCardState extends State<_CompactBookingCard> {
   bool _busy = false;
 
+  Widget _buildActionButton({
+    required String label,
+    required VoidCallback? onPressed,
+    Color? foregroundColor,
+  }) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: foregroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final booking = widget.booking;
@@ -648,6 +701,8 @@ class _CompactBookingCardState extends State<_CompactBookingCard> {
                   children: [
                     Text(
                       booking.venueName ?? 'Reserva',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -657,6 +712,8 @@ class _CompactBookingCardState extends State<_CompactBookingCard> {
                     const SizedBox(height: 2),
                     Text(
                       '${widget.formatDate(booking.bookingDate)} · ${widget.formatTimeRange(booking)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style:
                           const TextStyle(color: AppColors.muted, fontSize: 12),
                     ),
@@ -686,71 +743,105 @@ class _CompactBookingCardState extends State<_CompactBookingCard> {
                   .toList(),
             ),
           ],
-          if (widget.onRespond != null || widget.onEdit != null || widget.onCancel != null)
+          if (widget.onRespond != null ||
+              widget.onEdit != null ||
+              widget.onCancel != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  if (booking.price != null)
-                    Text(
-                      '${booking.price!.toStringAsFixed(0)}€',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final actions = <Widget>[
+                    if (widget.onRespond != null &&
+                        booking.inviteStatus != 'cancelada' &&
+                        booking.status != 'cancelada') ...[
+                      _buildActionButton(
+                        label: booking.inviteStatus == 'aceptada'
+                            ? 'Aceptada'
+                            : 'Aceptar',
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                setState(() => _busy = true);
+                                await widget.onRespond!(booking.id, 'accepted');
+                                if (mounted) setState(() => _busy = false);
+                              },
                       ),
-                    ),
-                  const Spacer(),
-                  if (widget.onRespond != null &&
-                      booking.inviteStatus != 'cancelada' &&
-                      booking.status != 'cancelada') ...[
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              setState(() => _busy = true);
-                              await widget.onRespond!(booking.id, 'accepted');
-                              if (mounted) setState(() => _busy = false);
-                            },
-                      child: Text(
-                          booking.inviteStatus == 'aceptada'
-                              ? 'Aceptada'
-                              : 'Aceptar'),
-                    ),
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              setState(() => _busy = true);
-                              await widget.onRespond!(booking.id, 'declined');
-                              if (mounted) setState(() => _busy = false);
-                            },
-                      child: Text(
-                          booking.inviteStatus == 'rechazada'
-                              ? 'Rechazada'
-                              : 'Rechazar'),
-                    ),
-                  ],
-                  if (widget.onEdit != null)
-                    TextButton(
-                      onPressed: () => widget.onEdit!(booking),
-                      child: const Text('Editar'),
-                    ),
-                  if (widget.onCancel != null &&
-                      booking.status != 'cancelada')
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              setState(() => _busy = true);
-                              await widget.onCancel!(booking.id);
-                              if (mounted) setState(() => _busy = false);
-                            },
-                      style: TextButton.styleFrom(
-                          foregroundColor: AppColors.danger),
-                      child:
-                          Text(_busy ? 'Cancelando...' : 'Cancelar'),
-                    ),
-                ],
+                      _buildActionButton(
+                        label: booking.inviteStatus == 'rechazada'
+                            ? 'Rechazada'
+                            : 'Rechazar',
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                setState(() => _busy = true);
+                                await widget.onRespond!(booking.id, 'declined');
+                                if (mounted) setState(() => _busy = false);
+                              },
+                      ),
+                    ],
+                    if (widget.onEdit != null)
+                      _buildActionButton(
+                        label: 'Editar',
+                        onPressed: () => widget.onEdit!(booking),
+                      ),
+                    if (widget.onCancel != null &&
+                        booking.status != 'cancelada')
+                      _buildActionButton(
+                        label: _busy ? 'Cancelando...' : 'Cancelar',
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                setState(() => _busy = true);
+                                await widget.onCancel!(booking.id);
+                                if (mounted) setState(() => _busy = false);
+                              },
+                        foregroundColor: AppColors.danger,
+                      ),
+                  ];
+
+                  final priceWidget = booking.price != null
+                      ? Text(
+                          '${booking.price!.toStringAsFixed(0)}€',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        )
+                      : null;
+
+                  if (constraints.maxWidth >= 420) {
+                    return Row(
+                      children: [
+                        if (priceWidget != null) priceWidget,
+                        const Spacer(),
+                        ...actions.map(
+                          (action) => Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: action,
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (priceWidget != null) priceWidget,
+                      if (priceWidget != null && actions.isNotEmpty)
+                        const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          alignment: WrapAlignment.end,
+                          children: actions,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
         ],

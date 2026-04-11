@@ -24,6 +24,9 @@ Para un dispositivo físico o un backend remoto:
 flutter run --dart-define=API_BASE_URL=http://TU_IP:3011/api
 ```
 
+En release para Play Console debes compilar siempre con una URL publica.
+`10.0.2.2` y `localhost` solo sirven en desarrollo local.
+
 ## Build Android release (AAB)
 
 1. Desde la raíz del repo, crea el keystore:

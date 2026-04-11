@@ -7,6 +7,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../players/models/player_model.dart';
 
 Future<List<PlayerModel>?> showPlayerInvitePicker({
@@ -45,7 +46,11 @@ class _PlayerInvitePickerSheetState
   @override
   void initState() {
     super.initState();
+    final currentUserId = ref.read(authProvider).user?.id;
     for (final player in widget.initialSelection) {
+      if (currentUserId != null && player.userId == currentUserId) {
+        continue;
+      }
       _selected[player.userId] = player;
     }
     _searchCtrl.addListener(_onSearchChanged);
@@ -115,6 +120,10 @@ class _PlayerInvitePickerSheetState
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final currentUserId = ref.watch(authProvider).user?.id;
+    final visiblePlayers = currentUserId == null
+        ? _players
+        : _players.where((player) => player.userId != currentUserId).toList();
 
     return SafeArea(
       child: Padding(
@@ -196,7 +205,7 @@ class _PlayerInvitePickerSheetState
                 Expanded(
                   child: _loading
                       ? const Center(child: LoadingSpinner())
-                      : _players.isEmpty
+                      : visiblePlayers.isEmpty
                           ? const Center(
                               child: Text(
                                 'No se encontraron jugadores',
@@ -206,11 +215,11 @@ class _PlayerInvitePickerSheetState
                           : ListView.separated(
                               controller: controller,
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                              itemCount: _players.length,
+                              itemCount: visiblePlayers.length,
                               separatorBuilder: (_, __) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (context, index) {
-                                final player = _players[index];
+                                final player = visiblePlayers[index];
                                 final selected =
                                     _selected.containsKey(player.userId);
                                 return InkWell(
