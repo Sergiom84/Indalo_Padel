@@ -12,7 +12,9 @@ String? resolveBaseUrl() {
   }
 
   if (kReleaseMode) {
-    return null;
+    // Sin --dart-define=API_BASE_URL explícito, fallback a la URL de producción.
+    // Permite flutter run --release / flutter run -d Chrome --release sin flags extra.
+    return 'https://indalo-padel.onrender.com/api';
   }
 
   if (kIsWeb ||
@@ -140,8 +142,8 @@ class ApiClient {
     }
 
     throw const ApiConfigurationException(
-      'La build release no tiene API_BASE_URL configurada. '
-      'Genera el AAB con --dart-define=API_BASE_URL=https://TU_API_PUBLICA/api',
+      'API_BASE_URL no configurada. '
+      'Para builds custom usa --dart-define=API_BASE_URL=https://TU_API/api',
     );
   }
 

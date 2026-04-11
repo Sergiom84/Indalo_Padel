@@ -11,7 +11,17 @@ const router = express.Router();
 // POST /api/padel/auth/register
 router.post('/register', validate(registerSchema), async (req, res) => {
   try {
-    const { nombre, email, password, main_level, sub_level, preferred_side } = req.body;
+    const {
+      nombre,
+      email,
+      password,
+      main_level,
+      sub_level,
+      court_preferences,
+      dominant_hands,
+      availability_preferences,
+      match_preferences,
+    } = req.body;
 
     const existing = await pool.query('SELECT id FROM app.users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
@@ -31,14 +41,26 @@ router.post('/register', validate(registerSchema), async (req, res) => {
 
     // Create player profile
     await pool.query(
-      `INSERT INTO app.padel_player_profiles (user_id, display_name, main_level, sub_level, preferred_side)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO app.padel_player_profiles (
+         user_id,
+         display_name,
+         main_level,
+         sub_level,
+         court_preferences,
+         dominant_hands,
+         availability_preferences,
+         match_preferences
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         user.id,
         nombre,
         main_level || 'bajo',
         sub_level || 'bajo',
-        preferred_side || 'ambos'
+        court_preferences || [],
+        dominant_hands || [],
+        availability_preferences || [],
+        match_preferences || [],
       ]
     );
 

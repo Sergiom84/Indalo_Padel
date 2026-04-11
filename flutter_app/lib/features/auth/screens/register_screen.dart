@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/brand_logo.dart';
+import '../../../shared/utils/player_preferences.dart';
+import '../../../shared/widgets/preference_checkbox_group.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -18,7 +19,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _passwordCtrl = TextEditingController();
   String _mainLevel = 'bajo';
   String _subLevel = 'medio';
-  String _preferredSide = 'ambos';
+  List<String> _courtPreferences = const [];
+  List<String> _dominantHands = const [];
+  List<String> _availabilityPreferences = const [];
+  List<String> _matchPreferences = const [];
   bool _loading = false;
   String? _error;
 
@@ -48,7 +52,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         'password': _passwordCtrl.text,
         'main_level': _mainLevel,
         'sub_level': _subLevel,
-        'preferred_side': _preferredSide,
+        'court_preferences': _courtPreferences,
+        'dominant_hands': _dominantHands,
+        'availability_preferences': _availabilityPreferences,
+        'match_preferences': _matchPreferences,
       });
     } catch (e) {
       setState(() => _error = e.toString());
@@ -107,35 +114,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 16),
-              // Header
-              Center(
-                child: Column(
-                  children: [
-                    const BrandLogo(size: 80, glow: true),
-                    const SizedBox(height: 18),
-                    RichText(
-                      text: const TextSpan(
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                        children: [
-                          TextSpan(text: 'Únete a Indalo'),
-                          TextSpan(
-                              text: '.',
-                              style: TextStyle(color: AppColors.primary)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 4),
               const Center(
                 child: Text(
                   'Crea tu perfil de jugador',
                   style: TextStyle(color: AppColors.muted, fontSize: 14),
+                  textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 28),
@@ -221,12 +204,38 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Preferred side
-              _buildDropdown(
-                label: 'Lado preferido',
-                value: _preferredSide,
-                options: const ['drive', 'reves', 'ambos'],
-                onChanged: (v) => setState(() => _preferredSide = v),
+              PreferenceCheckboxGroup(
+                title: 'Preferencia en pista',
+                options: PlayerPreferenceCatalog.courtPreferences,
+                selectedValues: _courtPreferences,
+                onChanged: (values) =>
+                    setState(() => _courtPreferences = values),
+              ),
+              const SizedBox(height: 16),
+
+              PreferenceCheckboxGroup(
+                title: 'Perfil del jugador',
+                options: PlayerPreferenceCatalog.dominantHands,
+                selectedValues: _dominantHands,
+                onChanged: (values) => setState(() => _dominantHands = values),
+              ),
+              const SizedBox(height: 16),
+
+              PreferenceCheckboxGroup(
+                title: 'Disponibilidad horaria',
+                options: PlayerPreferenceCatalog.availabilityPreferences,
+                selectedValues: _availabilityPreferences,
+                onChanged: (values) =>
+                    setState(() => _availabilityPreferences = values),
+              ),
+              const SizedBox(height: 16),
+
+              PreferenceCheckboxGroup(
+                title: 'Modalidad de juego',
+                options: PlayerPreferenceCatalog.matchPreferences,
+                selectedValues: _matchPreferences,
+                onChanged: (values) =>
+                    setState(() => _matchPreferences = values),
               ),
               const SizedBox(height: 24),
 

@@ -96,7 +96,10 @@ CREATE TABLE IF NOT EXISTS app.padel_player_profiles (
     CASE main_level WHEN 'bajo' THEN 0 WHEN 'medio' THEN 3 WHEN 'alto' THEN 6 END +
     CASE sub_level WHEN 'bajo' THEN 1 WHEN 'medio' THEN 2 WHEN 'alto' THEN 3 END
   ) STORED,
-  preferred_side VARCHAR(10) DEFAULT 'ambos',
+  court_preferences TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  dominant_hands TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  availability_preferences TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  match_preferences TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   preferred_venue_id INTEGER REFERENCES app.padel_venues(id),
   bio TEXT,
   avatar_url TEXT,
@@ -108,7 +111,21 @@ CREATE TABLE IF NOT EXISTS app.padel_player_profiles (
   UNIQUE(user_id),
   CHECK (main_level IN ('bajo', 'medio', 'alto')),
   CHECK (sub_level IN ('bajo', 'medio', 'alto')),
-  CHECK (preferred_side IN ('drive', 'reves', 'ambos'))
+  CONSTRAINT padel_player_profiles_court_preferences_check
+    CHECK (court_preferences <@ ARRAY['drive', 'reves', 'ambos']::TEXT[]),
+  CONSTRAINT padel_player_profiles_dominant_hands_check
+    CHECK (dominant_hands <@ ARRAY['diestro', 'zurdo', 'ambidiestro']::TEXT[]),
+  CONSTRAINT padel_player_profiles_availability_preferences_check
+    CHECK (
+      availability_preferences <@ ARRAY[
+        'mananas',
+        'mediodias',
+        'tardes_noches',
+        'flexible'
+      ]::TEXT[]
+    ),
+  CONSTRAINT padel_player_profiles_match_preferences_check
+    CHECK (match_preferences <@ ARRAY['amistoso', 'competitivo', 'americana']::TEXT[])
 );
 
 -- =============================================

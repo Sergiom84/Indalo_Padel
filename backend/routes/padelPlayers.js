@@ -1,6 +1,8 @@
 import express from 'express';
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { updateProfileSchema } from '../validators/playerValidators.js';
 
 const router = express.Router();
 
@@ -39,24 +41,52 @@ router.get('/profile', authenticateToken, async (req, res) => {
 });
 
 // PUT /api/padel/players/profile - Actualizar perfil
-router.put('/profile', authenticateToken, async (req, res) => {
+router.put('/profile', authenticateToken, validate(updateProfileSchema), async (req, res) => {
   try {
-    const { display_name, main_level, sub_level, preferred_side, preferred_venue_id, bio, avatar_url, is_available } = req.body;
+    const {
+      display_name,
+      main_level,
+      sub_level,
+      preferred_venue_id,
+      bio,
+      avatar_url,
+      is_available,
+      court_preferences,
+      dominant_hands,
+      availability_preferences,
+      match_preferences,
+    } = req.body;
 
     const result = await pool.query(
       `UPDATE app.padel_player_profiles
        SET display_name = COALESCE($1, display_name),
            main_level = COALESCE($2, main_level),
            sub_level = COALESCE($3, sub_level),
-           preferred_side = COALESCE($4, preferred_side),
-           preferred_venue_id = COALESCE($5, preferred_venue_id),
-           bio = COALESCE($6, bio),
-           avatar_url = COALESCE($7, avatar_url),
-           is_available = COALESCE($8, is_available),
+           preferred_venue_id = COALESCE($4, preferred_venue_id),
+           bio = COALESCE($5, bio),
+           avatar_url = COALESCE($6, avatar_url),
+           is_available = COALESCE($7, is_available),
+           court_preferences = COALESCE($8, court_preferences),
+           dominant_hands = COALESCE($9, dominant_hands),
+           availability_preferences = COALESCE($10, availability_preferences),
+           match_preferences = COALESCE($11, match_preferences),
            updated_at = NOW()
-       WHERE user_id = $9
+       WHERE user_id = $12
        RETURNING *`,
-      [display_name, main_level, sub_level, preferred_side, preferred_venue_id, bio, avatar_url, is_available, req.user.userId]
+      [
+        display_name,
+        main_level,
+        sub_level,
+        preferred_venue_id,
+        bio,
+        avatar_url,
+        is_available,
+        court_preferences,
+        dominant_hands,
+        availability_preferences,
+        match_preferences,
+        req.user.userId,
+      ]
     );
 
     if (result.rows.length === 0) {
@@ -76,10 +106,16 @@ router.get('/search', async (req, res) => {
     const { name, level, available } = req.query;
 
     let query = `
+      WITH ratings AS (
+        SELECT rated_id, AVG(rating) AS avg_rating
+        FROM app.padel_player_ratings
+        GROUP BY rated_id
+      )
       SELECT pp.*, u.nombre, u.email,
-        COALESCE((SELECT AVG(rating) FROM app.padel_player_ratings WHERE rated_id = pp.user_id), 0) as avg_rating
+        COALESCE(r.avg_rating, 0) as avg_rating
       FROM app.padel_player_profiles pp
       JOIN app.users u ON pp.user_id = u.id
+      LEFT JOIN ratings r ON r.rated_id = pp.user_id
       WHERE 1=1
     `;
 
