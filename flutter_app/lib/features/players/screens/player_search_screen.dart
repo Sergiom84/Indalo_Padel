@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../models/player_model.dart';
 
 class PlayerSearchScreen extends ConsumerStatefulWidget {
@@ -21,6 +24,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
   int? _filterLevel;
   bool _filterAvailable = false;
   bool _showFilters = false;
+  Timer? _searchDebounce;
+  int _searchSequence = 0;
 
   @override
   void initState() {
@@ -31,28 +36,43 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _search();
-    });
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), _search);
   }
 
   Future<void> _search() async {
+    _searchDebounce?.cancel();
+    final requestId = ++_searchSequence;
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
       final params = <String, dynamic>{};
-      if (_searchCtrl.text.trim().isNotEmpty) params['name'] = _searchCtrl.text.trim();
-      if (_filterLevel != null) params['level'] = _filterLevel!;
-      if (_filterAvailable) params['available'] = 'true';
+      if (_searchCtrl.text.trim().isNotEmpty) {
+        params['name'] = _searchCtrl.text.trim();
+      }
+      if (_filterLevel != null) {
+        params['level'] = _filterLevel!;
+      }
+      if (_filterAvailable) {
+        params['available'] = 'true';
+      }
 
-      final queryString = params.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value.toString())}').join('&');
-      final data = await api.get('/padel/players/search${queryString.isNotEmpty ? '?$queryString' : ''}');
+      final queryString = params.entries
+          .map((e) => '${e.key}=${Uri.encodeComponent(e.value.toString())}')
+          .join('&');
+      final data = await api.get(
+          '/padel/players/search${queryString.isNotEmpty ? '?$queryString' : ''}');
       final list = data is List ? data : (data['players'] ?? []);
+      if (!mounted || requestId != _searchSequence) {
+        return;
+      }
       if (mounted) {
         setState(() {
           _players = (list as List)
@@ -62,12 +82,19 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && requestId == _searchSequence) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentUserId = ref.watch(authProvider).user?.id;
+    final visiblePlayers = currentUserId == null
+        ? _players
+        : _players.where((player) => player.userId != currentUserId).toList();
+
     return Scaffold(
       backgroundColor: AppColors.dark,
       appBar: AppBar(
@@ -104,7 +131,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
                 hintText: 'Buscar por nombre...',
-                prefixIcon: Icon(Icons.search, color: AppColors.muted, size: 20),
+                prefixIcon:
+                    Icon(Icons.search, color: AppColors.muted, size: 20),
               ),
             ),
           ),
@@ -121,18 +149,23 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
                       labelText: 'Nivel',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
-                    hint: const Text('Todos los niveles', style: TextStyle(color: AppColors.muted)),
+                    hint: const Text('Todos los niveles',
+                        style: TextStyle(color: AppColors.muted)),
                     items: [
                       const DropdownMenuItem<int?>(
                         value: null,
-                        child: Text('Todos los niveles', style: TextStyle(color: AppColors.muted)),
+                        child: Text('Todos los niveles',
+                            style: TextStyle(color: AppColors.muted)),
                       ),
                       ...List.generate(9, (i) => i + 1)
                           .map((n) => DropdownMenuItem<int?>(
                                 value: n,
-                                child: Text('Nivel $n', style: const TextStyle(color: Colors.white)),
+                                child: Text('Nivel $n',
+                                    style:
+                                        const TextStyle(color: Colors.white)),
                               )),
                     ],
                     onChanged: (v) {
@@ -152,7 +185,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
                         },
                       ),
                       const SizedBox(width: 8),
-                      const Text('Solo disponibles', style: TextStyle(color: Colors.white, fontSize: 14)),
+                      const Text('Solo disponibles',
+                          style: TextStyle(color: Colors.white, fontSize: 14)),
                     ],
                   ),
                 ],
@@ -163,26 +197,30 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: LoadingSpinner())
-                : _players.isEmpty
+                : visiblePlayers.isEmpty
                     ? const Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.people_outline, color: AppColors.border, size: 48),
+                            Icon(Icons.people_outline,
+                                color: AppColors.border, size: 48),
                             SizedBox(height: 12),
-                            Text('No se encontraron jugadores', style: TextStyle(color: AppColors.muted)),
+                            Text('No se encontraron jugadores',
+                                style: TextStyle(color: AppColors.muted)),
                           ],
                         ),
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        itemCount: _players.length,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        itemCount: visiblePlayers.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
-                          final player = _players[index];
+                          final player = visiblePlayers[index];
                           return _PlayerCard(
                             player: player,
-                            onTap: () => context.push('/players/${player.userId}'),
+                            onTap: () =>
+                                context.push('/players/${player.userId}'),
                           );
                         },
                       ),
@@ -222,8 +260,13 @@ class _PlayerCard extends StatelessWidget {
               ),
               child: Center(
                 child: Text(
-                  player.displayName.isNotEmpty ? player.displayName[0].toUpperCase() : '?',
-                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 18),
+                  player.displayName.isNotEmpty
+                      ? player.displayName[0].toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18),
                 ),
               ),
             ),
@@ -235,16 +278,15 @@ class _PlayerCard extends StatelessWidget {
                 children: [
                   Text(
                     player.displayName,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15),
                   ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
                       LevelBadge(level: player.level),
-                      if (player.preferredSide != null) ...[
-                        const SizedBox(width: 6),
-                        PadelBadge(label: player.preferredSide!, variant: PadelBadgeVariant.outline),
-                      ],
                     ],
                   ),
                 ],
@@ -261,7 +303,10 @@ class _PlayerCard extends StatelessWidget {
                       const SizedBox(width: 2),
                       Text(
                         player.avgRating.toStringAsFixed(1),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13),
                       ),
                     ],
                   ),
@@ -272,7 +317,9 @@ class _PlayerCard extends StatelessWidget {
                       width: 6,
                       height: 6,
                       decoration: BoxDecoration(
-                        color: player.isAvailable ? AppColors.success : AppColors.muted,
+                        color: player.isAvailable
+                            ? AppColors.success
+                            : AppColors.muted,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -280,7 +327,9 @@ class _PlayerCard extends StatelessWidget {
                     Text(
                       player.isAvailable ? 'Disponible' : 'No disponible',
                       style: TextStyle(
-                        color: player.isAvailable ? AppColors.success : AppColors.muted,
+                        color: player.isAvailable
+                            ? AppColors.success
+                            : AppColors.muted,
                         fontSize: 11,
                       ),
                     ),

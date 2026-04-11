@@ -9,24 +9,13 @@ const router = express.Router();
 // GET /api/padel/matches - Partidos abiertos
 router.get('/', validate(matchQuerySchema, 'query'), async (req, res) => {
   try {
-    const { level, date, venue_id } = req.query;
+    const { level, date, venue_id, limit } = req.query;
 
     let query = `
       SELECT m.*,
         m.current_players as player_count,
         v.name as venue_name, v.location as venue_location,
-        u.nombre as creator_name,
-        (SELECT json_agg(json_build_object(
-          'user_id', mp.user_id,
-          'team', mp.team,
-          'nombre', pu.nombre,
-          'display_name', pp.display_name,
-          'numeric_level', pp.numeric_level
-        ))
-        FROM app.padel_match_players mp
-        JOIN app.users pu ON mp.user_id = pu.id
-        LEFT JOIN app.padel_player_profiles pp ON mp.user_id = pp.user_id
-        WHERE mp.match_id = m.id) as players
+        u.nombre as creator_name
       FROM app.padel_matches m
       LEFT JOIN app.padel_venues v ON m.venue_id = v.id
       JOIN app.users u ON m.created_by = u.id
@@ -55,6 +44,11 @@ router.get('/', validate(matchQuerySchema, 'query'), async (req, res) => {
     }
 
     query += ' ORDER BY m.match_date ASC, m.start_time ASC';
+
+    if (limit) {
+      query += ` LIMIT $${paramIdx}`;
+      params.push(parseInt(limit));
+    }
 
     const result = await pool.query(query, params);
     res.json({ matches: result.rows });
@@ -113,7 +107,7 @@ router.get('/:id', async (req, res) => {
     }
 
     const playersResult = await pool.query(
-      `SELECT mp.*, u.nombre, pp.display_name, pp.main_level, pp.sub_level, pp.numeric_level, pp.preferred_side
+      `SELECT mp.*, u.nombre, pp.display_name, pp.main_level, pp.sub_level, pp.numeric_level
        FROM app.padel_match_players mp
        JOIN app.users u ON mp.user_id = u.id
        LEFT JOIN app.padel_player_profiles pp ON mp.user_id = pp.user_id

@@ -9,7 +9,6 @@ import '../providers/current_profile_provider.dart';
 import '../../../shared/utils/player_preferences.dart';
 import '../../../shared/utils/profile_image_picker.dart';
 import '../../../shared/widgets/loading_spinner.dart';
-import '../../../shared/widgets/padel_badge.dart';
 import '../../../shared/widgets/preference_checkbox_group.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -24,8 +23,29 @@ class ProfileScreen extends ConsumerStatefulWidget {
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _loading = true;
   bool _saving = false;
+  bool _preferencesOpen = false;
   String? _error;
   Map<String, dynamic>? _profile;
+  List<String> _courtPreferences = const [];
+  List<String> _dominantHands = const [];
+  List<String> _availabilityPreferences = const [];
+  List<String> _matchPreferences = const [];
+
+  void _syncProfileState(Map<String, dynamic> profile) {
+    _profile = profile;
+    _courtPreferences = PlayerPreferenceCatalog.parseValues(
+      profile['court_preferences'],
+    );
+    _dominantHands = PlayerPreferenceCatalog.parseValues(
+      profile['dominant_hands'],
+    );
+    _availabilityPreferences = PlayerPreferenceCatalog.parseValues(
+      profile['availability_preferences'],
+    );
+    _matchPreferences = PlayerPreferenceCatalog.parseValues(
+      profile['match_preferences'],
+    );
+  }
 
   @override
   void initState() {
@@ -45,7 +65,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         return;
       }
       setState(() {
-        _profile = Map<String, dynamic>.from(data['profile'] as Map);
+        _syncProfileState(Map<String, dynamic>.from(data['profile'] as Map));
         _loading = false;
       });
     } catch (e) {
@@ -69,12 +89,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
       final incoming = Map<String, dynamic>.from(data['profile'] as Map);
       setState(() {
-        _profile = {
+        _syncProfileState({
           ...?_profile,
           ...incoming,
           if (_profile?['nombre'] != null) 'nombre': _profile!['nombre'],
           if (_profile?['email'] != null) 'email': _profile!['email'],
-        };
+        });
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Perfil actualizado')),
@@ -114,24 +134,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ref.read(authProvider).user?.nombre ??
                   '')
               .toString(),
-          initialBio: (profile['bio'] ?? '').toString(),
           initialAvatarUrl: profile['avatar_url']?.toString(),
-          initialCourtPreferences: PlayerPreferenceCatalog.parseValues(
-            profile['court_preferences'],
-          ),
-          initialDominantHands: PlayerPreferenceCatalog.parseValues(
-            profile['dominant_hands'],
-          ),
-          initialAvailabilityPreferences: PlayerPreferenceCatalog.parseValues(
-            profile['availability_preferences'],
-          ),
-          initialMatchPreferences: PlayerPreferenceCatalog.parseValues(
-            profile['match_preferences'],
-          ),
           onSave: _updateProfile,
         );
       },
     );
+  }
+
+  Future<void> _savePreferences() async {
+    await _updateProfile({
+      'court_preferences': _courtPreferences,
+      'dominant_hands': _dominantHands,
+      'availability_preferences': _availabilityPreferences,
+      'match_preferences': _matchPreferences,
+    });
   }
 
   Future<void> _logout() async {
@@ -151,7 +167,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final email = (profile['email'] ?? authUser?.email ?? '').toString();
     final availability = (profile['is_available'] ?? false) as bool;
     final avatarUrl = profile['avatar_url']?.toString();
-    final preferenceSections = _PreferenceSummaryData.fromProfile(profile);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -290,54 +305,89 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     const SizedBox(height: 20),
                     _ProfileGroup(
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Preferencias de juego',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              if (preferenceSections.isEmpty)
-                                const Text(
-                                  'Aún no has configurado tus preferencias.',
-                                  style: TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 14,
-                                  ),
-                                )
-                              else
-                                for (var index = 0;
-                                    index < preferenceSections.length;
-                                    index++) ...[
-                                  _PreferenceSummarySection(
-                                    title: preferenceSections[index].title,
-                                    labels: preferenceSections[index].labels,
-                                  ),
-                                  if (index < preferenceSections.length - 1)
-                                    const SizedBox(height: 14),
-                                ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    _ProfileGroup(
-                      children: [
                         _ProfileActionTile(
                           icon: isCupertinoPlatform
                               ? CupertinoIcons.pencil_circle
                               : Icons.edit_note,
                           title: 'Editar perfil',
-                          subtitle: 'Nombre público, bio, foto y preferencias.',
+                          subtitle: 'Foto, nombre público y contraseña.',
                           onTap: _openEditSheet,
+                        ),
+                        _ProfileExpandableTile(
+                          icon: isCupertinoPlatform
+                              ? CupertinoIcons.slider_horizontal_3
+                              : Icons.tune,
+                          title: 'Preferencias',
+                          subtitle:
+                              'Pista, perfil, disponibilidad y modalidad.',
+                          isOpen: _preferencesOpen,
+                          onTap: () => setState(
+                            () => _preferencesOpen = !_preferencesOpen,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                PreferenceCheckboxGroup(
+                                  title: 'Preferencia en pista',
+                                  options:
+                                      PlayerPreferenceCatalog.courtPreferences,
+                                  selectedValues: _courtPreferences,
+                                  enabled: !_saving,
+                                  onChanged: (values) => setState(
+                                    () => _courtPreferences = values,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                PreferenceCheckboxGroup(
+                                  title: 'Perfil del jugador',
+                                  options:
+                                      PlayerPreferenceCatalog.dominantHands,
+                                  selectedValues: _dominantHands,
+                                  enabled: !_saving,
+                                  onChanged: (values) => setState(
+                                    () => _dominantHands = values,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                PreferenceCheckboxGroup(
+                                  title: 'Disponibilidad horaria',
+                                  options: PlayerPreferenceCatalog
+                                      .availabilityPreferences,
+                                  selectedValues: _availabilityPreferences,
+                                  enabled: !_saving,
+                                  onChanged: (values) => setState(
+                                    () => _availabilityPreferences = values,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                PreferenceCheckboxGroup(
+                                  title: 'Modalidad de juego',
+                                  options:
+                                      PlayerPreferenceCatalog.matchPreferences,
+                                  selectedValues: _matchPreferences,
+                                  enabled: !_saving,
+                                  onChanged: (values) => setState(
+                                    () => _matchPreferences = values,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton(
+                                    onPressed:
+                                        _saving ? null : _savePreferences,
+                                    child: Text(
+                                      _saving
+                                          ? 'Guardando...'
+                                          : 'Guardar preferencias',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                         _ProfileActionTile(
                           icon: isCupertinoPlatform
@@ -358,22 +408,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
 class _EditProfileSheet extends StatefulWidget {
   final String initialDisplayName;
-  final String initialBio;
   final String? initialAvatarUrl;
-  final List<String> initialCourtPreferences;
-  final List<String> initialDominantHands;
-  final List<String> initialAvailabilityPreferences;
-  final List<String> initialMatchPreferences;
   final Future<bool> Function(Map<String, dynamic> payload) onSave;
 
   const _EditProfileSheet({
     required this.initialDisplayName,
-    required this.initialBio,
     required this.initialAvatarUrl,
-    required this.initialCourtPreferences,
-    required this.initialDominantHands,
-    required this.initialAvailabilityPreferences,
-    required this.initialMatchPreferences,
     required this.onSave,
   });
 
@@ -383,31 +423,28 @@ class _EditProfileSheet extends StatefulWidget {
 
 class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _displayNameCtrl;
-  late final TextEditingController _bioCtrl;
-  late List<String> _courtPreferences;
-  late List<String> _dominantHands;
-  late List<String> _availabilityPreferences;
-  late List<String> _matchPreferences;
+  late final TextEditingController _newPasswordCtrl;
+  late final TextEditingController _confirmPasswordCtrl;
   String? _avatarUrl;
   bool _saving = false;
   bool _pickingImage = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void initState() {
     super.initState();
     _displayNameCtrl = TextEditingController(text: widget.initialDisplayName);
-    _bioCtrl = TextEditingController(text: widget.initialBio);
-    _courtPreferences = [...widget.initialCourtPreferences];
-    _dominantHands = [...widget.initialDominantHands];
-    _availabilityPreferences = [...widget.initialAvailabilityPreferences];
-    _matchPreferences = [...widget.initialMatchPreferences];
+    _newPasswordCtrl = TextEditingController();
+    _confirmPasswordCtrl = TextEditingController();
     _avatarUrl = widget.initialAvatarUrl;
   }
 
   @override
   void dispose() {
     _displayNameCtrl.dispose();
-    _bioCtrl.dispose();
+    _newPasswordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     super.dispose();
   }
 
@@ -443,6 +480,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
   Future<void> _save() async {
     final displayName = _displayNameCtrl.text.trim();
+    final newPassword = _newPasswordCtrl.text;
+    final confirmPassword = _confirmPasswordCtrl.text;
+
     if (displayName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -453,15 +493,31 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       return;
     }
 
+    if (newPassword.isNotEmpty && newPassword.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La nueva contraseña debe tener al menos 6 caracteres'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    if (newPassword != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La confirmación de contraseña no coincide'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     final didSave = await widget.onSave({
       'display_name': displayName,
-      'bio': _bioCtrl.text.trim(),
       'avatar_url': (_avatarUrl ?? '').trim(),
-      'court_preferences': _courtPreferences,
-      'dominant_hands': _dominantHands,
-      'availability_preferences': _availabilityPreferences,
-      'match_preferences': _matchPreferences,
+      if (newPassword.isNotEmpty) 'new_password': newPassword,
     });
     if (!mounted) {
       return;
@@ -481,7 +537,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       curve: Curves.easeOut,
       padding: EdgeInsets.only(bottom: bottomInset),
       child: FractionallySizedBox(
-        heightFactor: 0.9,
+        heightFactor: 0.76,
         child: Container(
           decoration: const BoxDecoration(
             color: AppColors.surface,
@@ -588,51 +644,62 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
-                    const SizedBox(height: 12),
-                    PreferenceCheckboxGroup(
-                      title: 'Preferencia en pista',
-                      options: PlayerPreferenceCatalog.courtPreferences,
-                      selectedValues: _courtPreferences,
-                      enabled: !_saving,
-                      onChanged: (values) =>
-                          setState(() => _courtPreferences = values),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Modificar contraseña',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    PreferenceCheckboxGroup(
-                      title: 'Perfil del jugador',
-                      options: PlayerPreferenceCatalog.dominantHands,
-                      selectedValues: _dominantHands,
-                      enabled: !_saving,
-                      onChanged: (values) =>
-                          setState(() => _dominantHands = values),
-                    ),
-                    const SizedBox(height: 12),
-                    PreferenceCheckboxGroup(
-                      title: 'Disponibilidad horaria',
-                      options: PlayerPreferenceCatalog.availabilityPreferences,
-                      selectedValues: _availabilityPreferences,
-                      enabled: !_saving,
-                      onChanged: (values) =>
-                          setState(() => _availabilityPreferences = values),
-                    ),
-                    const SizedBox(height: 12),
-                    PreferenceCheckboxGroup(
-                      title: 'Modalidad de juego',
-                      options: PlayerPreferenceCatalog.matchPreferences,
-                      selectedValues: _matchPreferences,
-                      enabled: !_saving,
-                      onChanged: (values) =>
-                          setState(() => _matchPreferences = values),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Déjala vacía si no quieres cambiarla.',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
-                      controller: _bioCtrl,
-                      maxLines: 5,
-                      minLines: 4,
+                      controller: _newPasswordCtrl,
+                      obscureText: _obscurePassword,
                       style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Bio',
-                        hintText: 'Cuéntale a otros jugadores cómo juegas.',
+                      decoration: InputDecoration(
+                        labelText: 'Nueva contraseña',
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _confirmPasswordCtrl,
+                      obscureText: _obscureConfirmPassword,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Confirmar contraseña',
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                            () => _obscureConfirmPassword =
+                                !_obscureConfirmPassword,
+                          ),
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: AppColors.muted,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -670,65 +737,60 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   }
 }
 
-class _PreferenceSummaryData {
+class _ProfileExpandableTile extends StatelessWidget {
+  final IconData icon;
   final String title;
-  final List<String> labels;
+  final String subtitle;
+  final bool isOpen;
+  final VoidCallback onTap;
+  final Widget child;
 
-  const _PreferenceSummaryData({
+  const _ProfileExpandableTile({
+    required this.icon,
     required this.title,
-    required this.labels,
-  });
-
-  static List<_PreferenceSummaryData> fromProfile(
-    Map<String, dynamic> profile,
-  ) {
-    return PlayerPreferenceCatalog.sections
-        .map(
-          (section) => _PreferenceSummaryData(
-            title: section.title,
-            labels: PlayerPreferenceCatalog.labelsForValues(
-              PlayerPreferenceCatalog.parseValues(profile[section.field]),
-            ),
-          ),
-        )
-        .where((section) => section.labels.isNotEmpty)
-        .toList(growable: false);
-  }
-}
-
-class _PreferenceSummarySection extends StatelessWidget {
-  final String title;
-  final List<String> labels;
-
-  const _PreferenceSummarySection({
-    required this.title,
-    required this.labels,
+    required this.subtitle,
+    required this.isOpen,
+    required this.onTap,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: AppColors.muted,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
+        ListTile(
+          onTap: onTap,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: Icon(icon, color: AppColors.primary),
+          title: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+          trailing: AnimatedRotation(
+            turns: isOpen ? 0.5 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: Icon(
+              isCupertinoPlatform
+                  ? CupertinoIcons.chevron_down
+                  : Icons.keyboard_arrow_down,
+              color: AppColors.muted,
+            ),
           ),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final label in labels)
-              PadelBadge(
-                label: label,
-                variant: PadelBadgeVariant.outline,
-              ),
-          ],
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 180),
+          crossFadeState:
+              isOpen ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+          firstChild: child,
+          secondChild: const SizedBox.shrink(),
         ),
       ],
     );

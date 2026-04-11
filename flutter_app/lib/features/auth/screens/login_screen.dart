@@ -18,6 +18,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
   bool _warming = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -162,12 +163,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               // Password field
               TextFormField(
                 controller: _passwordCtrl,
-                obscureText: true,
+                obscureText: _obscurePassword,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Contraseña',
-                  prefixIcon: Icon(Icons.lock_outline,
+                  prefixIcon: const Icon(Icons.lock_outline,
                       color: AppColors.muted, size: 20),
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword,
+                    ),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: AppColors.muted,
+                      size: 20,
+                    ),
+                  ),
                 ),
                 onFieldSubmitted: (_) => _submit(),
               ),

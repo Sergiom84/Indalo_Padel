@@ -20,6 +20,7 @@ export const updateProfileSchema = z.object({
   preferred_venue_id: z.number().int().positive().nullable().optional(),
   bio: z.string().max(1000).optional(),
   avatar_url: z.string().max(2000000).optional(),
+  new_password: z.string().min(6).max(100).optional(),
   is_available: z.boolean().optional(),
   court_preferences: stringArraySchema(courtPreferenceValues),
   dominant_hands: stringArraySchema(dominantHandValues),

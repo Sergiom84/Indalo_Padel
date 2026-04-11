@@ -62,7 +62,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     });
     try {
       final api = ref.read(apiClientProvider);
-      await api.post('/padel/matches/${widget.matchId}/join', data: {'team': team});
+      await api
+          .post('/padel/matches/${widget.matchId}/join', data: {'team': team});
       await _fetchMatch();
     } catch (e) {
       setState(() => _error = e.toString());
@@ -94,7 +95,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     });
     try {
       final api = ref.read(apiClientProvider);
-      await api.put('/padel/matches/${widget.matchId}/status', data: {'status': newStatus});
+      await api.put('/padel/matches/${widget.matchId}/status',
+          data: {'status': newStatus});
       await _fetchMatch();
     } catch (e) {
       setState(() => _error = e.toString());
@@ -131,9 +133,12 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(_error ?? 'Partido no encontrado', style: const TextStyle(color: AppColors.muted)),
+              Text(_error ?? 'Partido no encontrado',
+                  style: const TextStyle(color: AppColors.muted)),
               const SizedBox(height: 12),
-              ElevatedButton(onPressed: () => context.go('/matches'), child: const Text('Volver')),
+              ElevatedButton(
+                  onPressed: () => context.go('/matches'),
+                  child: const Text('Volver')),
             ],
           ),
         ),
@@ -173,9 +178,12 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.danger.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                  border: Border.all(
+                      color: AppColors.danger.withValues(alpha: 0.3)),
                 ),
-                child: Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                child: Text(_error!,
+                    style:
+                        const TextStyle(color: AppColors.danger, fontSize: 13)),
               ),
               const SizedBox(height: 12),
             ],
@@ -196,7 +204,10 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     children: [
                       const Text(
                         'Información del partido',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16),
                       ),
                       PadelBadge(
                         label: _statusLabel(match.status),
@@ -205,39 +216,53 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _InfoRow(icon: Icons.calendar_today, text: _formatDate(match.matchDate)),
+                  _InfoRow(
+                      icon: Icons.calendar_today,
+                      text: _formatDate(match.matchDate)),
                   const SizedBox(height: 8),
                   if (match.startTime != null)
                     _InfoRow(
                       icon: Icons.access_time,
-                      text: match.startTime!.length >= 5 ? match.startTime!.substring(0, 5) : match.startTime!,
+                      text: match.startTime!.length >= 5
+                          ? match.startTime!.substring(0, 5)
+                          : match.startTime!,
                     ),
                   const SizedBox(height: 8),
-                  _InfoRow(icon: Icons.location_on_outlined, text: match.venueName ?? 'Sin sede'),
+                  _InfoRow(
+                      icon: Icons.location_on_outlined,
+                      text: match.venueName ?? 'Sin sede'),
                   const SizedBox(height: 8),
-                  _InfoRow(icon: Icons.security, text: match.matchType ?? 'Abierto'),
+                  _InfoRow(
+                      icon: Icons.security, text: match.matchType ?? 'Abierto'),
                   if (match.minLevel != null && match.maxLevel != null) ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        const Text('Nivel: ', style: TextStyle(color: AppColors.muted, fontSize: 14)),
+                        const Text('Nivel: ',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 14)),
                         LevelBadge(level: match.minLevel),
                         const SizedBox(width: 4),
-                        const Text('—', style: TextStyle(color: AppColors.muted)),
+                        const Text('—',
+                            style: TextStyle(color: AppColors.muted)),
                         const SizedBox(width: 4),
                         LevelBadge(level: match.maxLevel),
                       ],
                     ),
                   ],
-                  if (match.description != null && match.description!.isNotEmpty) ...[
+                  if (match.description != null &&
+                      match.description!.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.info_outline, color: AppColors.muted, size: 16),
+                        const Icon(Icons.info_outline,
+                            color: AppColors.muted, size: 16),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(match.description!, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                          child: Text(match.description!,
+                              style: const TextStyle(
+                                  color: AppColors.muted, fontSize: 13)),
                         ),
                       ],
                     ),
@@ -260,11 +285,15 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.people_outline, color: AppColors.primary, size: 20),
+                      const Icon(Icons.people_outline,
+                          color: AppColors.primary, size: 20),
                       const SizedBox(width: 8),
                       Text(
                         'Jugadores (${_players.length} / ${match.maxPlayers})',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16),
                       ),
                     ],
                   ),
@@ -272,9 +301,13 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: _TeamSection(title: 'Equipo 1', players: team1)),
+                      Expanded(
+                          child:
+                              _TeamSection(title: 'Equipo 1', players: team1)),
                       const SizedBox(width: 12),
-                      Expanded(child: _TeamSection(title: 'Equipo 2', players: team2)),
+                      Expanded(
+                          child:
+                              _TeamSection(title: 'Equipo 2', players: team2)),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -285,17 +318,23 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: (_actionLoading || team1.length >= 2) ? null : () => _joinMatch(1),
+                            onPressed: (_actionLoading || team1.length >= 2)
+                                ? null
+                                : () => _joinMatch(1),
                             icon: const Icon(Icons.login, size: 16),
-                            label: const Text('Equipo 1', style: TextStyle(fontSize: 13)),
+                            label: const Text('Equipo 1',
+                                style: TextStyle(fontSize: 13)),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: (_actionLoading || team2.length >= 2) ? null : () => _joinMatch(2),
+                            onPressed: (_actionLoading || team2.length >= 2)
+                                ? null
+                                : () => _joinMatch(2),
                             icon: const Icon(Icons.login, size: 16),
-                            label: const Text('Equipo 2', style: TextStyle(fontSize: 13)),
+                            label: const Text('Equipo 2',
+                                style: TextStyle(fontSize: 13)),
                           ),
                         ),
                       ],
@@ -337,11 +376,15 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.security, color: AppColors.primary, size: 20),
+                        Icon(Icons.security,
+                            color: AppColors.primary, size: 20),
                         SizedBox(width: 8),
                         Text(
                           'Acciones del organizador',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16),
                         ),
                       ],
                     ),
@@ -354,25 +397,33 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                           _ActionButton(
                             label: 'Marcar completo',
                             icon: Icons.check_circle_outline,
-                            onTap: _actionLoading ? null : () => _changeStatus('completo'),
+                            onTap: _actionLoading
+                                ? null
+                                : () => _changeStatus('completo'),
                           ),
                         if (match.status != 'en_juego')
                           _ActionButton(
                             label: 'Iniciar partido',
                             icon: Icons.play_arrow,
-                            onTap: _actionLoading ? null : () => _changeStatus('en_juego'),
+                            onTap: _actionLoading
+                                ? null
+                                : () => _changeStatus('en_juego'),
                           ),
                         if (match.status != 'finalizado')
                           _ActionButton(
                             label: 'Finalizar',
                             icon: Icons.emoji_events,
-                            onTap: _actionLoading ? null : () => _changeStatus('finalizado'),
+                            onTap: _actionLoading
+                                ? null
+                                : () => _changeStatus('finalizado'),
                           ),
                         if (match.status != 'cancelado')
                           _ActionButton(
                             label: 'Cancelar',
                             icon: Icons.cancel_outlined,
-                            onTap: _actionLoading ? null : () => _changeStatus('cancelado'),
+                            onTap: _actionLoading
+                                ? null
+                                : () => _changeStatus('cancelado'),
                             danger: true,
                           ),
                       ],
@@ -389,22 +440,33 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   String _statusLabel(String status) {
     switch (status) {
-      case 'buscando': return 'Buscando jugadores';
-      case 'completo': return 'Completo';
-      case 'en_juego': return 'En juego';
-      case 'finalizado': return 'Finalizado';
-      case 'cancelado': return 'Cancelado';
-      default: return status;
+      case 'buscando':
+        return 'Buscando jugadores';
+      case 'completo':
+        return 'Completo';
+      case 'en_juego':
+        return 'En juego';
+      case 'finalizado':
+        return 'Finalizado';
+      case 'cancelado':
+        return 'Cancelado';
+      default:
+        return status;
     }
   }
 
   PadelBadgeVariant _statusVariant(String status) {
     switch (status) {
-      case 'buscando': return PadelBadgeVariant.warning;
-      case 'completo': return PadelBadgeVariant.success;
-      case 'en_juego': return PadelBadgeVariant.info;
-      case 'cancelado': return PadelBadgeVariant.danger;
-      default: return PadelBadgeVariant.neutral;
+      case 'buscando':
+        return PadelBadgeVariant.warning;
+      case 'completo':
+        return PadelBadgeVariant.success;
+      case 'en_juego':
+        return PadelBadgeVariant.info;
+      case 'cancelado':
+        return PadelBadgeVariant.danger;
+      default:
+        return PadelBadgeVariant.neutral;
     }
   }
 }
@@ -421,7 +483,9 @@ class _InfoRow extends StatelessWidget {
       children: [
         Icon(icon, color: AppColors.muted, size: 16),
         const SizedBox(width: 8),
-        Expanded(child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 14))),
+        Expanded(
+            child: Text(text,
+                style: const TextStyle(color: Colors.white, fontSize: 14))),
       ],
     );
   }
@@ -462,13 +526,18 @@ class _TeamSection extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.border, style: BorderStyle.solid),
+                border: Border.all(
+                    color: AppColors.border, style: BorderStyle.solid),
               ),
               child: const Row(
                 children: [
                   Icon(Icons.people_outline, color: AppColors.muted, size: 20),
                   SizedBox(width: 8),
-                  Text('Puesto libre', style: TextStyle(color: AppColors.muted, fontSize: 12, fontStyle: FontStyle.italic)),
+                  Text('Puesto libre',
+                      style: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic)),
                 ],
               ),
             );
@@ -492,8 +561,13 @@ class _TeamSection extends StatelessWidget {
                   ),
                   child: Center(
                     child: Text(
-                      player.name.isNotEmpty ? player.name[0].toUpperCase() : '?',
-                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 14),
+                      player.name.isNotEmpty
+                          ? player.name[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14),
                     ),
                   ),
                 ),
@@ -504,11 +578,12 @@ class _TeamSection extends StatelessWidget {
                     children: [
                       Text(
                         player.name,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (player.preferredSide != null)
-                        Text(player.preferredSide!, style: const TextStyle(color: AppColors.muted, fontSize: 10)),
                     ],
                   ),
                 ),
@@ -543,7 +618,10 @@ class _ActionButton extends StatelessWidget {
       label: Text(label, style: const TextStyle(fontSize: 12)),
       style: OutlinedButton.styleFrom(
         foregroundColor: danger ? AppColors.danger : Colors.white,
-        side: BorderSide(color: danger ? AppColors.danger.withValues(alpha: 0.5) : AppColors.border),
+        side: BorderSide(
+            color: danger
+                ? AppColors.danger.withValues(alpha: 0.5)
+                : AppColors.border),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
     );

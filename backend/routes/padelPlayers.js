@@ -1,4 +1,5 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -42,6 +43,8 @@ router.get('/profile', authenticateToken, async (req, res) => {
 
 // PUT /api/padel/players/profile - Actualizar perfil
 router.put('/profile', authenticateToken, validate(updateProfileSchema), async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const {
       display_name,
@@ -55,9 +58,29 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
       dominant_hands,
       availability_preferences,
       match_preferences,
+      new_password,
     } = req.body;
 
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    if (new_password) {
+      const passwordHash = await bcrypt.hash(new_password, 10);
+      const userResult = await client.query(
+        `UPDATE app.users
+         SET password_hash = $1,
+             updated_at = NOW()
+         WHERE id = $2
+         RETURNING id`,
+        [passwordHash, req.user.userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+    }
+
+    const result = await client.query(
       `UPDATE app.padel_player_profiles
        SET display_name = COALESCE($1, display_name),
            main_level = COALESCE($2, main_level),
@@ -90,13 +113,18 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Perfil no encontrado' });
     }
 
+    await client.query('COMMIT');
     res.json({ profile: result.rows[0] });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error actualizando perfil:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    client.release();
   }
 });
 

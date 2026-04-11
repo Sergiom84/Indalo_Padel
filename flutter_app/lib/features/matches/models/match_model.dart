@@ -45,7 +45,8 @@ class MatchModel {
       description: json['description'] as String?,
       creatorId: (json['creator_id'] ?? json['created_by']) as int?,
       creatorName: json['creator_name'] as String?,
-      playerCount: (json['player_count'] ?? json['current_players'] ?? 0) as int,
+      playerCount:
+          (json['player_count'] ?? json['current_players'] ?? 0) as int,
       maxPlayers: (json['max_players'] ?? 4) as int,
     );
   }
@@ -57,7 +58,6 @@ class MatchPlayerModel {
   final String name;
   final int team;
   final int level;
-  final String? preferredSide;
 
   const MatchPlayerModel({
     required this.id,
@@ -65,17 +65,16 @@ class MatchPlayerModel {
     required this.name,
     required this.team,
     this.level = 0,
-    this.preferredSide,
   });
 
   factory MatchPlayerModel.fromJson(Map<String, dynamic> json) {
     return MatchPlayerModel(
       id: (json['id'] ?? json['user_id'] ?? 0) as int,
       userId: (json['user_id'] ?? json['id']) as int?,
-      name: (json['name'] ?? json['display_name'] ?? json['nombre'] ?? '') as String,
+      name: (json['name'] ?? json['display_name'] ?? json['nombre'] ?? '')
+          as String,
       team: (json['team'] ?? 1) as int,
       level: (json['level'] ?? json['numeric_level'] ?? 0) as int,
-      preferredSide: json['preferred_side'] as String?,
     );
   }
 }
