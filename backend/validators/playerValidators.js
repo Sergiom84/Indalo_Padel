@@ -32,3 +32,17 @@ export const updateProfileSchema = z.object({
   availability_preferences: stringArraySchema(availabilityPreferenceValues),
   match_preferences: stringArraySchema(matchPreferenceValues),
 });
+
+export const deleteProfileSchema = z.object({
+  reason: z.enum(['no_uso', 'no_me_gusta', 'no_es_lo_que_buscaba', 'otros']),
+  other_reason: z.string().trim().max(500).optional(),
+});
+
+export const playerSearchQuerySchema = z.object({
+  name: z.string().trim().max(100).optional(),
+  level: z.coerce.number().int().min(1).max(9).optional(),
+  main_level: z.enum(['bajo', 'medio', 'alto']).optional(),
+  sub_level: z.enum(['bajo', 'medio', 'alto']).optional(),
+  gender: z.enum(genderValues).optional(),
+  available: z.enum(['true', 'false']).optional(),
+});
