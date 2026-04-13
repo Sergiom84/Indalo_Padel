@@ -23,7 +23,6 @@ class ProfileScreen extends ConsumerStatefulWidget {
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _loading = true;
   bool _saving = false;
-  bool _preferencesOpen = false;
   String? _error;
   Map<String, dynamic>? _profile;
   List<String> _courtPreferences = const [];
@@ -141,13 +140,76 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Future<void> _savePreferences() async {
-    await _updateProfile({
-      'court_preferences': _courtPreferences,
-      'dominant_hands': _dominantHands,
-      'availability_preferences': _availabilityPreferences,
-      'match_preferences': _matchPreferences,
-    });
+  Future<void> _openPreferencesSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return _PreferencesSheet(
+          initialCourtPreferences: _courtPreferences,
+          initialDominantHands: _dominantHands,
+          initialAvailabilityPreferences: _availabilityPreferences,
+          initialMatchPreferences: _matchPreferences,
+          onSave: _updateProfile,
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteProfile(String reason) async {
+    setState(() => _saving = true);
+
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.delete(
+        '/padel/players/profile',
+        data: {'reason': reason},
+      );
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            (data['message'] ?? 'Perfil eliminado correctamente').toString(),
+          ),
+        ),
+      );
+      await ref.read(authProvider.notifier).logout();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _openDeleteProfileSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return _DeleteProfileSheet(
+          saving: _saving,
+          onDelete: _deleteProfile,
+        );
+      },
+    );
   }
 
   Future<void> _logout() async {
@@ -313,81 +375,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           subtitle: 'Foto, nombre público y contraseña.',
                           onTap: _openEditSheet,
                         ),
-                        _ProfileExpandableTile(
+                        _ProfileActionTile(
                           icon: isCupertinoPlatform
                               ? CupertinoIcons.slider_horizontal_3
                               : Icons.tune,
                           title: 'Preferencias',
                           subtitle:
                               'Pista, perfil, disponibilidad y modalidad.',
-                          isOpen: _preferencesOpen,
-                          onTap: () => setState(
-                            () => _preferencesOpen = !_preferencesOpen,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                PreferenceCheckboxGroup(
-                                  title: 'Preferencia en pista',
-                                  options:
-                                      PlayerPreferenceCatalog.courtPreferences,
-                                  selectedValues: _courtPreferences,
-                                  enabled: !_saving,
-                                  onChanged: (values) => setState(
-                                    () => _courtPreferences = values,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                PreferenceCheckboxGroup(
-                                  title: 'Perfil del jugador',
-                                  options:
-                                      PlayerPreferenceCatalog.dominantHands,
-                                  selectedValues: _dominantHands,
-                                  enabled: !_saving,
-                                  onChanged: (values) => setState(
-                                    () => _dominantHands = values,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                PreferenceCheckboxGroup(
-                                  title: 'Disponibilidad horaria',
-                                  options: PlayerPreferenceCatalog
-                                      .availabilityPreferences,
-                                  selectedValues: _availabilityPreferences,
-                                  enabled: !_saving,
-                                  onChanged: (values) => setState(
-                                    () => _availabilityPreferences = values,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                PreferenceCheckboxGroup(
-                                  title: 'Modalidad de juego',
-                                  options:
-                                      PlayerPreferenceCatalog.matchPreferences,
-                                  selectedValues: _matchPreferences,
-                                  enabled: !_saving,
-                                  onChanged: (values) => setState(
-                                    () => _matchPreferences = values,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: FilledButton(
-                                    onPressed:
-                                        _saving ? null : _savePreferences,
-                                    child: Text(
-                                      _saving
-                                          ? 'Guardando...'
-                                          : 'Guardar preferencias',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          onTap: _openPreferencesSheet,
+                        ),
+                        _ProfileActionTile(
+                          icon: isCupertinoPlatform
+                              ? CupertinoIcons.delete
+                              : Icons.delete_outline,
+                          title: 'Eliminar perfil',
+                          subtitle:
+                              'Selecciona el motivo antes de dar de baja tu cuenta.',
+                          danger: true,
+                          onTap: _openDeleteProfileSheet,
                         ),
                         _ProfileActionTile(
                           icon: isCupertinoPlatform
@@ -737,62 +742,266 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   }
 }
 
-class _ProfileExpandableTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool isOpen;
-  final VoidCallback onTap;
-  final Widget child;
+class _PreferencesSheet extends StatefulWidget {
+  final List<String> initialCourtPreferences;
+  final List<String> initialDominantHands;
+  final List<String> initialAvailabilityPreferences;
+  final List<String> initialMatchPreferences;
+  final Future<bool> Function(Map<String, dynamic> payload) onSave;
 
-  const _ProfileExpandableTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.isOpen,
-    required this.onTap,
-    required this.child,
+  const _PreferencesSheet({
+    required this.initialCourtPreferences,
+    required this.initialDominantHands,
+    required this.initialAvailabilityPreferences,
+    required this.initialMatchPreferences,
+    required this.onSave,
   });
 
   @override
+  State<_PreferencesSheet> createState() => _PreferencesSheetState();
+}
+
+class _PreferencesSheetState extends State<_PreferencesSheet> {
+  late List<String> _courtPreferences;
+  late List<String> _dominantHands;
+  late List<String> _availabilityPreferences;
+  late List<String> _matchPreferences;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _courtPreferences = [...widget.initialCourtPreferences];
+    _dominantHands = [...widget.initialDominantHands];
+    _availabilityPreferences = [...widget.initialAvailabilityPreferences];
+    _matchPreferences = [...widget.initialMatchPreferences];
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+
+    final didSave = await widget.onSave({
+      'court_preferences': _courtPreferences,
+      'dominant_hands': _dominantHands,
+      'availability_preferences': _availabilityPreferences,
+      'match_preferences': _matchPreferences,
+    });
+
+    if (!mounted) {
+      return;
+    }
+
+    if (didSave) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    setState(() => _saving = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ListTile(
-          onTap: onTap,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: Icon(icon, color: AppColors.primary),
-          title: Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          subtitle: Text(
-            subtitle,
-            style: const TextStyle(color: AppColors.muted),
-          ),
-          trailing: AnimatedRotation(
-            turns: isOpen ? 0.5 : 0,
-            duration: const Duration(milliseconds: 180),
-            child: Icon(
-              isCupertinoPlatform
-                  ? CupertinoIcons.chevron_down
-                  : Icons.keyboard_arrow_down,
-              color: AppColors.muted,
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + bottomInset),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Preferencias',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Ajusta pista, mano, disponibilidad y modalidad.',
+                  style: TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 20),
+                PreferenceCheckboxGroup(
+                  title: 'Preferencia en pista',
+                  options: PlayerPreferenceCatalog.courtPreferences,
+                  selectedValues: _courtPreferences,
+                  enabled: !_saving,
+                  onChanged: (values) =>
+                      setState(() => _courtPreferences = values),
+                ),
+                const SizedBox(height: 12),
+                PreferenceCheckboxGroup(
+                  title: 'Perfil del jugador',
+                  options: PlayerPreferenceCatalog.dominantHands,
+                  selectedValues: _dominantHands,
+                  enabled: !_saving,
+                  onChanged: (values) =>
+                      setState(() => _dominantHands = values),
+                ),
+                const SizedBox(height: 12),
+                PreferenceCheckboxGroup(
+                  title: 'Disponibilidad horaria',
+                  options: PlayerPreferenceCatalog.availabilityPreferences,
+                  selectedValues: _availabilityPreferences,
+                  enabled: !_saving,
+                  onChanged: (values) =>
+                      setState(() => _availabilityPreferences = values),
+                ),
+                const SizedBox(height: 12),
+                PreferenceCheckboxGroup(
+                  title: 'Modalidad de juego',
+                  options: PlayerPreferenceCatalog.matchPreferences,
+                  selectedValues: _matchPreferences,
+                  enabled: !_saving,
+                  onChanged: (values) =>
+                      setState(() => _matchPreferences = values),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: Text(
+                      _saving ? 'Guardando...' : 'Guardar preferencias',
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        AnimatedCrossFade(
-          duration: const Duration(milliseconds: 180),
-          crossFadeState:
-              isOpen ? CrossFadeState.showFirst : CrossFadeState.showSecond,
-          firstChild: child,
-          secondChild: const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+class _DeleteProfileSheet extends StatefulWidget {
+  final bool saving;
+  final Future<void> Function(String reason) onDelete;
+
+  const _DeleteProfileSheet({
+    required this.saving,
+    required this.onDelete,
+  });
+
+  @override
+  State<_DeleteProfileSheet> createState() => _DeleteProfileSheetState();
+}
+
+class _DeleteProfileSheetState extends State<_DeleteProfileSheet> {
+  String? _selectedReason;
+
+  Future<void> _confirmDelete() async {
+    final reason = _selectedReason;
+    if (reason == null) {
+      return;
+    }
+
+    Navigator.of(context).pop();
+    await widget.onDelete(reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Eliminar perfil',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Nos podrías indicar por qué lo vas a eliminar?',
+                style: TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 16),
+              RadioGroup<String>(
+                groupValue: _selectedReason,
+                onChanged: widget.saving
+                    ? (_) {}
+                    : (value) => setState(() => _selectedReason = value),
+                child: Column(
+                  children: PlayerPreferenceCatalog.accountDeletionReasons
+                      .map(
+                        (option) => RadioListTile<String>(
+                          value: option.value,
+                          enabled: !widget.saving,
+                          selected: _selectedReason == option.value,
+                          activeColor: AppColors.primary,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            option.label,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ),
+              if (_selectedReason != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    onPressed: widget.saving ? null : _confirmDelete,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.danger.withValues(alpha: 0.18),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Eliminar perfil'),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 }
