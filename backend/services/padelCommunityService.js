@@ -597,16 +597,26 @@ function overlapsRange(leftStart, leftEnd, rightStart, rightEnd) {
 function buildCommunityConflictMessage(conflict) {
   const time = conflict.scheduled_time?.slice(0, 5) || '';
   const date = normalizeDateValue(conflict.scheduled_date, APP_TIME_ZONE) || '';
+  const name = conflict.display_name;
 
   if (conflict.severity === 'hard') {
+    const recoveryMin = typeof conflict.recovery_minutes_available === 'number'
+      ? conflict.recovery_minutes_available
+      : null;
+    const recoveryText = recoveryMin === null
+      ? ''
+      : recoveryMin <= 0
+        ? ' Se solaparían directamente, sin tiempo de recuperación.'
+        : ` Solo ${recoveryMin} min de recuperación (necesita ${COMMUNITY_RECOVERY_BUFFER_MINUTES}).`;
+
     if (conflict.source === 'booking') {
-      return `${conflict.display_name} ya tiene una reserva confirmada el ${date} a las ${time}.`;
+      return `${name} ya tiene una reserva confirmada el ${date} a las ${time}.${recoveryText}`;
     }
 
-    return `${conflict.display_name} ya está comprometido con otro partido el ${date} a las ${time}.`;
+    return `${name} ya está comprometido con otro partido el ${date} a las ${time}.${recoveryText}`;
   }
 
-  return `${conflict.display_name} ya tiene otra invitación pendiente el ${date} a las ${time}.`;
+  return `${name} ya tiene otra invitación pendiente el ${date} a las ${time}.`;
 }
 
 async function loadConflictEntriesForUser(client, {
@@ -683,6 +693,12 @@ async function loadConflictEntriesForUser(client, {
       || SERIOUS_RESPONSE_STATES.has(row.response_state);
 
     if (serious && overlapsRange(range.hardStart, range.hardEnd, otherRange.start, otherRange.end)) {
+      let communityRecoveryMin = 0;
+      if (range.start.toMillis() >= otherRange.end.toMillis()) {
+        communityRecoveryMin = Math.round(range.start.diff(otherRange.end, 'minutes').minutes);
+      } else if (otherRange.start.toMillis() >= range.end.toMillis()) {
+        communityRecoveryMin = Math.round(otherRange.start.diff(range.end, 'minutes').minutes);
+      }
       conflicts.push({
         id: Number(row.id),
         source: 'community',
@@ -690,11 +706,13 @@ async function loadConflictEntriesForUser(client, {
         scheduled_date: normalizeDateValue(row.scheduled_date, APP_TIME_ZONE),
         scheduled_time: row.scheduled_time,
         display_name: displayNameFromRow(row),
+        recovery_minutes_available: communityRecoveryMin,
         message: buildCommunityConflictMessage({
           ...row,
           severity: 'hard',
           source: 'community',
           display_name: displayNameFromRow(row),
+          recovery_minutes_available: communityRecoveryMin,
         }),
       });
       continue;
@@ -732,6 +750,12 @@ async function loadConflictEntriesForUser(client, {
     );
 
     if (overlapsRange(range.hardStart, range.hardEnd, bookingRange.start, bookingRange.end)) {
+      let bookingRecoveryMin = 0;
+      if (range.start.toMillis() >= bookingRange.end.toMillis()) {
+        bookingRecoveryMin = Math.round(range.start.diff(bookingRange.end, 'minutes').minutes);
+      } else if (bookingRange.start.toMillis() >= range.end.toMillis()) {
+        bookingRecoveryMin = Math.round(bookingRange.start.diff(range.end, 'minutes').minutes);
+      }
       conflicts.push({
         id: Number(row.id),
         source: 'booking',
@@ -739,11 +763,13 @@ async function loadConflictEntriesForUser(client, {
         scheduled_date: normalizeDateValue(row.scheduled_date, APP_TIME_ZONE),
         scheduled_time: row.scheduled_time,
         display_name: displayNameFromRow(row),
+        recovery_minutes_available: bookingRecoveryMin,
         message: buildCommunityConflictMessage({
           ...row,
           severity: 'hard',
           source: 'booking',
           display_name: displayNameFromRow(row),
+          recovery_minutes_available: bookingRecoveryMin,
         }),
       });
     }

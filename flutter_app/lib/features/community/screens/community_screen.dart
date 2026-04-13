@@ -178,6 +178,15 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           context: context,
           builder: (dialogContext) {
             final canJump = notification.planId > 0;
+            // Gap 6: para bajas, el organizador ve "Seleccionar sustituto"
+            final snapshot = ref.read(communityDashboardProvider).valueOrNull;
+            final notificationPlan =
+                snapshot != null ? _planById(snapshot, notification.planId) : null;
+            final isOrganizerOfPlan = notificationPlan?.isOrganizer ?? false;
+            final jumpLabel = notification.type == 'member_declined' && isOrganizerOfPlan
+                ? 'Seleccionar sustituto'
+                : 'Ver convocatoria';
+
             return AlertDialog(
               backgroundColor: AppColors.surface,
               title: Text(
@@ -193,8 +202,6 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                   TextButton(
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
-                      final snapshot =
-                          ref.read(communityDashboardProvider).valueOrNull;
                       if (snapshot == null) {
                         return;
                       }
@@ -208,7 +215,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                         });
                       }
                     },
-                    child: const Text('Ver convocatoria'),
+                    child: Text(jumpLabel),
                   ),
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
@@ -454,6 +461,21 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
         isError: true,
       );
       return;
+    }
+
+    // Gap 1: cuando hay una baja, el organizador debe seleccionar un sustituto
+    if (selectedPlan != null &&
+        selectedPlan.isOrganizer &&
+        selectedPlan.hasDecline) {
+      final originalCount =
+          selectedPlan.participants.where((p) => !p.isOrganizer).length;
+      if (_selectedParticipantIds.length < originalCount) {
+        _showMessage(
+          'Debes seleccionar un sustituto para completar los $originalCount jugadores antes de reenviar la convocatoria.',
+          isError: true,
+        );
+        return;
+      }
     }
 
     setState(() => _busy = true);
@@ -964,6 +986,16 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                   'Solo el creador puede cambiar jugadores y horario. Puedes seguir el estado en las otras tarjetas.',
               color: AppColors.info,
             ),
+          if (editable &&
+              selectedPlan != null &&
+              selectedPlan.isOrganizer &&
+              selectedPlan.hasDecline)
+            const _InlineNotice(
+              title: 'Jugador retirado — selecciona un sustituto',
+              message:
+                  'Elige un nuevo compañero de tu red para completar el grupo y pulsa «Actualizar invitación». No podrás avanzar sin cubrir la baja.',
+              color: AppColors.danger,
+            ),
           Row(
             children: [
               Expanded(
@@ -1148,10 +1180,31 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                 )
                 .toList(growable: false),
           ),
+          // Gap 4: muestra la respuesta actual del invitado y permite cambiarla
           if (!plan.isTerminal &&
               currentUser != null &&
               !currentUser.isOrganizer) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Icon(Icons.check_circle_outline,
+                    color: AppColors.muted, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'Tu respuesta: ${_responseStateLabel(currentUser.responseState)}',
+                  style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Puedes cambiarla en cualquier momento.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -1159,23 +1212,30 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                 FilledButton(
                   onPressed:
                       _busy ? null : () => _respondToPlan(plan, 'accepted'),
-                  child: Text(
-                    currentUser.responseState == 'accepted'
-                        ? 'Aceptado'
-                        : 'Acepto',
-                  ),
+                  style: currentUser.responseState == 'accepted'
+                      ? FilledButton.styleFrom(
+                          backgroundColor: AppColors.success)
+                      : null,
+                  child: const Text('Acepto'),
                 ),
                 OutlinedButton(
                   onPressed: _busy ? null : () => _respondToPlan(plan, 'doubt'),
-                  child: Text(
-                    currentUser.responseState == 'doubt'
-                        ? 'Sigues en duda'
-                        : 'Estoy en duda',
-                  ),
+                  style: currentUser.responseState == 'doubt'
+                      ? OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.warning,
+                          side:
+                              const BorderSide(color: AppColors.warning))
+                      : null,
+                  child: const Text('Estoy en duda'),
                 ),
                 OutlinedButton(
                   onPressed:
                       _busy ? null : () => _respondToPlan(plan, 'declined'),
+                  style: currentUser.responseState == 'declined'
+                      ? OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: const BorderSide(color: AppColors.danger))
+                      : null,
                   child: const Text('No puedo'),
                 ),
                 OutlinedButton(
@@ -1190,6 +1250,16 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             const Text(
               'Vuelve a la primera tarjeta para sustituir al jugador que se ha caído.',
               style: TextStyle(color: AppColors.muted),
+            ),
+          ],
+          // Gap 2: nadie ha respondido en >24h — avisa al organizador
+          if (_needsAttention24h(plan)) ...[
+            const SizedBox(height: 12),
+            const _InlineNotice(
+              title: 'Nadie ha respondido en 24 horas',
+              message:
+                  'Tu convocatoria lleva más de un día sin ninguna respuesta. Considera cancelarla y lanzar una nueva.',
+              color: AppColors.warning,
             ),
           ],
           if (plan.isOrganizer && !plan.isTerminal) ...[
@@ -1518,6 +1588,36 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     final hour = time.hour.toString().padLeft(2, '0');
     final minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+
+  // Gap 4: etiqueta legible para el estado de respuesta del usuario
+  String _responseStateLabel(String state) {
+    switch (state) {
+      case 'accepted':
+        return 'Aceptado ✓';
+      case 'doubt':
+        return 'En duda';
+      case 'declined':
+        return 'No puedo asistir';
+      default:
+        return 'Sin contestar';
+    }
+  }
+
+  // Gap 2: plan activo >24h sin ninguna respuesta de los invitados
+  bool _needsAttention24h(CommunityPlanModel plan) {
+    if (!plan.isOrganizer) return false;
+    if (plan.isTerminal) return false;
+    if (plan.inviteState != 'pending') return false;
+    if (plan.createdAt == null) return false;
+    final created = DateTime.tryParse(plan.createdAt!);
+    if (created == null) return false;
+    if (DateTime.now().difference(created) < const Duration(hours: 24)) {
+      return false;
+    }
+    return plan.participants.every(
+      (p) => p.isOrganizer || p.responseState == 'pending',
+    );
   }
 
   String _greetingForTime(String scheduledTime) {
