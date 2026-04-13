@@ -44,15 +44,7 @@ router.get('/', async (req, res) => {
           court_count DESC,
           id ASC
       ) deduped
-      ORDER BY
-        CASE
-          WHEN LOWER(BTRIM(name)) = LOWER(BTRIM('Marina de la Torre'))
-               AND COALESCE(is_bookable, true) THEN 0
-          WHEN COALESCE(is_bookable, true) THEN 1
-          ELSE 2
-        END,
-        name,
-        id
+      ORDER BY name, id
     `;
 
     const params = [];

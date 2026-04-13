@@ -20,20 +20,6 @@ class PreferenceSectionDefinition {
   });
 }
 
-class PlayerLevelOption {
-  final String key;
-  final String mainLevel;
-  final String subLevel;
-  final String label;
-
-  const PlayerLevelOption({
-    required this.key,
-    required this.mainLevel,
-    required this.subLevel,
-    required this.label,
-  });
-}
-
 class PlayerPreferenceCatalog {
   static const courtPreferences = [
     PreferenceOption(value: 'drive', label: 'Derecha (Drive)'),
@@ -70,82 +56,15 @@ class PlayerPreferenceCatalog {
     ),
   ];
 
-  static const levelOptions = [
-    PlayerLevelOption(
-      key: 'bajo:bajo',
-      mainLevel: 'bajo',
-      subLevel: 'bajo',
-      label: 'Bajo - Bajo',
-    ),
-    PlayerLevelOption(
-      key: 'bajo:medio',
-      mainLevel: 'bajo',
-      subLevel: 'medio',
-      label: 'Bajo - Medio',
-    ),
-    PlayerLevelOption(
-      key: 'bajo:alto',
-      mainLevel: 'bajo',
-      subLevel: 'alto',
-      label: 'Bajo - Alto',
-    ),
-    PlayerLevelOption(
-      key: 'medio:bajo',
-      mainLevel: 'medio',
-      subLevel: 'bajo',
-      label: 'Medio - Bajo',
-    ),
-    PlayerLevelOption(
-      key: 'medio:medio',
-      mainLevel: 'medio',
-      subLevel: 'medio',
-      label: 'Medio - Medio',
-    ),
-    PlayerLevelOption(
-      key: 'medio:alto',
-      mainLevel: 'medio',
-      subLevel: 'alto',
-      label: 'Medio - Alto',
-    ),
-    PlayerLevelOption(
-      key: 'alto:bajo',
-      mainLevel: 'alto',
-      subLevel: 'bajo',
-      label: 'Alto - Bajo',
-    ),
-    PlayerLevelOption(
-      key: 'alto:medio',
-      mainLevel: 'alto',
-      subLevel: 'medio',
-      label: 'Alto - Medio',
-    ),
-    PlayerLevelOption(
-      key: 'alto:alto',
-      mainLevel: 'alto',
-      subLevel: 'alto',
-      label: 'Alto - Alto',
-    ),
-  ];
-
-  static const accountDeletionReasons = [
-    PreferenceOption(value: 'no_uso_la_app', label: 'No uso la app'),
-    PreferenceOption(value: 'no_me_gusta', label: 'No me gusta'),
-    PreferenceOption(
-      value: 'no_es_lo_que_buscaba',
-      label: 'No es lo que buscaba',
-    ),
-    PreferenceOption(value: 'otros', label: 'Otros'),
-  ];
-
   static const sections = [
     PreferenceSectionDefinition(
       field: 'court_preferences',
-      title: 'Posición en pista',
+      title: 'Preferencia en pista',
       options: courtPreferences,
     ),
     PreferenceSectionDefinition(
       field: 'dominant_hands',
-      title: 'Preferencia de la mano',
+      title: 'Perfil del jugador',
       options: dominantHands,
     ),
     PreferenceSectionDefinition(
@@ -219,45 +138,15 @@ class PlayerPreferenceCatalog {
     return values.map(labelForValue).toList(growable: false);
   }
 
-  static PlayerLevelOption? levelOptionForKey(String? key) {
-    if (key == null || key.isEmpty) {
-      return null;
-    }
-
-    for (final option in levelOptions) {
-      if (option.key == key) {
-        return option;
-      }
-    }
-
-    return null;
-  }
-
   static String labelForGender(String? value) {
     if (value == null || value.isEmpty) {
       return '';
     }
-
     for (final option in genderOptions) {
       if (option.value == value) {
         return option.label;
       }
     }
-
-    return value;
-  }
-
-  static String labelForAccountDeletionReason(String? value) {
-    if (value == null || value.isEmpty) {
-      return '';
-    }
-
-    for (final option in accountDeletionReasons) {
-      if (option.value == value) {
-        return option.label;
-      }
-    }
-
     return value;
   }
 }

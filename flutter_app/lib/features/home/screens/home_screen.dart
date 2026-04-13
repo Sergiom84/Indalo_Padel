@@ -34,7 +34,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _fetchData() async {
     final api = ref.read(apiClientProvider);
-    ref.invalidate(currentProfileProvider);
     if (mounted) {
       setState(() {
         _loadingVenues = true;
@@ -156,7 +155,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             user?.nombre ??
             'Jugador')
         .toString();
-    final avatarUrl = _resolvedAvatarUrl(profile, user);
+    final avatarUrl = profile?['avatar_url']?.toString();
     final loadingSummary =
         _loadingVenues || _loadingBookings || _loadingMatches;
     final upcomingBookings = _upcomingBookings;
@@ -370,25 +369,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       'diciembre',
     ];
     return '${weekDays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
-  }
-
-  String? _resolvedAvatarUrl(
-    Map<String, dynamic>? profile,
-    UserModel? user,
-  ) {
-    final profileAvatar = _nullableString(profile?['avatar_url']);
-    if (profileAvatar != null) {
-      return profileAvatar;
-    }
-    return _nullableString(user?.avatarUrl);
-  }
-
-  String? _nullableString(dynamic value) {
-    if (value == null) {
-      return null;
-    }
-    final text = value.toString().trim();
-    return text.isEmpty ? null : text;
   }
 }
 

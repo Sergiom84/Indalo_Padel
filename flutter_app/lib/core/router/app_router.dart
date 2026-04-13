@@ -12,6 +12,7 @@ import '../../features/home/screens/home_screen.dart';
 import '../../features/matches/screens/match_create_screen.dart';
 import '../../features/matches/screens/match_detail_screen.dart';
 import '../../features/matches/screens/match_list_screen.dart';
+import '../../features/players/screens/favorites_list_screen.dart';
 import '../../features/players/screens/player_profile_screen.dart';
 import '../../features/players/screens/player_search_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
@@ -171,6 +172,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/players',
                 builder: (context, state) => const PlayerSearchScreen(),
                 routes: [
+                  GoRoute(
+                    path: 'favorites',
+                    builder: (context, state) => const FavoritesListScreen(),
+                  ),
                   GoRoute(
                     path: ':id',
                     builder: (context, state) {
