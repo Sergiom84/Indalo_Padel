@@ -46,6 +46,16 @@ class PlayerPreferenceCatalog {
     PreferenceOption(value: 'americana', label: 'Americana'),
   ];
 
+  static const genderOptions = [
+    PreferenceOption(value: 'masculino', label: 'Masculino'),
+    PreferenceOption(value: 'femenino', label: 'Femenino'),
+    PreferenceOption(value: 'otro', label: 'Otro'),
+    PreferenceOption(
+      value: 'prefiero_no_decirlo',
+      label: 'Prefiero no decirlo',
+    ),
+  ];
+
   static const sections = [
     PreferenceSectionDefinition(
       field: 'court_preferences',
@@ -126,5 +136,19 @@ class PlayerPreferenceCatalog {
 
   static List<String> labelsForValues(List<String> values) {
     return values.map(labelForValue).toList(growable: false);
+  }
+
+  static String labelForGender(String? value) {
+    if (value == null || value.isEmpty) {
+      return '';
+    }
+
+    for (final option in genderOptions) {
+      if (option.value == value) {
+        return option.label;
+      }
+    }
+
+    return value;
   }
 }
