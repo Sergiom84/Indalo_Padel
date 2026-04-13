@@ -51,6 +51,87 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _openPasswordResetDialog() async {
+    final emailCtrl = TextEditingController(text: _emailCtrl.text.trim());
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: TextField(
+          controller: emailCtrl,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Correo',
+            hintText: 'tu@email.com',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final email = emailCtrl.text.trim();
+              Navigator.of(dialogContext).pop();
+
+              if (email.isEmpty) {
+                _showMessage(
+                  'Introduce un correo válido',
+                  isError: true,
+                );
+                return;
+              }
+
+              try {
+                final message = await ref
+                    .read(authProvider.notifier)
+                    .requestPasswordReset(email);
+                _showMessage(message);
+              } catch (e) {
+                _showMessage(e.toString(), isError: true);
+              }
+            },
+            child: const Text('Enviar enlace'),
+          ),
+        ],
+      ),
+    );
+
+    emailCtrl.dispose();
+  }
+
+  Future<void> _resendVerificationEmail() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      _showMessage('Introduce tu correo para reenviar la verificación',
+          isError: true);
+      return;
+    }
+
+    try {
+      final message =
+          await ref.read(authProvider.notifier).resendVerificationEmail(email);
+      _showMessage(message);
+    } catch (e) {
+      _showMessage(e.toString(), isError: true);
+    }
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.danger : AppColors.surface,
+      ),
+    );
+  }
+
   Future<void> _submit() async {
     setState(() {
       _loading = true;
@@ -145,6 +226,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _openPasswordResetDialog,
+                    child: const Text('¿No te acuerdas de la contraseña?'),
+                  ),
+                ),
+                if (_error!.toLowerCase().contains('verificar tu correo'))
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: _resendVerificationEmail,
+                      child: const Text('Reenviar correo de verificación'),
+                    ),
+                  ),
+                const SizedBox(height: 8),
               ],
 
               // Email field

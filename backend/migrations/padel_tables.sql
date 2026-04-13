@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS app.padel_player_profiles (
   dominant_hands TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   availability_preferences TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   match_preferences TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  gender VARCHAR(24),
+  birth_date DATE,
+  phone VARCHAR(20),
   preferred_venue_id INTEGER REFERENCES app.padel_venues(id),
   bio TEXT,
   avatar_url TEXT,
@@ -125,7 +128,9 @@ CREATE TABLE IF NOT EXISTS app.padel_player_profiles (
       ]::TEXT[]
     ),
   CONSTRAINT padel_player_profiles_match_preferences_check
-    CHECK (match_preferences <@ ARRAY['amistoso', 'competitivo', 'americana']::TEXT[])
+    CHECK (match_preferences <@ ARRAY['amistoso', 'competitivo', 'americana']::TEXT[]),
+  CONSTRAINT padel_player_profiles_gender_check
+    CHECK (gender IN ('masculino', 'femenino', 'otro', 'prefiero_no_decirlo'))
 );
 
 -- =============================================

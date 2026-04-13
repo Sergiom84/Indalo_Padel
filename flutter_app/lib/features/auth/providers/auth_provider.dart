@@ -10,11 +10,13 @@ class UserModel {
   final int id;
   final String email;
   final String nombre;
+  final String? avatarUrl;
 
   const UserModel({
     required this.id,
     required this.email,
     required this.nombre,
+    this.avatarUrl,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -22,14 +24,28 @@ class UserModel {
       id: json['id'] as int? ?? 0,
       email: json['email'] as String? ?? '',
       nombre: (json['nombre'] ?? json['name'] ?? '') as String,
+      avatarUrl: json['avatar_url'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'email': email,
-    'nombre': nombre,
-  };
+        'id': id,
+        'email': email,
+        'nombre': nombre,
+        'avatar_url': avatarUrl,
+      };
+}
+
+class RegisterResult {
+  final String message;
+  final bool requiresEmailVerification;
+  final String? debugVerificationUrl;
+
+  const RegisterResult({
+    required this.message,
+    this.requiresEmailVerification = false,
+    this.debugVerificationUrl,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -99,24 +115,47 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString(), clearUser: false);
+      state =
+          state.copyWith(loading: false, error: e.toString(), clearUser: false);
       rethrow;
     }
   }
 
-  Future<void> register(Map<String, dynamic> userData) async {
+  Future<RegisterResult> register(Map<String, dynamic> userData) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final data = await _api.post('/padel/auth/register', data: userData);
-      final token = data['token'] as String;
-      final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
-      await SecureStorage.saveToken(token);
-      await SecureStorage.saveUser(jsonEncode(user.toJson()));
-      state = AuthState(user: user);
+      state = const AuthState();
+      return RegisterResult(
+        message:
+            (data['message'] ?? 'Revisa tu correo para verificar la cuenta')
+                .toString(),
+        requiresEmailVerification:
+            (data['requires_email_verification'] ?? true) as bool,
+        debugVerificationUrl: data['debug_verification_url'] as String?,
+      );
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString(), clearUser: false);
+      state =
+          state.copyWith(loading: false, error: e.toString(), clearUser: false);
       rethrow;
     }
+  }
+
+  Future<String> requestPasswordReset(String email) async {
+    final data = await _api.post(
+      '/padel/auth/password-reset/request',
+      data: {'email': email},
+    );
+    return (data['message'] ?? 'Revisa tu correo si la cuenta existe')
+        .toString();
+  }
+
+  Future<String> resendVerificationEmail(String email) async {
+    final data = await _api.post(
+      '/padel/auth/resend-verification',
+      data: {'email': email},
+    );
+    return (data['message'] ?? 'Revisa tu correo').toString();
   }
 
   Future<void> logout() async {
