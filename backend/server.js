@@ -7,8 +7,10 @@ import padelAuthRoutes from './routes/padelAuth.js';
 import padelVenuesRoutes from './routes/padelVenues.js';
 import padelBookingsRoutes from './routes/padelBookings.js';
 import padelMatchesRoutes from './routes/padelMatches.js';
+import padelCommunityRoutes from './routes/padelCommunity.js';
 import padelPlayersRoutes from './routes/padelPlayers.js';
 import { startCalendarSyncJob } from './services/padelCalendarSync.js';
+import { startCommunityLifecycleJob } from './services/padelCommunityLifecycle.js';
 
 const app = express();
 const PORT = process.env.PORT || 3011;
@@ -90,6 +92,7 @@ app.use('/api/padel/auth', padelAuthRoutes);
 app.use('/api/padel/venues', padelVenuesRoutes);
 app.use('/api/padel/bookings', padelBookingsRoutes);
 app.use('/api/padel/matches', padelMatchesRoutes);
+app.use('/api/padel/community', padelCommunityRoutes);
 app.use('/api/padel/players', padelPlayersRoutes);
 
 // Health check
@@ -131,4 +134,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Indalo Padel API en http://0.0.0.0:${PORT}`);
   console.log(`📊 Health: http://0.0.0.0:${PORT}/api/health`);
   startCalendarSyncJob();
+  startCommunityLifecycleJob();
 });

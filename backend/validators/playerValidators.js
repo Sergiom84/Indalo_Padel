@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const courtPreferenceValues = ['drive', 'reves', 'ambos'];
 const dominantHandValues = ['diestro', 'zurdo', 'ambidiestro'];
+const genderValues = ['masculino', 'femenino', 'otro', 'prefiero_no_decirlo'];
 const availabilityPreferenceValues = [
   'mananas',
   'mediodias',
@@ -9,6 +10,7 @@ const availabilityPreferenceValues = [
   'flexible',
 ];
 const matchPreferenceValues = ['amistoso', 'competitivo', 'americana'];
+const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const stringArraySchema = (values) =>
   z.array(z.enum(values)).optional();
@@ -22,6 +24,9 @@ export const updateProfileSchema = z.object({
   avatar_url: z.string().max(2000000).optional(),
   new_password: z.string().min(6).max(100).optional(),
   is_available: z.boolean().optional(),
+  gender: z.enum(genderValues).nullable().optional(),
+  birth_date: z.union([birthDateSchema, z.null()]).optional(),
+  phone: z.string().trim().max(20).nullable().optional(),
   court_preferences: stringArraySchema(courtPreferenceValues),
   dominant_hands: stringArraySchema(dominantHandValues),
   availability_preferences: stringArraySchema(availabilityPreferenceValues),

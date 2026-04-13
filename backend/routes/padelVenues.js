@@ -9,7 +9,7 @@ import { getVenueAvailability } from '../services/padelBookingService.js';
 
 const router = express.Router();
 
-// GET /api/padel/venues - Listar sedes activas
+// GET /api/padel/venues - Listar sedes visibles
 router.get('/', async (req, res) => {
   try {
     const requestedLimit = Number.parseInt(req.query.limit, 10);
@@ -21,6 +21,10 @@ router.get('/', async (req, res) => {
       WITH venues_with_courts AS (
         SELECT
           v.*,
+          CASE
+            WHEN COALESCE(v.is_bookable, true) THEN 'available'
+            ELSE 'coming_soon'
+          END AS booking_status,
           (
             SELECT COUNT(*)::int
             FROM app.padel_courts c
@@ -61,7 +65,13 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const venueResult = await pool.query(
-      'SELECT * FROM app.padel_venues WHERE id = $1 AND is_active = true',
+      `SELECT *,
+              CASE
+                WHEN COALESCE(is_bookable, true) THEN 'available'
+                ELSE 'coming_soon'
+              END AS booking_status
+       FROM app.padel_venues
+       WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
 
@@ -122,13 +132,43 @@ router.get('/:id/availability', validate(availabilityQuerySchema, 'query'), asyn
 // POST /api/padel/venues - Crear sede (solo admin)
 router.post('/', authenticateToken, requireRole('admin'), validate(createVenueSchema), async (req, res) => {
   try {
-    const { name, location, address, phone, email, image_url, opening_time, closing_time } = req.body;
+    const {
+      name,
+      location,
+      address,
+      phone,
+      email,
+      image_url,
+      opening_time,
+      closing_time,
+      is_bookable,
+    } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO app.padel_venues (name, location, address, phone, email, image_url, opening_time, closing_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO app.padel_venues (
+          name,
+          location,
+          address,
+          phone,
+          email,
+          image_url,
+          opening_time,
+          closing_time,
+          is_bookable
+        )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, true))
        RETURNING *`,
-      [name, location, address, phone, email, image_url, opening_time || '08:00', closing_time || '22:00']
+      [
+        name,
+        location,
+        address,
+        phone,
+        email,
+        image_url,
+        opening_time || '08:00',
+        closing_time || '22:00',
+        is_bookable ?? null,
+      ]
     );
 
     res.status(201).json({ venue: result.rows[0] });
@@ -141,7 +181,18 @@ router.post('/', authenticateToken, requireRole('admin'), validate(createVenueSc
 // PUT /api/padel/venues/:id - Editar sede (solo admin)
 router.put('/:id', authenticateToken, requireRole('admin'), validate(updateVenueSchema), async (req, res) => {
   try {
-    const { name, location, address, phone, email, image_url, opening_time, closing_time, is_active } = req.body;
+    const {
+      name,
+      location,
+      address,
+      phone,
+      email,
+      image_url,
+      opening_time,
+      closing_time,
+      is_active,
+      is_bookable,
+    } = req.body;
 
     const result = await pool.query(
       `UPDATE app.padel_venues
@@ -154,10 +205,23 @@ router.put('/:id', authenticateToken, requireRole('admin'), validate(updateVenue
            opening_time = COALESCE($7, opening_time),
            closing_time = COALESCE($8, closing_time),
            is_active = COALESCE($9, is_active),
+           is_bookable = COALESCE($10, is_bookable),
            updated_at = NOW()
-       WHERE id = $10
+       WHERE id = $11
        RETURNING *`,
-      [name, location, address, phone, email, image_url, opening_time, closing_time, is_active, req.params.id]
+      [
+        name,
+        location,
+        address,
+        phone,
+        email,
+        image_url,
+        opening_time,
+        closing_time,
+        is_active,
+        is_bookable,
+        req.params.id,
+      ]
     );
 
     if (result.rows.length === 0) {

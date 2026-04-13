@@ -10,10 +10,14 @@ const __dirname = path.dirname(__filename);
 
 const migrationFiles = [
   path.join(__dirname, 'padel_tables.sql'),
+  path.join(__dirname, 'padel_player_connections.sql'),
+  path.join(__dirname, 'padel_community.sql'),
   path.join(__dirname, 'padel_player_profile_preferences.sql'),
+  path.join(__dirname, 'padel_player_profile_personal_info.sql'),
   path.join(__dirname, 'padel_venue_dedup.sql'),
   path.join(__dirname, 'padel_calendar.sql'),
   path.join(__dirname, 'padel_seed_data.sql'),
+  path.join(__dirname, 'padel_clubs_community_closure.sql'),
 ];
 
 async function run() {

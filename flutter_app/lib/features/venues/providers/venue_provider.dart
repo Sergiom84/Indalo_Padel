@@ -26,12 +26,15 @@ final venueDetailProvider =
 
 /// Provider que obtiene la disponibilidad de una sede para una fecha dada.
 final venueAvailabilityProvider =
-    FutureProvider.family<AvailabilityModel, ({int venueId, String date, int? durationMinutes})>(
+    FutureProvider.family<AvailabilityModel, ({int venueId, String date, int? durationMinutes, int? slotStepMinutes})>(
         (ref, params) async {
   final api = ref.watch(apiClientProvider);
   final queryParams = <String, String>{'date': params.date};
   if (params.durationMinutes != null) {
     queryParams['duration_minutes'] = params.durationMinutes.toString();
+  }
+  if (params.slotStepMinutes != null) {
+    queryParams['slot_step_minutes'] = params.slotStepMinutes.toString();
   }
   final queryString =
       queryParams.entries.map((e) => '${e.key}=${e.value}').join('&');

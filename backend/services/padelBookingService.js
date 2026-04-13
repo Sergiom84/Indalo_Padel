@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import { pool } from '../db.js';
 import {
   APP_TIME_ZONE,
@@ -85,7 +86,7 @@ async function loadCourtAndVenue(client, courtId) {
   const result = await client.query(
     `SELECT c.id as court_id, c.name as court_name, c.court_type, c.price_per_hour, c.peak_price_per_hour,
             v.id as venue_id, v.name as venue_name, v.location as venue_location, v.address as venue_address,
-            v.opening_time, v.closing_time
+            v.opening_time, v.closing_time, COALESCE(v.is_bookable, true) AS is_bookable
      FROM app.padel_courts c
      JOIN app.padel_venues v ON v.id = c.venue_id
      WHERE c.id = $1 AND c.is_active = true AND v.is_active = true`,
@@ -205,28 +206,67 @@ function normalizeScheduleWindow({ dayOfWeek = null, startTime, endTime, label =
   };
 }
 
+function isSummerDate(date) {
+  const dt = DateTime.fromISO(normalizeDateValue(date, APP_TIME_ZONE), {
+    zone: APP_TIME_ZONE,
+  });
+  if (!dt.isValid) {
+    return false;
+  }
+
+  return dt.month >= 6 && dt.month <= 9;
+}
+
+function matchesSeasonalLabel(label, date) {
+  if (!label) {
+    return true;
+  }
+
+  const normalized = String(label).trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized === 'summer' || normalized === 'verano') {
+    return isSummerDate(date);
+  }
+
+  if (normalized === 'winter' || normalized === 'invierno') {
+    return !isSummerDate(date);
+  }
+
+  return true;
+}
+
 async function loadVenueScheduleWindowsForDate(client, {
   venueId,
   date,
   fallbackOpeningTime = null,
   fallbackClosingTime = null,
 }) {
+  const targetDate = normalizeDateValue(date, APP_TIME_ZONE);
+  const weekday = DateTime.fromISO(targetDate, { zone: APP_TIME_ZONE }).weekday;
+
   const result = await client.query(
-    `SELECT day_of_week, start_time, end_time, label
+    `SELECT day_of_week, start_time, end_time, label, valid_from, valid_until
      FROM app.padel_venue_schedule_windows
      WHERE venue_id = $1
        AND is_active = true
-       AND ($2::date >= COALESCE(valid_from, $2::date))
-       AND ($2::date <= COALESCE(valid_until, $2::date))
        AND (
          day_of_week IS NULL
-         OR day_of_week = EXTRACT(ISODOW FROM $2::date)::int
+         OR day_of_week = $2
        )
      ORDER BY start_time ASC`,
-    [venueId, date]
+    [venueId, weekday]
   );
 
   const scheduleWindows = result.rows
+    .filter((row) => {
+      const validFrom = row.valid_from ? normalizeDateValue(row.valid_from, APP_TIME_ZONE) : null;
+      const validUntil = row.valid_until ? normalizeDateValue(row.valid_until, APP_TIME_ZONE) : null;
+      const inDateRange = (!validFrom || targetDate >= validFrom) && (!validUntil || targetDate <= validUntil);
+      return inDateRange && matchesSeasonalLabel(row.label, targetDate);
+    })
     .map((row) => normalizeScheduleWindow({
       dayOfWeek: row.day_of_week == null ? null : Number.parseInt(row.day_of_week, 10),
       startTime: row.start_time,
@@ -277,6 +317,19 @@ export async function getVenueAvailability({ venueId, date, durationMinutes = DE
     }
 
     const venue = venueResult.rows[0];
+    if (venue.is_bookable === false) {
+      return {
+        status: 403,
+        body: {
+          error: 'Este club estará disponible próximamente.',
+          venue,
+          courts: [],
+          time_slots: [],
+          schedule_windows: [],
+        },
+      };
+    }
+
     const courtsResult = await client.query(
       `SELECT id, name, court_type, surface, price_per_hour, peak_price_per_hour
        FROM app.padel_courts
@@ -399,6 +452,14 @@ export async function createBooking({ userId, courtId, bookingDate, startTime, d
     if (!courtBundle) {
       await client.query('ROLLBACK');
       return { status: 404, body: { error: 'Pista no encontrada' } };
+    }
+
+    if (courtBundle.is_bookable === false) {
+      await client.query('ROLLBACK');
+      return {
+        status: 403,
+        body: { error: 'Este club estará disponible próximamente.' },
+      };
     }
 
     const endDateTime = calculateEndTime(bookingDate, startTime, normalizedDuration, APP_TIME_ZONE);

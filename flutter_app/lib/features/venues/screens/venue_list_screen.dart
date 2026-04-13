@@ -61,8 +61,16 @@ class VenueListScreen extends ConsumerWidget {
                     final courtsLabel = venue.courtCount > 0
                         ? '${venue.courtCount} ${venue.courtCount == 1 ? 'pista' : 'pistas'}'
                         : 'Pistas no localizadas';
+                    final statusColor = venue.isComingSoon
+                        ? AppColors.warning
+                        : AppColors.success;
+                    final statusLabel = venue.isComingSoon
+                        ? 'Próximamente'
+                        : 'Disponible';
                     return PadelCard(
-                      onTap: () => context.push('/venues/${venue.id}'),
+                      onTap: venue.isComingSoon
+                          ? null
+                          : () => context.push('/venues/${venue.id}'),
                       child: Row(
                         children: [
                           Expanded(
@@ -100,18 +108,47 @@ class VenueListScreen extends ConsumerWidget {
                                     const Icon(Icons.business,
                                         color: AppColors.muted, size: 14),
                                     const SizedBox(width: 4),
-                                    Text(
-                                      courtsLabel,
-                                      style: const TextStyle(
-                                          color: AppColors.muted, fontSize: 13),
+                                    Expanded(
+                                      child: Text(
+                                        courtsLabel,
+                                        style: const TextStyle(
+                                            color: AppColors.muted, fontSize: 13),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: statusColor.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    statusLabel,
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right,
-                              color: AppColors.muted),
+                          Icon(
+                            venue.isComingSoon
+                                ? Icons.lock_clock_outlined
+                                : Icons.chevron_right,
+                            color: AppColors.muted,
+                          ),
                         ],
                       ),
                     );

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
+import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/utils/player_preferences.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
@@ -23,16 +25,19 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
   bool _loading = true;
   PlayerModel? _player;
   List<RatingModel> _ratings = [];
-  bool _isFavorited = false;
+  bool _networkBusy = false;
 
   // Edit form
   bool _editOpen = false;
   final _editNameCtrl = TextEditingController();
   final _editBioCtrl = TextEditingController();
+  final _editPhoneCtrl = TextEditingController();
   List<String> _editCourtPreferences = const [];
   List<String> _editDominantHands = const [];
   List<String> _editAvailabilityPreferences = const [];
   List<String> _editMatchPreferences = const [];
+  String? _editGender;
+  DateTime? _editBirthDate;
   bool _editAvailable = true;
 
   // Rate form
@@ -50,6 +55,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
   void dispose() {
     _editNameCtrl.dispose();
     _editBioCtrl.dispose();
+    _editPhoneCtrl.dispose();
     _rateCommentCtrl.dispose();
     super.dispose();
   }
@@ -58,23 +64,33 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
-      final data = await api.get('/padel/players/${widget.playerId}');
+      final authUser = ref.read(authProvider).user;
+      final isOwnProfile = authUser?.id.toString() == widget.playerId;
+      final data = isOwnProfile
+          ? await api.get('/padel/players/profile')
+          : await api.get('/padel/players/${widget.playerId}');
+      final ratingsData = isOwnProfile
+          ? await _fetchRatings(api)
+          : (data['ratings'] as List<dynamic>? ?? []);
       if (mounted) {
-        final playerData = data['player'] as Map<String, dynamic>? ?? {};
-        final ratingsData = data['ratings'] as List<dynamic>? ?? [];
+        final playerData = isOwnProfile
+            ? (data['profile'] as Map<String, dynamic>? ?? {})
+            : (data['player'] as Map<String, dynamic>? ?? {});
         final player = PlayerModel.fromJson(playerData);
         setState(() {
           _player = player;
           _ratings = ratingsData
               .map((r) => RatingModel.fromJson(r as Map<String, dynamic>))
               .toList();
-          _isFavorited = player.isFavorited;
           _editNameCtrl.text = player.displayName;
           _editBioCtrl.text = player.bio ?? '';
           _editCourtPreferences = [...player.courtPreferences];
           _editDominantHands = [...player.dominantHands];
           _editAvailabilityPreferences = [...player.availabilityPreferences];
           _editMatchPreferences = [...player.matchPreferences];
+          _editGender = player.gender;
+          _editBirthDate = _parsePlayerBirthDate(player.birthDate);
+          _editPhoneCtrl.text = player.phone ?? '';
           _editAvailable = player.isAvailable;
           _loading = false;
         });
@@ -84,13 +100,35 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
     }
   }
 
+  Future<List<dynamic>> _fetchRatings(ApiClient api) async {
+    try {
+      final publicData = await api.get('/padel/players/${widget.playerId}');
+      return publicData['ratings'] as List<dynamic>? ?? [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _updateProfile() async {
+    if (_editGender == null || _editBirthDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El género y la fecha de nacimiento son obligatorios'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
     try {
       final api = ref.read(apiClientProvider);
       await api.put('/padel/players/profile', data: {
         'display_name': _editNameCtrl.text.trim(),
         'bio': _editBioCtrl.text.trim(),
         'is_available': _editAvailable,
+        'gender': _editGender,
+        'birth_date': DateFormat('yyyy-MM-dd').format(_editBirthDate!),
+        'phone': _editPhoneCtrl.text.trim(),
         'court_preferences': _editCourtPreferences,
         'dominant_hands': _editDominantHands,
         'availability_preferences': _editAvailabilityPreferences,
@@ -106,6 +144,11 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
           dominantHands: _editDominantHands,
           availabilityPreferences: _editAvailabilityPreferences,
           matchPreferences: _editMatchPreferences,
+          gender: _editGender,
+          birthDate: DateFormat('yyyy-MM-dd').format(_editBirthDate!),
+          phone: _editPhoneCtrl.text.trim().isEmpty
+              ? null
+              : _editPhoneCtrl.text.trim(),
           isAvailable: _editAvailable,
           avgRating: _player!.avgRating,
           totalRatings: _player!.totalRatings,
@@ -116,6 +159,11 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
               : _editBioCtrl.text.trim(),
           avatarUrl: _player!.avatarUrl,
           isFavorited: _player!.isFavorited,
+          connectionId: _player!.connectionId,
+          connectionStatus: _player!.connectionStatus,
+          connectionRequestedByMe: _player!.connectionRequestedByMe,
+          connectionRequestedAt: _player!.connectionRequestedAt,
+          connectionRespondedAt: _player!.connectionRespondedAt,
         );
         _editOpen = false;
       });
@@ -126,6 +174,20 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
               content: Text(e.toString()), backgroundColor: AppColors.danger),
         );
       }
+    }
+  }
+
+  Future<void> _pickEditBirthDate() async {
+    final now = DateTime.now();
+    final picked = await showAdaptiveAppDatePicker(
+      context: context,
+      initialDate:
+          _editBirthDate ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900, 1, 1),
+      lastDate: now,
+    );
+    if (picked != null && mounted) {
+      setState(() => _editBirthDate = picked);
     }
   }
 
@@ -154,17 +216,56 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
     }
   }
 
-  Future<void> _toggleFavorite() async {
+  Future<void> _sendPlayRequest() async {
     try {
+      setState(() => _networkBusy = true);
       final api = ref.read(apiClientProvider);
-      await api.post('/padel/players/${widget.playerId}/favorite', data: {});
-      setState(() => _isFavorited = !_isFavorited);
+      final data = await api
+          .post('/padel/players/${widget.playerId}/network/request', data: {});
+      if (mounted && data is Map && data['message'] != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'].toString())),
+        );
+      }
+      await _fetchPlayer();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text(e.toString()), backgroundColor: AppColors.danger),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _networkBusy = false);
+      }
+    }
+  }
+
+  Future<void> _respondToPlayRequest(String action) async {
+    try {
+      setState(() => _networkBusy = true);
+      final api = ref.read(apiClientProvider);
+      final data = await api.post(
+        '/padel/players/${widget.playerId}/network/respond',
+        data: {'action': action},
+      );
+      if (mounted && data is Map && data['message'] != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'].toString())),
+        );
+      }
+      await _fetchPlayer();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(e.toString()), backgroundColor: AppColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _networkBusy = false);
       }
     }
   }
@@ -288,16 +389,6 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                                   color: AppColors.primary),
                               onPressed: () => setState(() => _rateOpen = true),
                             ),
-                            IconButton(
-                              icon: Icon(
-                                _isFavorited
-                                    ? Icons.favorite
-                                    : Icons.favorite_outline,
-                                color:
-                                    _isFavorited ? Colors.red : AppColors.muted,
-                              ),
-                              onPressed: _toggleFavorite,
-                            ),
                           ],
                         ],
                       ),
@@ -316,15 +407,29 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                     const SizedBox(height: 14),
                     _PlayerPreferenceSummary(player: player),
                   ],
+                  if (_playerMetaItems(player).isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _playerMetaItems(player)
+                          .map(
+                            (item) => PadelBadge(
+                              label: item,
+                              variant: PadelBadgeVariant.outline,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
                   if (!isOwnProfile) ...[
                     const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: null,
-                        icon: const Icon(Icons.person_add_alt_1),
-                        label: const Text('Invitar jugador (Próximamente)'),
-                      ),
+                    _ConnectionActionPanel(
+                      player: player,
+                      busy: _networkBusy,
+                      onRequest: _sendPlayRequest,
+                      onAccept: () => _respondToPlayRequest('accepted'),
+                      onReject: () => _respondToPlayRequest('rejected'),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -413,6 +518,9 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
               dominantHands: _editDominantHands,
               availabilityPreferences: _editAvailabilityPreferences,
               matchPreferences: _editMatchPreferences,
+              gender: _editGender,
+              birthDate: _editBirthDate,
+              phoneCtrl: _editPhoneCtrl,
               available: _editAvailable,
               onCourtPreferencesChanged: (values) =>
                   setState(() => _editCourtPreferences = values),
@@ -422,6 +530,8 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                   setState(() => _editAvailabilityPreferences = values),
               onMatchPreferencesChanged: (values) =>
                   setState(() => _editMatchPreferences = values),
+              onGenderChanged: (value) => setState(() => _editGender = value),
+              onBirthDateTap: _pickEditBirthDate,
               onAvailableChanged: (v) => setState(() => _editAvailable = v),
               onSave: _updateProfile,
               onCancel: () => setState(() => _editOpen = false),
@@ -437,6 +547,34 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
               : null,
     );
   }
+}
+
+DateTime? _parsePlayerBirthDate(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+
+  try {
+    return DateTime.parse(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+List<String> _playerMetaItems(PlayerModel player) {
+  final items = <String>[];
+  final genderLabel = PlayerPreferenceCatalog.labelForGender(player.gender);
+  if (genderLabel.isNotEmpty) {
+    items.add(genderLabel);
+  }
+  final birthDate = _parsePlayerBirthDate(player.birthDate);
+  if (birthDate != null) {
+    items.add(DateFormat('dd/MM/yyyy').format(birthDate));
+  }
+  if (player.phone != null && player.phone!.trim().isNotEmpty) {
+    items.add(player.phone!.trim());
+  }
+  return items;
 }
 
 class _PreferenceSectionData {
@@ -519,6 +657,138 @@ class _PlayerPreferenceSummary extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+class _ConnectionActionPanel extends StatelessWidget {
+  final PlayerModel player;
+  final bool busy;
+  final VoidCallback onRequest;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  const _ConnectionActionPanel({
+    required this.player,
+    required this.busy,
+    required this.onRequest,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    switch (player.connectionStatus) {
+      case 'accepted':
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(14),
+            border:
+                Border.all(color: AppColors.success.withValues(alpha: 0.25)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.people_alt_outlined, color: AppColors.success),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Ya forma parte de tu red',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      case 'incoming_pending':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Este jugador te ha enviado una solicitud para jugar.',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: busy ? null : onReject,
+                    child: const Text('Rechazar'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: busy ? null : onAccept,
+                    child: busy
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Aceptar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      case 'outgoing_pending':
+        return SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.schedule_outlined),
+            label: const Text('Solicitud enviada'),
+          ),
+        );
+      case 'rejected':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'No aceptó tu última solicitud.',
+              style: TextStyle(color: AppColors.muted),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: busy ? null : onRequest,
+                icon: const Icon(Icons.person_add_alt_1),
+                label: busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Jugamos?'),
+              ),
+            ),
+          ],
+        );
+      default:
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: busy ? null : onRequest,
+            icon: const Icon(Icons.person_add_alt_1),
+            label: busy
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Jugamos?'),
+          ),
+        );
+    }
   }
 }
 
@@ -642,15 +912,20 @@ class _RatingRow extends StatelessWidget {
 class _EditProfileSheet extends StatelessWidget {
   final TextEditingController nameCtrl;
   final TextEditingController bioCtrl;
+  final TextEditingController phoneCtrl;
   final List<String> courtPreferences;
   final List<String> dominantHands;
   final List<String> availabilityPreferences;
   final List<String> matchPreferences;
+  final String? gender;
+  final DateTime? birthDate;
   final bool available;
   final ValueChanged<List<String>> onCourtPreferencesChanged;
   final ValueChanged<List<String>> onDominantHandsChanged;
   final ValueChanged<List<String>> onAvailabilityPreferencesChanged;
   final ValueChanged<List<String>> onMatchPreferencesChanged;
+  final ValueChanged<String?> onGenderChanged;
+  final VoidCallback onBirthDateTap;
   final void Function(bool) onAvailableChanged;
   final VoidCallback onSave;
   final VoidCallback onCancel;
@@ -658,15 +933,20 @@ class _EditProfileSheet extends StatelessWidget {
   const _EditProfileSheet({
     required this.nameCtrl,
     required this.bioCtrl,
+    required this.phoneCtrl,
     required this.courtPreferences,
     required this.dominantHands,
     required this.availabilityPreferences,
     required this.matchPreferences,
+    required this.gender,
+    required this.birthDate,
     required this.available,
     required this.onCourtPreferencesChanged,
     required this.onDominantHandsChanged,
     required this.onAvailabilityPreferencesChanged,
     required this.onMatchPreferencesChanged,
+    required this.onGenderChanged,
+    required this.onBirthDateTap,
     required this.onAvailableChanged,
     required this.onSave,
     required this.onCancel,
@@ -698,15 +978,67 @@ class _EditProfileSheet extends StatelessWidget {
               decoration: const InputDecoration(labelText: 'Nombre'),
             ),
             const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: gender,
+              dropdownColor: AppColors.surface2,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: 'Género'),
+              hint: const Text(
+                'Selecciona tu género',
+                style: TextStyle(color: AppColors.muted),
+              ),
+              items: PlayerPreferenceCatalog.genderOptions
+                  .map(
+                    (option) => DropdownMenuItem(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                  )
+                  .toList(),
+              onChanged: onGenderChanged,
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: onBirthDateTap,
+              borderRadius: BorderRadius.circular(12),
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Fecha de nacimiento',
+                  suffixIcon: Icon(
+                    Icons.calendar_today_outlined,
+                    color: AppColors.muted,
+                    size: 20,
+                  ),
+                ),
+                child: Text(
+                  birthDate == null
+                      ? 'Selecciona tu fecha de nacimiento'
+                      : DateFormat('dd/MM/yyyy').format(birthDate!),
+                  style: TextStyle(
+                    color: birthDate == null ? AppColors.muted : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Teléfono (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
             PreferenceCheckboxGroup(
-              title: 'Preferencia en pista',
+              title: 'Posición en pista',
               options: PlayerPreferenceCatalog.courtPreferences,
               selectedValues: courtPreferences,
               onChanged: onCourtPreferencesChanged,
             ),
             const SizedBox(height: 12),
             PreferenceCheckboxGroup(
-              title: 'Perfil del jugador',
+              title: 'Preferencia de la mano',
               options: PlayerPreferenceCatalog.dominantHands,
               selectedValues: dominantHands,
               onChanged: onDominantHandsChanged,
