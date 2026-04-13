@@ -3,7 +3,11 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { updateProfileSchema } from '../validators/playerValidators.js';
+import {
+  deleteProfileSchema,
+  playerSearchQuerySchema,
+  updateProfileSchema,
+} from '../validators/playerValidators.js';
 
 const router = express.Router();
 
@@ -65,6 +69,10 @@ function buildPlayerRow(row) {
     ...row,
     avg_rating: Number(row.avg_rating ?? 0),
   };
+}
+
+function buildDeletedEmail(userId) {
+  return `deleted+${userId}+${Date.now()}@deleted.indalo.local`;
 }
 
 // GET /api/padel/players/profile - Mi perfil
@@ -200,6 +208,93 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
   }
 });
 
+// DELETE /api/padel/players/profile - Baja lógica del perfil
+router.delete(
+  '/profile',
+  authenticateToken,
+  validate(deleteProfileSchema),
+  async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      const { reason, other_reason } = req.body;
+      const userId = req.user.userId;
+      const deletedPasswordHash = await bcrypt.hash(
+        `deleted::${userId}::${Date.now()}`,
+        10
+      );
+
+      await client.query('BEGIN');
+
+      const userResult = await client.query(
+        `SELECT id, email
+         FROM app.users
+         WHERE id = $1
+           AND deleted_at IS NULL
+         FOR UPDATE`,
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Perfil no encontrado' });
+      }
+
+      await client.query(
+        'DELETE FROM app.padel_favorites WHERE user_id = $1 OR favorite_id = $1',
+        [userId]
+      );
+      await client.query(
+        'DELETE FROM app.padel_player_connections WHERE user_a_id = $1 OR user_b_id = $1',
+        [userId]
+      );
+      await client.query(
+        `UPDATE app.padel_player_profiles
+         SET is_available = false,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE app.users
+         SET deleted_at = NOW(),
+             deleted_reason = $1,
+             deleted_reason_other = CASE
+               WHEN $1 = 'otros' THEN NULLIF($2, '')
+               ELSE NULL
+             END,
+             deleted_email = email,
+             email = $3,
+             password_hash = $4,
+             email_verification_token_hash = NULL,
+             email_verification_sent_at = NULL,
+             email_verification_expires_at = NULL,
+             password_reset_token_hash = NULL,
+             password_reset_sent_at = NULL,
+             password_reset_expires_at = NULL,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [
+          reason,
+          other_reason?.trim() ?? null,
+          buildDeletedEmail(userId),
+          deletedPasswordHash,
+          userId,
+        ]
+      );
+
+      await client.query('COMMIT');
+      return res.json({ message: 'Perfil eliminado correctamente' });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error eliminando perfil:', error);
+      return res.status(500).json({ error: 'No se pudo eliminar el perfil' });
+    } finally {
+      client.release();
+    }
+  }
+);
+
 // GET /api/padel/players/network - Mi red, solicitudes recibidas y enviadas
 router.get('/network', authenticateToken, async (req, res) => {
   try {
@@ -257,6 +352,7 @@ router.get('/network', authenticateToken, async (req, res) => {
             WHEN pc.user_a_id = $1 THEN pc.user_b_id
             ELSE pc.user_a_id
           END
+         AND u.deleted_at IS NULL
         LEFT JOIN app.padel_player_profiles pp ON pp.user_id = u.id
         LEFT JOIN ratings r ON r.rated_id = u.id
         WHERE pc.user_a_id = $1 OR pc.user_b_id = $1
@@ -319,7 +415,10 @@ router.post('/:id/network/request', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'No puedes enviarte una solicitud a ti mismo' });
     }
 
-    const userExists = await pool.query('SELECT id FROM app.users WHERE id = $1', [targetId]);
+    const userExists = await pool.query(
+      'SELECT id FROM app.users WHERE id = $1 AND deleted_at IS NULL',
+      [targetId]
+    );
     if (userExists.rows.length === 0) {
       return res.status(404).json({ error: 'Jugador no encontrado' });
     }
@@ -461,9 +560,14 @@ router.post('/:id/network/respond', authenticateToken, async (req, res) => {
 });
 
 // GET /api/padel/players/search - Buscar jugadores
-router.get('/search', authenticateToken, async (req, res) => {
+router.get(
+  '/search',
+  authenticateToken,
+  validate(playerSearchQuerySchema, 'query'),
+  async (req, res) => {
   try {
-    const { name, level, available } = req.query;
+    const { name, level, main_level, sub_level, gender, available } =
+      req.query;
     const userId = req.user.userId;
 
     let query = `
@@ -476,7 +580,7 @@ router.get('/search', authenticateToken, async (req, res) => {
         ${basePlayerColumns},
         ${connectionSelectSql(1)}
       FROM app.padel_player_profiles pp
-      JOIN app.users u ON pp.user_id = u.id
+      JOIN app.users u ON pp.user_id = u.id AND u.deleted_at IS NULL
       LEFT JOIN ratings r ON r.rated_id = pp.user_id
       ${connectionJoinSql('pp.user_id', 1)}
       WHERE pp.user_id <> $1
@@ -493,7 +597,25 @@ router.get('/search', authenticateToken, async (req, res) => {
 
     if (level) {
       query += ` AND pp.numeric_level = $${paramIdx}`;
-      params.push(parseInt(level));
+      params.push(level);
+      paramIdx++;
+    }
+
+    if (main_level) {
+      query += ` AND pp.main_level = $${paramIdx}`;
+      params.push(main_level);
+      paramIdx++;
+    }
+
+    if (sub_level) {
+      query += ` AND pp.sub_level = $${paramIdx}`;
+      params.push(sub_level);
+      paramIdx++;
+    }
+
+    if (gender) {
+      query += ` AND pp.gender = $${paramIdx}`;
+      params.push(gender);
       paramIdx++;
     }
 
@@ -534,7 +656,7 @@ router.get('/favorites', authenticateToken, async (req, res) => {
         COALESCE((SELECT AVG(rating) FROM app.padel_player_ratings WHERE rated_id = pp.user_id), 0) as avg_rating,
         f.created_at as favorited_at
        FROM app.padel_favorites f
-       JOIN app.users u ON f.favorite_id = u.id
+       JOIN app.users u ON f.favorite_id = u.id AND u.deleted_at IS NULL
        LEFT JOIN app.padel_player_profiles pp ON f.favorite_id = pp.user_id
        WHERE f.user_id = $1
        ORDER BY f.created_at DESC`,
@@ -559,7 +681,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
           (SELECT COUNT(*) FROM app.padel_player_ratings WHERE rated_id = pp.user_id) as total_ratings,
           ${connectionSelectSql(2)}
         FROM app.padel_player_profiles pp
-        JOIN app.users u ON pp.user_id = u.id
+        JOIN app.users u ON pp.user_id = u.id AND u.deleted_at IS NULL
         LEFT JOIN (
           SELECT rated_id, AVG(rating) AS avg_rating
           FROM app.padel_player_ratings
@@ -611,6 +733,14 @@ router.post('/:id/rate', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'La valoración debe ser entre 1 y 5' });
     }
 
+    const ratedExists = await pool.query(
+      'SELECT id FROM app.users WHERE id = $1 AND deleted_at IS NULL',
+      [ratedId]
+    );
+    if (ratedExists.rows.length === 0) {
+      return res.status(404).json({ error: 'Jugador no encontrado' });
+    }
+
     const result = await pool.query(
       `INSERT INTO app.padel_player_ratings (rater_id, rated_id, match_id, rating, comment)
        VALUES ($1, $2, $3, $4, $5)
@@ -635,6 +765,14 @@ router.post('/:id/favorite', authenticateToken, async (req, res) => {
 
     if (userId === favoriteId) {
       return res.status(400).json({ error: 'No puedes añadirte como favorito' });
+    }
+
+    const favoriteExists = await pool.query(
+      'SELECT id FROM app.users WHERE id = $1 AND deleted_at IS NULL',
+      [favoriteId]
+    );
+    if (favoriteExists.rows.length === 0) {
+      return res.status(404).json({ error: 'Jugador no encontrado' });
     }
 
     // Check if already favorited

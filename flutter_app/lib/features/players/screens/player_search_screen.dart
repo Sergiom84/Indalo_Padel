@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/utils/player_preferences.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../models/player_model.dart';
@@ -28,7 +29,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   bool _showFilters = false;
   List<PlayerModel> _players = const [];
   PlayerNetworkSnapshot _network = const PlayerNetworkSnapshot();
-  int? _filterLevel;
+  String? _filterLevelKey;
+  String? _filterGender;
   bool _filterAvailable = false;
   Timer? _searchDebounce;
   int _searchSequence = 0;
@@ -101,11 +103,17 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
     try {
       final api = ref.read(apiClientProvider);
       final params = <String, dynamic>{};
+      final levelOption =
+          PlayerPreferenceCatalog.levelOptionForKey(_filterLevelKey);
       if (_searchCtrl.text.trim().isNotEmpty) {
         params['name'] = _searchCtrl.text.trim();
       }
-      if (_filterLevel != null) {
-        params['level'] = _filterLevel!;
+      if (levelOption != null) {
+        params['main_level'] = levelOption.mainLevel;
+        params['sub_level'] = levelOption.subLevel;
+      }
+      if (_filterGender != null) {
+        params['gender'] = _filterGender!;
       }
       if (_filterAvailable) {
         params['available'] = 'true';
@@ -418,8 +426,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Column(
               children: [
-                DropdownButtonFormField<int?>(
-                  initialValue: _filterLevel,
+                DropdownButtonFormField<String?>(
+                  initialValue: _filterLevelKey,
                   dropdownColor: AppColors.surface2,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
@@ -432,25 +440,62 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                     style: TextStyle(color: AppColors.muted),
                   ),
                   items: [
-                    const DropdownMenuItem<int?>(
+                    const DropdownMenuItem<String?>(
                       value: null,
                       child: Text(
                         'Todos los niveles',
                         style: TextStyle(color: AppColors.muted),
                       ),
                     ),
-                    ...List.generate(9, (index) => index + 1).map(
-                      (level) => DropdownMenuItem<int?>(
-                        value: level,
+                    ...PlayerPreferenceCatalog.levelOptions.map(
+                      (level) => DropdownMenuItem<String?>(
+                        value: level.key,
                         child: Text(
-                          'Nivel $level',
+                          level.label,
                           style: const TextStyle(color: Colors.white),
                         ),
                       ),
                     ),
                   ],
                   onChanged: (value) {
-                    setState(() => _filterLevel = value);
+                    setState(() => _filterLevelKey = value);
+                    _search();
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String?>(
+                  initialValue: _filterGender,
+                  dropdownColor: AppColors.surface2,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Sexo',
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  hint: const Text(
+                    'Todos',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text(
+                        'Todos',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
+                    ),
+                    ...PlayerPreferenceCatalog.genderOptions.map(
+                      (gender) => DropdownMenuItem<String?>(
+                        value: gender.value,
+                        child: Text(
+                          gender.label,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() => _filterGender = value);
                     _search();
                   },
                 ),
