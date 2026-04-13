@@ -140,12 +140,12 @@ class PlayerPreferenceCatalog {
   static const sections = [
     PreferenceSectionDefinition(
       field: 'court_preferences',
-      title: 'Preferencia en pista',
+      title: 'Posición en pista',
       options: courtPreferences,
     ),
     PreferenceSectionDefinition(
       field: 'dominant_hands',
-      title: 'Perfil del jugador',
+      title: 'Preferencia de la mano',
       options: dominantHands,
     ),
     PreferenceSectionDefinition(

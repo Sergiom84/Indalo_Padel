@@ -227,7 +227,7 @@ router.delete(
       await client.query('BEGIN');
 
       const userResult = await client.query(
-        `SELECT id
+        `SELECT id, email
          FROM app.users
          WHERE id = $1
            AND deleted_at IS NULL
@@ -266,6 +266,12 @@ router.delete(
              deleted_email = email,
              email = $3,
              password_hash = $4,
+             email_verification_token_hash = NULL,
+             email_verification_sent_at = NULL,
+             email_verification_expires_at = NULL,
+             password_reset_token_hash = NULL,
+             password_reset_sent_at = NULL,
+             password_reset_expires_at = NULL,
              updated_at = NOW()
          WHERE id = $5`,
         [
