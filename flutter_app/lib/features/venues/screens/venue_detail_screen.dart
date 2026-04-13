@@ -25,7 +25,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
   AvailabilityModel? _availability;
   String? _error;
   DateTime _selectedDate = DateTime.now();
-  int _durationMinutes = 90;
+  static const int _durationMinutes = 90;
 
   @override
   void initState() {
@@ -53,7 +53,9 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
         _venue = VenueModel.fromJson(venueData);
         _loadingVenue = false;
       });
-      await _fetchAvailability();
+      if (_venue?.isComingSoon != true) {
+        await _fetchAvailability();
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -70,7 +72,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
       final api = ref.read(apiClientProvider);
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
       final data = await api.get(
-        '/padel/venues/${widget.venueId}/availability?date=$dateStr&duration_minutes=$_durationMinutes',
+        '/padel/venues/${widget.venueId}/availability?date=$dateStr&duration_minutes=$_durationMinutes&slot_step_minutes=90',
       );
       if (!mounted) {
         return;
@@ -102,18 +104,6 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
       });
       await _fetchAvailability();
     }
-  }
-
-  Future<void> _setDuration(int minutes) async {
-    if (_durationMinutes == minutes) {
-      return;
-    }
-    await appSelectionHaptic();
-    setState(() {
-      _durationMinutes = minutes;
-      _availability = null;
-    });
-    await _fetchAvailability();
   }
 
   Future<void> _handleSlotTap(
@@ -290,6 +280,7 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
 
     final venue = _venue!;
     final scheduleLabel = _buildScheduleLabel(venue);
+    final isComingSoon = venue.isComingSoon;
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -340,56 +331,23 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(
+                color: isComingSoon ? AppColors.warning : AppColors.primary,
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Duracion del partido',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [60, 90, 120]
-                      .map(
-                        (minutes) => ChoiceChip(
-                          label: Text('$minutes min'),
-                          selected: _durationMinutes == minutes,
-                          selectedColor:
-                              AppColors.primary.withValues(alpha: 0.18),
-                          side: BorderSide(
-                            color: _durationMinutes == minutes
-                                ? AppColors.primary
-                                : AppColors.border,
-                          ),
-                          labelStyle: TextStyle(
-                            color: _durationMinutes == minutes
-                                ? Colors.white
-                                : AppColors.muted,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          onSelected: (_) => _setDuration(minutes),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'La disponibilidad se filtra segun la duracion seleccionada.',
-                  style: TextStyle(color: AppColors.muted, fontSize: 12),
-                ),
-              ],
+            child: Text(
+              isComingSoon
+                  ? 'Este club seguirá visible, pero la reserva directa llegará próximamente.'
+                  : 'Las franjas se muestran con un ritmo fijo de 90 minutos para que una reserva bloquee solo un tramo visual.',
+              style: const TextStyle(
+                color: Colors.white,
+                height: 1.4,
+              ),
             ),
           ),
-          const SizedBox(height: 18),
-          InkWell(
+          if (!isComingSoon) const SizedBox(height: 18),
+          if (!isComingSoon)
+            InkWell(
             onTap: _pickDate,
             borderRadius: BorderRadius.circular(22),
             child: Container(
@@ -450,14 +408,21 @@ class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          if (_loadingAvailability)
+          if (!isComingSoon) const SizedBox(height: 18),
+          if (isComingSoon)
+            const _AvailabilityEmptyState(
+              message:
+                  'Por ahora solo Marina de la Torre queda operativa. El resto se mantiene visible como referencia mientras termina esa parte.',
+            )
+          else if (_loadingAvailability)
             const LoadingSpinner()
           else if ((_availability?.courts ?? []).isEmpty)
             _AvailabilityEmptyState(
               message: venue.courtCount <= 0
                   ? 'No hay pistas publicadas con número confirmado para este centro.'
-                  : 'No hay disponibilidad para esta fecha.',
+                  : (_availability?.error?.trim().isNotEmpty == true
+                      ? _availability!.error!
+                      : 'No hay disponibilidad para esta fecha.'),
             )
           else
             ...(_availability!.courts.map((court) {

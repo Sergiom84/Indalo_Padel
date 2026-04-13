@@ -10,14 +10,21 @@ final myProfileProvider = FutureProvider<PlayerModel>((ref) async {
   return PlayerModel.fromJson(profile as Map<String, dynamic>);
 });
 
-/// Provider para obtener la lista de jugadores favoritos.
-final favoritesProvider = FutureProvider<List<PlayerModel>>((ref) async {
+/// Provider para obtener la red del jugador actual.
+final networkProvider = FutureProvider<PlayerNetworkSnapshot>((ref) async {
   final api = ref.watch(apiClientProvider);
-  final data = await api.get('/padel/players/favorites');
-  final list = (data is List ? data : (data['favorites'] ?? [])) as List;
-  return list
-      .map((p) => PlayerModel.fromJson(p as Map<String, dynamic>))
-      .toList();
+  final data = await api.get('/padel/players/network');
+  return PlayerNetworkSnapshot.fromJson(
+    data is Map<String, dynamic>
+        ? data
+        : Map<String, dynamic>.from(data as Map),
+  );
+});
+
+/// Compatibilidad temporal: compañeros confirmados.
+final favoritesProvider = FutureProvider<List<PlayerModel>>((ref) async {
+  final network = await ref.watch(networkProvider.future);
+  return network.companions;
 });
 
 /// Provider para buscar jugadores.
@@ -26,7 +33,7 @@ final playerSearchProvider =
   final api = ref.watch(apiClientProvider);
   final path = query.isEmpty
       ? '/padel/players/search'
-      : '/padel/players/search?q=$query';
+      : '/padel/players/search?name=${Uri.encodeComponent(query)}';
   final data = await api.get(path);
   final list = (data is List ? data : (data['players'] ?? [])) as List;
   return list
@@ -42,7 +49,7 @@ final playerDetailProvider =
   return data as Map<String, dynamic>;
 });
 
-/// Acciones de jugadores (actualizar perfil, valorar, toggle favorito).
+/// Acciones de jugadores (actualizar perfil, valorar y red de jugadores).
 final playerActionsProvider = Provider<PlayerActions>((ref) {
   return PlayerActions(ref.watch(apiClientProvider));
 });
@@ -62,7 +69,14 @@ class PlayerActions {
     });
   }
 
-  Future<void> toggleFavorite(int playerId) async {
-    await _api.post('/padel/players/$playerId/favorite', data: {});
+  Future<void> sendPlayRequest(int playerId) async {
+    await _api.post('/padel/players/$playerId/network/request', data: {});
+  }
+
+  Future<void> respondToPlayRequest(int playerId, String action) async {
+    await _api.post(
+      '/padel/players/$playerId/network/respond',
+      data: {'action': action},
+    );
   }
 }

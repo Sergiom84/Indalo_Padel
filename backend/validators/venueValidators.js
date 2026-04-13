@@ -19,6 +19,7 @@ export const createVenueSchema = z.object({
   image_url: z.string().url('URL de imagen inválida').optional(),
   opening_time: z.string().regex(timeRegex, 'Formato de hora inválido').optional().default('08:00'),
   closing_time: z.string().regex(timeRegex, 'Formato de hora inválido').optional().default('22:00'),
+  is_bookable: z.boolean().optional(),
 });
 
 export const updateVenueSchema = z.object({
@@ -31,4 +32,5 @@ export const updateVenueSchema = z.object({
   opening_time: z.string().regex(timeRegex).optional(),
   closing_time: z.string().regex(timeRegex).optional(),
   is_active: z.boolean().optional(),
+  is_bookable: z.boolean().optional(),
 });

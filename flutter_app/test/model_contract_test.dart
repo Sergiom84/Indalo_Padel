@@ -140,19 +140,33 @@ void main() {
   });
 
   group('PlayerModel contract', () {
-    test('maps avatar_url from API payloads', () {
+    test('maps avatar_url and personal fields from API payloads', () {
       final model = PlayerModel.fromJson({
         'user_id': 8,
         'display_name': 'María',
         'avatar_url': 'https://example.com/avatar.png',
+        'gender': 'femenino',
+        'birth_date': '1994-06-12',
+        'phone': '+34600111222',
         'court_preferences': ['drive', 'ambos'],
         'dominant_hands': ['diestro'],
+        'connection_id': 14,
+        'connection_status': 'incoming_pending',
+        'connection_requested_by_me': false,
+        'connection_requested_at': '2026-04-13T10:00:00.000Z',
       });
 
       expect(model.userId, 8);
       expect(model.avatarUrl, 'https://example.com/avatar.png');
+      expect(model.gender, 'femenino');
+      expect(model.birthDate, '1994-06-12');
+      expect(model.phone, '+34600111222');
       expect(model.courtPreferences, ['drive', 'ambos']);
       expect(model.dominantHands, ['diestro']);
+      expect(model.connectionId, 14);
+      expect(model.connectionStatus, 'incoming_pending');
+      expect(model.connectionRequestedByMe, isFalse);
+      expect(model.connectionRequestedAt, '2026-04-13T10:00:00.000Z');
     });
   });
 }

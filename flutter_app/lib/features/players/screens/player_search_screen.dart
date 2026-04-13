@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_theme.dart';
+
 import '../../../core/api/api_client.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
-import '../../auth/providers/auth_provider.dart';
 import '../models/player_model.dart';
 
 class PlayerSearchScreen extends ConsumerStatefulWidget {
@@ -17,21 +17,28 @@ class PlayerSearchScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerSearchScreen> createState() => _PlayerSearchScreenState();
 }
 
-class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
+class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
+    with SingleTickerProviderStateMixin {
   final _searchCtrl = TextEditingController();
-  bool _loading = false;
-  List<PlayerModel> _players = [];
+  final Set<int> _busyPlayerIds = <int>{};
+  late final TabController _tabController;
+
+  bool _loadingDiscover = false;
+  bool _loadingNetwork = false;
+  bool _showFilters = false;
+  List<PlayerModel> _players = const [];
+  PlayerNetworkSnapshot _network = const PlayerNetworkSnapshot();
   int? _filterLevel;
   bool _filterAvailable = false;
-  bool _showFilters = false;
   Timer? _searchDebounce;
   int _searchSequence = 0;
 
   @override
   void initState() {
     super.initState();
-    _search();
+    _tabController = TabController(length: 2, vsync: this);
     _searchCtrl.addListener(_onSearchChanged);
+    _refreshAll();
   }
 
   @override
@@ -39,6 +46,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
     _searchDebounce?.cancel();
     _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -47,10 +55,49 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
     _searchDebounce = Timer(const Duration(milliseconds: 300), _search);
   }
 
+  Future<void> _refreshAll() async {
+    await Future.wait([
+      _fetchNetwork(),
+      _search(),
+    ]);
+  }
+
+  Future<void> _fetchNetwork() async {
+    if (mounted) {
+      setState(() => _loadingNetwork = true);
+    }
+
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.get('/padel/players/network');
+      if (!mounted) {
+        return;
+      }
+
+      final json = data is Map<String, dynamic>
+          ? data
+          : Map<String, dynamic>.from(data as Map);
+      setState(() {
+        _network = PlayerNetworkSnapshot.fromJson(json);
+        _loadingNetwork = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _loadingNetwork = false);
+      _showMessage(error.toString(), isError: true);
+    }
+  }
+
   Future<void> _search() async {
     _searchDebounce?.cancel();
     final requestId = ++_searchSequence;
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loadingDiscover = true);
+    }
+
     try {
       final api = ref.read(apiClientProvider);
       final params = <String, dynamic>{};
@@ -65,36 +112,106 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
       }
 
       final queryString = params.entries
-          .map((e) => '${e.key}=${Uri.encodeComponent(e.value.toString())}')
+          .map((entry) =>
+              '${entry.key}=${Uri.encodeComponent(entry.value.toString())}')
           .join('&');
       final data = await api.get(
-          '/padel/players/search${queryString.isNotEmpty ? '?$queryString' : ''}');
-      final list = data is List ? data : (data['players'] ?? []);
+        '/padel/players/search${queryString.isNotEmpty ? '?$queryString' : ''}',
+      );
+      final list = data is List ? data : (data['players'] ?? const []);
+
       if (!mounted || requestId != _searchSequence) {
         return;
       }
-      if (mounted) {
-        setState(() {
-          _players = (list as List)
-              .map((p) => PlayerModel.fromJson(p as Map<String, dynamic>))
-              .toList();
-          _loading = false;
-        });
+
+      setState(() {
+        _players = (list as List)
+            .whereType<Map>()
+            .map((player) =>
+                PlayerModel.fromJson(Map<String, dynamic>.from(player)))
+            .toList(growable: false);
+        _loadingDiscover = false;
+      });
+    } catch (error) {
+      if (!mounted || requestId != _searchSequence) {
+        return;
       }
-    } catch (_) {
-      if (mounted && requestId == _searchSequence) {
-        setState(() => _loading = false);
+
+      setState(() => _loadingDiscover = false);
+      _showMessage(error.toString(), isError: true);
+    }
+  }
+
+  bool _isBusy(int playerId) => _busyPlayerIds.contains(playerId);
+
+  Future<void> _runPlayerAction(
+    int playerId,
+    Future<String?> Function() action,
+  ) async {
+    if (_busyPlayerIds.contains(playerId)) {
+      return;
+    }
+
+    setState(() => _busyPlayerIds.add(playerId));
+
+    try {
+      final message = await action();
+      if (message != null && mounted) {
+        _showMessage(message);
+      }
+      await _refreshAll();
+    } catch (error) {
+      if (mounted) {
+        _showMessage(error.toString(), isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busyPlayerIds.remove(playerId));
       }
     }
   }
 
+  Future<String?> _sendPlayRequest(PlayerModel player) async {
+    final api = ref.read(apiClientProvider);
+    final data = await api
+        .post('/padel/players/${player.userId}/network/request', data: {});
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    return null;
+  }
+
+  Future<String?> _respondToRequest(PlayerModel player, String action) async {
+    final api = ref.read(apiClientProvider);
+    final data = await api.post(
+      '/padel/players/${player.userId}/network/respond',
+      data: {'action': action},
+    );
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    return null;
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.danger : AppColors.surface,
+      ),
+    );
+  }
+
+  void _goToNetworkTab() {
+    _tabController.animateTo(0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final currentUserId = ref.watch(authProvider).user?.id;
-    final visiblePlayers = currentUserId == null
-        ? _players
-        : _players.where((player) => player.userId != currentUserId).toList();
-
     return Scaffold(
       backgroundColor: AppColors.dark,
       appBar: AppBar(
@@ -102,244 +219,746 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
           children: [
             Icon(Icons.people_outline, color: AppColors.primary, size: 22),
             SizedBox(width: 8),
-            Text('Buscar jugadores'),
+            Text('Jugadores'),
           ],
         ),
         backgroundColor: AppColors.surface,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite_outline, color: AppColors.primary),
-            tooltip: 'Favoritos',
-            onPressed: () => context.push('/players/favorites'),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.primary,
+          labelColor: Colors.white,
+          unselectedLabelColor: AppColors.muted,
+          tabs: const [
+            Tab(text: 'Mi red'),
+            Tab(text: 'Descubrir'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildMyNetworkTab(),
+          _buildDiscoverTab(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMyNetworkTab() {
+    if (_loadingNetwork && _network.isEmpty) {
+      return const Center(child: LoadingSpinner());
+    }
+
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: AppColors.surface,
+      onRefresh: _fetchNetwork,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
+          _NetworkSection(
+            title: 'Solicitudes recibidas',
+            subtitle: 'Acepta o rechaza las invitaciones para jugar.',
+            emptyMessage:
+                'No tienes solicitudes pendientes. Cuando otro jugador te escriba, aparecerá aquí.',
+            children: _network.incomingRequests
+                .map(
+                  (player) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PlayerConnectionCard(
+                      player: player,
+                      onTap: () => context.push('/players/${player.userId}'),
+                      headline:
+                          '${player.displayName} te ha mandado una solicitud para jugar.',
+                      timestampLabel: _formatConnectionMoment(
+                        player.connectionRequestedAt,
+                        prefix: 'Recibida',
+                      ),
+                      footer: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isBusy(player.userId)
+                                  ? null
+                                  : () => _runPlayerAction(
+                                        player.userId,
+                                        () => _respondToRequest(
+                                          player,
+                                          'rejected',
+                                        ),
+                                      ),
+                              child: const Text('Rechazar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _isBusy(player.userId)
+                                  ? null
+                                  : () => _runPlayerAction(
+                                        player.userId,
+                                        () => _respondToRequest(
+                                          player,
+                                          'accepted',
+                                        ),
+                                      ),
+                              child: _isBusy(player.userId)
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text('Aceptar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
           ),
-          IconButton(
-            icon: Icon(
-              Icons.filter_list,
-              color: _showFilters ? AppColors.primary : AppColors.muted,
-            ),
-            onPressed: () => setState(() => _showFilters = !_showFilters),
+          const SizedBox(height: 18),
+          _NetworkSection(
+            title: 'Mi red',
+            subtitle: 'Tus compañeros confirmados para jugar.',
+            emptyMessage:
+                'Todavía no tienes compañeros confirmados. Explora jugadores y envía solicitudes desde Descubrir.',
+            children: _network.companions
+                .map(
+                  (player) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PlayerConnectionCard(
+                      player: player,
+                      onTap: () => context.push('/players/${player.userId}'),
+                      footer: const Align(
+                        alignment: Alignment.centerLeft,
+                        child: PadelBadge(
+                          label: 'Compañero confirmado',
+                          variant: PadelBadgeVariant.success,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+          const SizedBox(height: 18),
+          _NetworkSection(
+            title: 'Tus solicitudes',
+            subtitle:
+                'Aquí ves si una solicitud está pendiente, aceptada o no.',
+            emptyMessage:
+                'No has enviado solicitudes todavía. Usa Descubrir para pedir jugar a otros jugadores.',
+            children: _network.outgoingRequests
+                .map(
+                  (player) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PlayerConnectionCard(
+                      player: player,
+                      onTap: () => context.push('/players/${player.userId}'),
+                      headline: _outgoingHeadline(player),
+                      timestampLabel: _outgoingTimestamp(player),
+                      footer: _OutgoingFooter(
+                        player: player,
+                        busy: _isBusy(player.userId),
+                        onRetry: player.connectionStatus == 'rejected'
+                            ? () => _runPlayerAction(
+                                  player.userId,
+                                  () => _sendPlayRequest(player),
+                                )
+                            : null,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Search bar
+    );
+  }
+
+  Widget _buildDiscoverTab() {
+    final loading = _loadingDiscover && _players.isEmpty;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Buscar por nombre...',
+                    prefixIcon:
+                        Icon(Icons.search, color: AppColors.muted, size: 20),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(
+                  Icons.tune,
+                  color: _showFilters ? AppColors.primary : AppColors.muted,
+                ),
+                onPressed: () => setState(() => _showFilters = !_showFilters),
+              ),
+            ],
+          ),
+        ),
+        if (_showFilters)
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'Buscar por nombre...',
-                prefixIcon:
-                    Icon(Icons.search, color: AppColors.muted, size: 20),
-              ),
-            ),
-          ),
-
-          // Filters
-          if (_showFilters)
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                children: [
-                  DropdownButtonFormField<int?>(
-                    initialValue: _filterLevel,
-                    dropdownColor: AppColors.surface2,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Nivel',
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(
+              children: [
+                DropdownButtonFormField<int?>(
+                  initialValue: _filterLevel,
+                  dropdownColor: AppColors.surface2,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Nivel',
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  hint: const Text(
+                    'Todos los niveles',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text(
+                        'Todos los niveles',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
                     ),
-                    hint: const Text('Todos los niveles',
-                        style: TextStyle(color: AppColors.muted)),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('Todos los niveles',
-                            style: TextStyle(color: AppColors.muted)),
-                      ),
-                      ...List.generate(9, (i) => i + 1)
-                          .map((n) => DropdownMenuItem<int?>(
-                                value: n,
-                                child: Text('Nivel $n',
-                                    style:
-                                        const TextStyle(color: Colors.white)),
-                              )),
-                    ],
-                    onChanged: (v) {
-                      setState(() => _filterLevel = v);
-                      _search();
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Switch(
-                        value: _filterAvailable,
-                        activeThumbColor: AppColors.primary,
-                        onChanged: (v) {
-                          setState(() => _filterAvailable = v);
-                          _search();
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('Solo disponibles',
-                          style: TextStyle(color: Colors.white, fontSize: 14)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-          // Results
-          Expanded(
-            child: _loading
-                ? const Center(child: LoadingSpinner())
-                : visiblePlayers.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.people_outline,
-                                color: AppColors.border, size: 48),
-                            SizedBox(height: 12),
-                            Text('No se encontraron jugadores',
-                                style: TextStyle(color: AppColors.muted)),
-                          ],
+                    ...List.generate(9, (index) => index + 1).map(
+                      (level) => DropdownMenuItem<int?>(
+                        value: level,
+                        child: Text(
+                          'Nivel $level',
+                          style: const TextStyle(color: Colors.white),
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        itemCount: visiblePlayers.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final player = visiblePlayers[index];
-                          return _PlayerCard(
-                            player: player,
-                            onTap: () =>
-                                context.push('/players/${player.userId}'),
-                          );
-                        },
                       ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() => _filterLevel = value);
+                    _search();
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Switch(
+                      value: _filterAvailable,
+                      activeThumbColor: AppColors.primary,
+                      onChanged: (value) {
+                        setState(() => _filterAvailable = value);
+                        _search();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Solo disponibles',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
+        Expanded(
+          child: loading
+              ? const Center(child: LoadingSpinner())
+              : RefreshIndicator(
+                  color: AppColors.primary,
+                  backgroundColor: AppColors.surface,
+                  onRefresh: _search,
+                  child: _players.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(24, 120, 24, 120),
+                          children: const [
+                            _EmptyPlayersState(
+                              icon: Icons.travel_explore_outlined,
+                              message:
+                                  'No se han encontrado jugadores con esos filtros.',
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                          itemCount: _players.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final player = _players[index];
+                            return _PlayerConnectionCard(
+                              player: player,
+                              onTap: () =>
+                                  context.push('/players/${player.userId}'),
+                              footer: _DiscoverFooter(
+                                player: player,
+                                busy: _isBusy(player.userId),
+                                onRequest: () => _runPlayerAction(
+                                  player.userId,
+                                  () => _sendPlayRequest(player),
+                                ),
+                                onOpenNetwork: _goToNetworkTab,
+                              ),
+                            );
+                          },
+                        ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  String _outgoingHeadline(PlayerModel player) {
+    switch (player.connectionStatus) {
+      case 'accepted':
+        return '${player.displayName} ha aceptado tu solicitud.';
+      case 'rejected':
+        return '${player.displayName} no ha aceptado tu solicitud.';
+      case 'outgoing_pending':
+      default:
+        return 'Solicitud enviada. En cuanto responda, aparecerá aquí.';
+    }
+  }
+
+  String? _outgoingTimestamp(PlayerModel player) {
+    if (player.connectionStatus == 'accepted' ||
+        player.connectionStatus == 'rejected') {
+      return _formatConnectionMoment(
+        player.connectionRespondedAt,
+        prefix: 'Respondida',
+      );
+    }
+
+    return _formatConnectionMoment(
+      player.connectionRequestedAt,
+      prefix: 'Enviada',
+    );
+  }
+
+  String? _formatConnectionMoment(String? value, {required String prefix}) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) {
+      return null;
+    }
+
+    final local = parsed.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$prefix el $day/$month a las $hour:$minute';
+  }
+}
+
+class _NetworkSection extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+  final String emptyMessage;
+
+  const _NetworkSection({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+    required this.emptyMessage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: const TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          if (children.isEmpty)
+            _EmptyPlayersState(
+              icon: Icons.inbox_outlined,
+              message: emptyMessage,
+            )
+          else
+            ...children,
         ],
       ),
     );
   }
 }
 
-class _PlayerCard extends StatelessWidget {
+class _PlayerConnectionCard extends StatelessWidget {
   final PlayerModel player;
   final VoidCallback onTap;
+  final String? headline;
+  final String? timestampLabel;
+  final Widget? footer;
 
-  const _PlayerCard({required this.player, required this.onTap});
+  const _PlayerConnectionCard({
+    required this.player,
+    required this.onTap,
+    this.headline,
+    this.timestampLabel,
+    this.footer,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            // Avatar
-            Container(
-              width: 44,
-              height: 44,
-              decoration: const BoxDecoration(
-                color: AppColors.surface2,
-                shape: BoxShape.circle,
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.vertical(
+                top: const Radius.circular(16),
+                bottom: Radius.circular(footer == null ? 16 : 0),
               ),
-              child: Center(
-                child: Text(
-                  player.displayName.isNotEmpty
-                      ? player.displayName[0].toUpperCase()
-                      : '?',
-                  style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 18),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    _PlayerAvatar(player: player),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            player.displayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              PadelBadge(label: 'Nivel ${player.level}'),
+                              if (player.avgRating > 0)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.star,
+                                      color: Colors.amber,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      player.avgRating.toStringAsFixed(1),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    _AvailabilityPill(isAvailable: player.isAvailable),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            // Info
-            Expanded(
+          ),
+          if (headline != null || timestampLabel != null || footer != null) ...[
+            const Divider(height: 1, color: AppColors.border),
+            Padding(
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    player.displayName,
-                    style: const TextStyle(
+                  if (headline != null)
+                    Text(
+                      headline!,
+                      style: const TextStyle(
                         color: Colors.white,
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        fontSize: 15),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      LevelBadge(level: player.level),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Rating & availability
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (player.avgRating > 0)
-                  Row(
-                    children: [
-                      const Icon(Icons.star, color: Colors.amber, size: 14),
-                      const SizedBox(width: 2),
-                      Text(
-                        player.avgRating.toStringAsFixed(1),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13),
-                      ),
-                    ],
-                  ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: player.isAvailable
-                            ? AppColors.success
-                            : AppColors.muted,
-                        shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                  if (timestampLabel != null) ...[
+                    if (headline != null) const SizedBox(height: 4),
                     Text(
-                      player.isAvailable ? 'Disponible' : 'No disponible',
-                      style: TextStyle(
-                        color: player.isAvailable
-                            ? AppColors.success
-                            : AppColors.muted,
-                        fontSize: 11,
+                      timestampLabel!,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
                       ),
                     ),
                   ],
-                ),
-              ],
+                  if (footer != null) ...[
+                    if (headline != null || timestampLabel != null)
+                      const SizedBox(height: 12),
+                    footer!,
+                  ],
+                ],
+              ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerAvatar extends StatelessWidget {
+  final PlayerModel player;
+
+  const _PlayerAvatar({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 46,
+      height: 46,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          player.displayName.isNotEmpty
+              ? player.displayName[0].toUpperCase()
+              : '?',
+          style: const TextStyle(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _AvailabilityPill extends StatelessWidget {
+  final bool isAvailable;
+
+  const _AvailabilityPill({required this.isAvailable});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isAvailable ? AppColors.success : AppColors.muted;
+    final label = isAvailable ? 'Disponible' : 'No disponible';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _OutgoingFooter extends StatelessWidget {
+  final PlayerModel player;
+  final bool busy;
+  final VoidCallback? onRetry;
+
+  const _OutgoingFooter({
+    required this.player,
+    required this.busy,
+    this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = player.connectionStatus;
+    if (status == 'accepted') {
+      return const Align(
+        alignment: Alignment.centerLeft,
+        child: PadelBadge(
+          label: 'Aceptada',
+          variant: PadelBadgeVariant.success,
+        ),
+      );
+    }
+
+    if (status == 'rejected') {
+      return Row(
+        children: [
+          const PadelBadge(
+            label: 'No aceptada',
+            variant: PadelBadgeVariant.warning,
+          ),
+          const Spacer(),
+          ElevatedButton(
+            onPressed: busy ? null : onRetry,
+            child: busy
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Jugamos?'),
+          ),
+        ],
+      );
+    }
+
+    return const Align(
+      alignment: Alignment.centerLeft,
+      child: PadelBadge(
+        label: 'Pendiente',
+        variant: PadelBadgeVariant.warning,
+      ),
+    );
+  }
+}
+
+class _DiscoverFooter extends StatelessWidget {
+  final PlayerModel player;
+  final bool busy;
+  final VoidCallback onRequest;
+  final VoidCallback onOpenNetwork;
+
+  const _DiscoverFooter({
+    required this.player,
+    required this.busy,
+    required this.onRequest,
+    required this.onOpenNetwork,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    switch (player.connectionStatus) {
+      case 'accepted':
+        return const Align(
+          alignment: Alignment.centerLeft,
+          child: PadelBadge(
+            label: 'Ya forma parte de tu red',
+            variant: PadelBadgeVariant.success,
+          ),
+        );
+      case 'outgoing_pending':
+        return const Align(
+          alignment: Alignment.centerLeft,
+          child: PadelBadge(
+            label: 'Solicitud enviada',
+            variant: PadelBadgeVariant.warning,
+          ),
+        );
+      case 'incoming_pending':
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: onOpenNetwork,
+                child: const Text('Responder en Mi red'),
+              ),
+            ),
+          ],
+        );
+      case 'rejected':
+      default:
+        return Row(
+          children: [
+            if (player.connectionStatus == 'rejected')
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: PadelBadge(
+                  label: 'No aceptada',
+                  variant: PadelBadgeVariant.warning,
+                ),
+              ),
+            const Spacer(),
+            ElevatedButton(
+              onPressed: busy ? null : onRequest,
+              child: busy
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Jugamos?'),
+            ),
+          ],
+        );
+    }
+  }
+}
+
+class _EmptyPlayersState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _EmptyPlayersState({
+    required this.icon,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: AppColors.border, size: 44),
+        const SizedBox(height: 10),
+        Text(
+          message,
+          style: const TextStyle(color: AppColors.muted),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }

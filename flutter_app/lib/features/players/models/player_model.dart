@@ -7,6 +7,9 @@ class PlayerModel {
   final List<String> dominantHands;
   final List<String> availabilityPreferences;
   final List<String> matchPreferences;
+  final String? gender;
+  final String? birthDate;
+  final String? phone;
   final bool isAvailable;
   final double avgRating;
   final int totalRatings;
@@ -15,6 +18,11 @@ class PlayerModel {
   final String? bio;
   final String? avatarUrl;
   final bool isFavorited;
+  final int? connectionId;
+  final String? connectionStatus;
+  final bool connectionRequestedByMe;
+  final String? connectionRequestedAt;
+  final String? connectionRespondedAt;
 
   const PlayerModel({
     required this.userId,
@@ -25,6 +33,9 @@ class PlayerModel {
     this.dominantHands = const [],
     this.availabilityPreferences = const [],
     this.matchPreferences = const [],
+    this.gender,
+    this.birthDate,
+    this.phone,
     this.isAvailable = true,
     this.avgRating = 0.0,
     this.totalRatings = 0,
@@ -33,6 +44,11 @@ class PlayerModel {
     this.bio,
     this.avatarUrl,
     this.isFavorited = false,
+    this.connectionId,
+    this.connectionStatus,
+    this.connectionRequestedByMe = false,
+    this.connectionRequestedAt,
+    this.connectionRespondedAt,
   });
 
   factory PlayerModel.fromJson(Map<String, dynamic> json) {
@@ -45,6 +61,9 @@ class PlayerModel {
       dominantHands: _asStringList(json['dominant_hands']),
       availabilityPreferences: _asStringList(json['availability_preferences']),
       matchPreferences: _asStringList(json['match_preferences']),
+      gender: json['gender'] as String?,
+      birthDate: json['birth_date'] as String?,
+      phone: json['phone'] as String?,
       isAvailable: (json['is_available'] ?? true) as bool,
       avgRating: _asDouble(json['avg_rating']) ?? 0.0,
       totalRatings: _asInt(json['total_ratings']),
@@ -53,6 +72,47 @@ class PlayerModel {
       bio: json['bio'] as String?,
       avatarUrl: json['avatar_url'] as String? ?? json['avatarUrl'] as String?,
       isFavorited: (json['is_favorited'] ?? false) as bool,
+      connectionId: _asNullableInt(json['connection_id']),
+      connectionStatus: json['connection_status'] as String?,
+      connectionRequestedByMe: _asBool(json['connection_requested_by_me']),
+      connectionRequestedAt: json['connection_requested_at'] as String?,
+      connectionRespondedAt: json['connection_responded_at'] as String?,
+    );
+  }
+}
+
+class PlayerNetworkSnapshot {
+  final List<PlayerModel> companions;
+  final List<PlayerModel> incomingRequests;
+  final List<PlayerModel> outgoingRequests;
+
+  const PlayerNetworkSnapshot({
+    this.companions = const [],
+    this.incomingRequests = const [],
+    this.outgoingRequests = const [],
+  });
+
+  bool get isEmpty =>
+      companions.isEmpty &&
+      incomingRequests.isEmpty &&
+      outgoingRequests.isEmpty;
+
+  factory PlayerNetworkSnapshot.fromJson(Map<String, dynamic> json) {
+    List<PlayerModel> parseList(dynamic value) {
+      if (value is! List) {
+        return const [];
+      }
+
+      return value
+          .whereType<Map>()
+          .map((item) => PlayerModel.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false);
+    }
+
+    return PlayerNetworkSnapshot(
+      companions: parseList(json['companions']),
+      incomingRequests: parseList(json['incoming_requests']),
+      outgoingRequests: parseList(json['outgoing_requests']),
     );
   }
 }
@@ -101,6 +161,21 @@ double? _asDouble(dynamic value) {
   if (value is num) return value.toDouble();
   if (value is String) return double.tryParse(value.replaceAll(',', '.'));
   return null;
+}
+
+bool _asBool(dynamic value, {bool fallback = false}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0') {
+      return false;
+    }
+  }
+  return fallback;
 }
 
 List<String> _asStringList(dynamic value) {

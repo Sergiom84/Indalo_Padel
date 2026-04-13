@@ -3,6 +3,8 @@ class VenueModel {
   final String name;
   final String location;
   final int courtCount;
+  final bool isBookable;
+  final String bookingStatus;
   final String? openingTime;
   final String? closingTime;
   final List<ScheduleWindowModel> scheduleWindows;
@@ -13,6 +15,8 @@ class VenueModel {
     required this.name,
     required this.location,
     required this.courtCount,
+    this.isBookable = true,
+    this.bookingStatus = 'available',
     this.openingTime,
     this.closingTime,
     this.scheduleWindows = const [],
@@ -38,12 +42,16 @@ class VenueModel {
       name: (json['nombre'] ?? json['name'] ?? '') as String,
       location: (json['ubicacion'] ?? json['location'] ?? '') as String,
       courtCount: _asNullableInt(json['court_count']) ?? courtsList.length,
+      isBookable: json['is_bookable'] as bool? ?? true,
+      bookingStatus: (json['booking_status'] ?? 'available') as String,
       openingTime: json['opening_time'] as String?,
       closingTime: json['closing_time'] as String?,
       scheduleWindows: scheduleWindows,
       courts: courtsList,
     );
   }
+
+  bool get isComingSoon => !isBookable || bookingStatus == 'coming_soon';
 }
 
 class CourtModel {
@@ -73,11 +81,13 @@ class AvailabilityModel {
   final List<CourtModel> courts;
   final List<TimeSlotModel> timeSlots;
   final List<ScheduleWindowModel> scheduleWindows;
+  final String? error;
 
   const AvailabilityModel({
     required this.courts,
     required this.timeSlots,
     this.scheduleWindows = const [],
+    this.error,
   });
 
   factory AvailabilityModel.fromJson(Map<String, dynamic> json) {
@@ -104,6 +114,7 @@ class AvailabilityModel {
       courts: courts,
       timeSlots: timeSlots,
       scheduleWindows: scheduleWindows,
+      error: json['error'] as String?,
     );
   }
 }
