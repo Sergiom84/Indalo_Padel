@@ -24,6 +24,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   List<String> _availabilityPreferences = const [];
   List<String> _matchPreferences = const [];
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -170,12 +171,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               // Password
               TextFormField(
                 controller: _passwordCtrl,
-                obscureText: true,
+                obscureText: _obscurePassword,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Contraseña',
-                  prefixIcon: Icon(Icons.lock_outline,
+                  prefixIcon: const Icon(Icons.lock_outline,
                       color: AppColors.muted, size: 20),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: AppColors.muted,
+                      size: 20,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),

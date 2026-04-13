@@ -28,7 +28,9 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   bool _showFilters = false;
   List<PlayerModel> _players = const [];
   PlayerNetworkSnapshot _network = const PlayerNetworkSnapshot();
-  int? _filterLevel;
+  String? _filterMainLevel;
+  String? _filterSubLevel;
+  String? _filterGender;
   bool _filterAvailable = false;
   Timer? _searchDebounce;
   int _searchSequence = 0;
@@ -104,8 +106,14 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
       if (_searchCtrl.text.trim().isNotEmpty) {
         params['name'] = _searchCtrl.text.trim();
       }
-      if (_filterLevel != null) {
-        params['level'] = _filterLevel!;
+      if (_filterMainLevel != null) {
+        params['main_level'] = _filterMainLevel!;
+      }
+      if (_filterSubLevel != null) {
+        params['sub_level'] = _filterSubLevel!;
+      }
+      if (_filterGender != null) {
+        params['gender'] = _filterGender!;
       }
       if (_filterAvailable) {
         params['available'] = 'true';
@@ -418,39 +426,61 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Column(
               children: [
-                DropdownButtonFormField<int?>(
-                  initialValue: _filterLevel,
-                  dropdownColor: AppColors.surface2,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Nivel',
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  hint: const Text(
-                    'Todos los niveles',
-                    style: TextStyle(color: AppColors.muted),
-                  ),
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text(
-                        'Todos los niveles',
-                        style: TextStyle(color: AppColors.muted),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LevelDropdown(
+                        label: 'Nivel',
+                        value: _filterMainLevel,
+                        items: const ['bajo', 'medio', 'alto'],
+                        labelMap: const {
+                          'bajo': 'Bajo',
+                          'medio': 'Medio',
+                          'alto': 'Alto',
+                        },
+                        onChanged: (v) {
+                          setState(() => _filterMainLevel = v);
+                          _search();
+                        },
                       ),
                     ),
-                    ...List.generate(9, (index) => index + 1).map(
-                      (level) => DropdownMenuItem<int?>(
-                        value: level,
-                        child: Text(
-                          'Nivel $level',
-                          style: const TextStyle(color: Colors.white),
-                        ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _LevelDropdown(
+                        label: 'Sub-nivel',
+                        value: _filterSubLevel,
+                        items: const ['bajo', 'medio', 'alto'],
+                        labelMap: const {
+                          'bajo': 'Bajo',
+                          'medio': 'Medio',
+                          'alto': 'Alto',
+                        },
+                        onChanged: (v) {
+                          setState(() => _filterSubLevel = v);
+                          _search();
+                        },
                       ),
                     ),
                   ],
-                  onChanged: (value) {
-                    setState(() => _filterLevel = value);
+                ),
+                const SizedBox(height: 8),
+                _LevelDropdown(
+                  label: 'Sexo',
+                  value: _filterGender,
+                  items: const [
+                    'masculino',
+                    'femenino',
+                    'otro',
+                    'prefiero_no_decirlo',
+                  ],
+                  labelMap: const {
+                    'masculino': 'Masculino',
+                    'femenino': 'Femenino',
+                    'otro': 'Otro',
+                    'prefiero_no_decirlo': 'Prefiero no decirlo',
+                  },
+                  onChanged: (v) {
+                    setState(() => _filterGender = v);
                     _search();
                   },
                 ),
@@ -959,6 +989,59 @@ class _EmptyPlayersState extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
       ],
+    );
+  }
+}
+
+class _LevelDropdown extends StatelessWidget {
+  final String label;
+  final String? value;
+  final List<String> items;
+  final Map<String, String> labelMap;
+  final ValueChanged<String?> onChanged;
+
+  const _LevelDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.labelMap,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String?>(
+      value: value,
+      dropdownColor: AppColors.surface2,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      hint: Text(
+        'Todos',
+        style: const TextStyle(color: AppColors.muted),
+      ),
+      items: [
+        DropdownMenuItem<String?>(
+          value: null,
+          child: Text(
+            'Todos',
+            style: const TextStyle(color: AppColors.muted),
+          ),
+        ),
+        ...items.map(
+          (item) => DropdownMenuItem<String?>(
+            value: item,
+            child: Text(
+              labelMap[item] ?? item,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+      onChanged: onChanged,
     );
   }
 }
