@@ -9,20 +9,21 @@ CREATE TEMP TABLE tmp_seed_venues (
   location VARCHAR(100) NOT NULL,
   address TEXT,
   opening_time TIME,
-  closing_time TIME
+  closing_time TIME,
+  is_bookable BOOLEAN NOT NULL DEFAULT false
 ) ON COMMIT DROP;
 
-INSERT INTO tmp_seed_venues (name, location, address, opening_time, closing_time) VALUES
-  ('Pistas Municipales de Mojácar', 'Mojácar', 'Paraje La Mata, Mojácar, Almería', '10:30', '22:00'),
-  ('Hotel Servigroup Marina Playa', 'Mojácar', 'Paseo del Mediterráneo, Mojácar, Almería', '08:00', '23:59'),
-  ('Centro Deportivo Puerto Rey', 'Vera', 'Urbanización Puerto Rey, Vera, Almería', '09:00', '23:00'),
-  ('P4 Pádel Vera', 'Vera', 'Valle del Este, Vera, Almería', NULL, NULL),
-  ('Club Vera de Mar', 'Vera', 'Vera Playa, Vera, Almería', NULL, NULL),
-  ('Tenis Academia y Pádel Indalo', 'Vera', 'Vera, Almería', NULL, NULL),
-  ('Pistas Municipales de Garrucha', 'Garrucha', 'Garrucha, Almería', '09:00', '21:00'),
-  ('Polideportivo Municipal de Cuevas del Almanzora', 'Cuevas del Almanzora', 'Cuevas del Almanzora, Almería', NULL, NULL),
-  ('Pádel Al-Mansura', 'Cuevas del Almanzora', 'Cuevas del Almanzora, Almería', NULL, NULL),
-  ('Pista de Pádel de Los Gallardos', 'Los Gallardos', 'Los Gallardos, Almería', NULL, NULL);
+INSERT INTO tmp_seed_venues (name, location, address, opening_time, closing_time, is_bookable) VALUES
+  ('Pistas Municipales de Mojácar', 'Mojácar', 'Paraje La Mata, Mojácar, Almería', '10:30', '22:00', false),
+  ('Marina de la Torre', 'Mojácar', 'Paseo del Mediterráneo, Mojácar, Almería', '08:00', '24:00', true),
+  ('Centro Deportivo Puerto Rey', 'Vera', 'Urbanización Puerto Rey, Vera, Almería', '09:00', '23:00', false),
+  ('P4 Pádel Vera', 'Vera', 'Valle del Este, Vera, Almería', NULL, NULL, false),
+  ('Club Vera de Mar', 'Vera', 'Vera Playa, Vera, Almería', NULL, NULL, false),
+  ('Tenis Academia y Pádel Indalo', 'Vera', 'Vera, Almería', NULL, NULL, false),
+  ('Pistas Municipales de Garrucha', 'Garrucha', 'Garrucha, Almería', '09:00', '21:00', false),
+  ('Polideportivo Municipal de Cuevas del Almanzora', 'Cuevas del Almanzora', 'Cuevas del Almanzora, Almería', NULL, NULL, false),
+  ('Pádel Al-Mansura', 'Cuevas del Almanzora', 'Cuevas del Almanzora, Almería', NULL, NULL, false),
+  ('Pista de Pádel de Los Gallardos', 'Los Gallardos', 'Los Gallardos, Almería', NULL, NULL, false);
 
 -- 1) Desactiva sedes antiguas no incluidas en la nueva fuente.
 UPDATE app.padel_venues v
@@ -53,7 +54,8 @@ target_existing AS (
     r.id,
     s.address,
     s.opening_time,
-    s.closing_time
+    s.closing_time,
+    s.is_bookable
   FROM tmp_seed_venues s
   JOIN ranked_existing r
     ON r.normalized_name = LOWER(BTRIM(s.name))
@@ -64,6 +66,7 @@ UPDATE app.padel_venues v
 SET address = t.address,
     opening_time = t.opening_time,
     closing_time = t.closing_time,
+    is_bookable = t.is_bookable,
     is_active = true,
     updated_at = NOW()
 FROM target_existing t
@@ -76,6 +79,7 @@ INSERT INTO app.padel_venues (
   address,
   opening_time,
   closing_time,
+  is_bookable,
   is_active
 )
 SELECT
@@ -84,6 +88,7 @@ SELECT
   s.address,
   s.opening_time,
   s.closing_time,
+  s.is_bookable,
   true
 FROM tmp_seed_venues s
 WHERE NOT EXISTS (
@@ -110,6 +115,15 @@ INSERT INTO tmp_seed_schedule_windows (
   end_time,
   label
 ) VALUES
+  -- Marina de la Torre: L-D 08:00-24:00
+  ('Marina de la Torre', 'Mojácar', 1, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 2, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 3, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 4, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 5, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 6, '08:00', '24:00', 'General'),
+  ('Marina de la Torre', 'Mojácar', 7, '08:00', '24:00', 'General'),
+
   -- Pistas Municipales de Mojácar:
   -- J-D: 10:30-13:00, L-S: 17:00-22:00
   ('Pistas Municipales de Mojácar', 'Mojácar', 4, '10:30', '13:00', 'Manana municipal'),
@@ -203,10 +217,10 @@ INSERT INTO tmp_seed_courts (
   peak_price_per_hour
 ) VALUES
   -- Mojácar
-  ('Hotel Servigroup Marina Playa', 'Mojácar', 'Pista Césped 1', 'standard', 'cesped', 10.00, 10.00),
-  ('Hotel Servigroup Marina Playa', 'Mojácar', 'Pista Césped 2', 'standard', 'cesped', 10.00, 10.00),
-  ('Hotel Servigroup Marina Playa', 'Mojácar', 'Pista Cristal 1', 'cristal', 'cesped', 12.00, 12.00),
-  ('Hotel Servigroup Marina Playa', 'Mojácar', 'Pista Cristal 2', 'cristal', 'cesped', 12.00, 12.00),
+  ('Marina de la Torre', 'Mojácar', 'Pista Césped 1', 'standard', 'cesped', 10.00, 10.00),
+  ('Marina de la Torre', 'Mojácar', 'Pista Césped 2', 'standard', 'cesped', 10.00, 10.00),
+  ('Marina de la Torre', 'Mojácar', 'Pista Cristal 1', 'cristal', 'cesped', 12.00, 12.00),
+  ('Marina de la Torre', 'Mojácar', 'Pista Cristal 2', 'cristal', 'cesped', 12.00, 12.00),
 
   -- Vera
   ('Centro Deportivo Puerto Rey', 'Vera', 'Pista 1', 'standard', 'cesped', 15.00, 15.00),
