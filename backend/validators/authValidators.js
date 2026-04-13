@@ -64,3 +64,13 @@ export const emailActionSchema = z.object({
     .toLowerCase()
     .trim(),
 });
+
+export const resetPasswordSchema = z.object({
+  token: z
+    .string({ required_error: 'El token es requerido' })
+    .min(1, 'El token no puede estar vacío'),
+  password: z
+    .string({ required_error: 'La contraseña es requerida' })
+    .min(6, 'La contraseña debe tener al menos 6 caracteres')
+    .max(100, 'La contraseña no puede superar 100 caracteres'),
+});
