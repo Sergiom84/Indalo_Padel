@@ -40,7 +40,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     final suggested = _nextSuggestedDateTime();
     _draftDate = DateTime(suggested.year, suggested.month, suggested.day);
     _draftTime = TimeOfDay(hour: suggested.hour, minute: suggested.minute);
@@ -106,7 +106,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 
     if (_selectedPlanId == null &&
         !_forceNewDraft &&
-        dashboard.activePlan != null) {
+        dashboard.activePlan != null &&
+        dashboard.activePlan!.isOrganizer) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
           return;
@@ -803,7 +804,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           labelColor: AppColors.primary,
           unselectedLabelColor: AppColors.muted,
           tabs: const [
-            Tab(text: 'Convocatorias'),
+            Tab(text: 'Reservar'),
+            Tab(text: 'Me invitan'),
             Tab(text: 'Historial'),
           ],
         ),
@@ -843,7 +845,14 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   ],
                 ),
               ),
-              // ── Pestaña 2: Historial ──────────────────────────────────
+              // ── Pestaña 2: Me invitan ────────────────────────────────
+              RefreshIndicator(
+                color: AppColors.primary,
+                backgroundColor: AppColors.surface,
+                onRefresh: _refreshDashboard,
+                child: _buildMeInvitanTab(dashboard),
+              ),
+              // ── Pestaña 3: Historial ──────────────────────────────────
               RefreshIndicator(
                 color: AppColors.primary,
                 backgroundColor: AppColors.surface,
@@ -878,6 +887,54 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
+    );
+  }
+
+  Widget _buildMeInvitanTab(CommunityDashboardModel dashboard) {
+    final invitations = dashboard.activePlans
+        .where((p) => !p.isOrganizer)
+        .toList();
+
+    if (invitations.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.mail_outline, color: AppColors.muted, size: 42),
+            SizedBox(height: 12),
+            Text(
+              'Nadie te ha invitado todavía.',
+              style: TextStyle(color: AppColors.muted),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Cuando un compañero te convoque, aparecerá aquí.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      itemCount: invitations.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final plan = invitations[index];
+        return _InvitationCard(
+          plan: plan,
+          busy: _busy,
+          onAccept: () => _respondToPlan(plan, 'accepted'),
+          onDecline: () => _respondToPlan(plan, 'declined'),
+          onDoubt: () => _respondToPlan(plan, 'doubt'),
+          onSuggestTime: () => _proposeNewTime(plan),
+          formatDate: _formatDisplayDate,
+          formatTime: _formatDisplayTime,
+        );
+      },
     );
   }
 
@@ -2313,4 +2370,225 @@ class _CommunityErrorState extends StatelessWidget {
 
 extension _FirstOrNullExtension<T> on List<T> {
   T? get firstOrNull => isEmpty ? null : first;
+}
+
+// ---------------------------------------------------------------------------
+// Invitation card widget
+// ---------------------------------------------------------------------------
+class _InvitationCard extends StatelessWidget {
+  final CommunityPlanModel plan;
+  final bool busy;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+  final VoidCallback onDoubt;
+  final VoidCallback onSuggestTime;
+  final String Function(String) formatDate;
+  final String Function(String) formatTime;
+
+  const _InvitationCard({
+    required this.plan,
+    required this.busy,
+    required this.onAccept,
+    required this.onDecline,
+    required this.onDoubt,
+    required this.onSuggestTime,
+    required this.formatDate,
+    required this.formatTime,
+  });
+
+  Color _responseColor(String? state) {
+    switch (state) {
+      case 'accepted':
+        return AppColors.success;
+      case 'declined':
+        return AppColors.danger;
+      case 'doubt':
+        return AppColors.warning;
+      default:
+        return AppColors.muted;
+    }
+  }
+
+  String _responseLabel(String? state) {
+    switch (state) {
+      case 'accepted':
+        return 'Has aceptado';
+      case 'declined':
+        return 'Has declinado';
+      case 'doubt':
+        return 'Estás en duda';
+      default:
+        return 'Pendiente de respuesta';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final venueName = plan.venue?.name ?? 'Centro deportivo';
+    final date = formatDate(plan.scheduledDate);
+    final time = formatTime(plan.scheduledTime);
+    final responseColor = _responseColor(plan.myResponseState);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Cabecera ─────────────────────────────────────────────
+            Row(
+              children: [
+                const Icon(Icons.person, color: AppColors.primary, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 14),
+                      children: [
+                        TextSpan(
+                          text: plan.creatorName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800),
+                        ),
+                        const TextSpan(text: ' te ha invitado a jugar'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // ── Detalles ─────────────────────────────────────────────
+            Row(
+              children: [
+                const Icon(Icons.calendar_today_outlined,
+                    color: AppColors.muted, size: 14),
+                const SizedBox(width: 6),
+                Text(
+                  '$date · $time',
+                  style: const TextStyle(
+                      color: AppColors.muted, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.location_on_outlined,
+                    color: AppColors.muted, size: 14),
+                const SizedBox(width: 6),
+                Text(
+                  venueName,
+                  style: const TextStyle(
+                      color: AppColors.muted, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // ── Estado actual ─────────────────────────────────────────
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: responseColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _responseLabel(plan.myResponseState),
+                  style: TextStyle(
+                    color: responseColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Divider(color: AppColors.border, height: 1),
+            const SizedBox(height: 12),
+            // ── Botones de respuesta ──────────────────────────────────
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ResponseButton(
+                  label: 'Acepto',
+                  icon: Icons.check_circle_outline,
+                  color: AppColors.success,
+                  selected: plan.myResponseState == 'accepted',
+                  onPressed: busy ? null : onAccept,
+                ),
+                _ResponseButton(
+                  label: 'No puedo',
+                  icon: Icons.cancel_outlined,
+                  color: AppColors.danger,
+                  selected: plan.myResponseState == 'declined',
+                  onPressed: busy ? null : onDecline,
+                ),
+                _ResponseButton(
+                  label: 'Estoy dudando',
+                  icon: Icons.help_outline,
+                  color: AppColors.warning,
+                  selected: plan.myResponseState == 'doubt',
+                  onPressed: busy ? null : onDoubt,
+                ),
+                _ResponseButton(
+                  label: 'Sugerir horario',
+                  icon: Icons.schedule,
+                  color: AppColors.muted,
+                  selected: false,
+                  onPressed: busy ? null : onSuggestTime,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResponseButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  const _ResponseButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 15),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: selected ? AppColors.dark : color,
+        backgroundColor: selected ? color : Colors.transparent,
+        side: BorderSide(color: color),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
 }
