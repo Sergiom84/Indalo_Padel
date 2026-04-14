@@ -945,6 +945,190 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     );
   }
 
+  void _showHistoryPlanDialog(CommunityPlanModel plan) {
+    final color = _statusColorForPlan(plan);
+    final venueName = plan.venue?.name ?? 'Centro deportivo';
+    final date = _formatDisplayDate(plan.scheduledDate);
+    final time = _formatDisplayTime(plan.scheduledTime);
+
+    String statusLabel;
+    String statusDetail;
+    if (plan.reservationConfirmed) {
+      statusLabel = 'Reserva confirmada';
+      statusDetail = 'La pista quedó reservada con el club.';
+    } else if (plan.isCancelled) {
+      statusLabel = 'Cancelada';
+      statusDetail = 'Esta convocatoria fue cancelada.';
+    } else {
+      statusLabel = 'Expirada';
+      statusDetail = 'La convocatoria expiró sin llegar a completarse.';
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Cabecera ──────────────────────────────────────────────
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          venueName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$date · $time',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // ── Estado ────────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: color.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      plan.reservationConfirmed
+                          ? Icons.check_circle_outline
+                          : Icons.info_outline,
+                      color: color,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            statusLabel,
+                            style: TextStyle(
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            statusDetail,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Jugadores ────────────────────────────────────────────
+              if (plan.participants.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Jugadores',
+                  style: TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...plan.participants.map(
+                  (p) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          p.role == 'organizer'
+                              ? Icons.star_rounded
+                              : Icons.person_outline,
+                          color: p.role == 'organizer'
+                              ? AppColors.primary
+                              : AppColors.muted,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.displayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        if (p.numericLevel > 0)
+                          Text(
+                            'Nv ${p.numericLevel}',
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              // ── Botón cerrar ─────────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'Cerrar',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHistorialTab(CommunityDashboardModel dashboard) {
     if (dashboard.historyPlans.isEmpty) {
       return const Center(
@@ -972,10 +1156,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         final color = _statusColorForPlan(plan);
         return InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            _selectPlan(plan);
-            _tabController.animateTo(0);
-          },
+          onTap: () => _showHistoryPlanDialog(plan),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
