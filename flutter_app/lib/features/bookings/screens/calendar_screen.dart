@@ -73,6 +73,8 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
   bool _loading = true;
   String? _error;
   CalendarFeedModel? _feed;
+  List<CalendarBookingModel> _communityUpcoming = [];
+  List<CalendarBookingModel> _communityHistory = [];
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
@@ -138,6 +140,75 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
         });
       }
     }
+
+    // Cargar convocatorias de comunidad confirmadas
+    try {
+      final communityData = await api.get('/padel/community');
+      if (!mounted) return;
+      final allPlans = [
+        ..._extractList(communityData, 'plans'),
+        ..._extractList(communityData, 'history_plans'),
+      ];
+      final now = DateTime.now();
+      final upcoming = <CalendarBookingModel>[];
+      final history = <CalendarBookingModel>[];
+      for (final raw in allPlans) {
+        if (raw is! Map) continue;
+        final p = Map<String, dynamic>.from(raw);
+        if (p['reservation_state'] != 'confirmed') continue;
+        final dateStr = p['scheduled_date']?.toString() ?? '';
+        if (dateStr.isEmpty) continue;
+        final date = DateTime.tryParse(dateStr);
+        if (date == null) continue;
+        final timeStr = p['scheduled_time']?.toString() ?? '';
+        final shortTime = timeStr.length >= 5 ? timeStr.substring(0, 5) : timeStr;
+        final venue = p['venue'] is Map ? Map<String, dynamic>.from(p['venue'] as Map) : <String, dynamic>{};
+        final idRaw = p['id'];
+        final planId = idRaw is int ? idRaw : int.tryParse(idRaw?.toString() ?? '') ?? 0;
+        final participants = (p['participants'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .map((m) => {
+                  'user_id': m['user_id'],
+                  'display_name': m['display_name'] ?? m['nombre'] ?? '',
+                  'role': m['role'] ?? 'player',
+                  'invite_status': 'aceptada',
+                  'google_response_status': 'accepted',
+                })
+            .toList();
+        final model = CalendarBookingModel.fromJson({
+          'id': 200000 + planId,
+          'venue_name': venue['name']?.toString() ?? 'Comunidad',
+          'court_name': 'Convocatoria',
+          'booking_date': dateStr,
+          'start_time': shortTime,
+          'duration_minutes': p['duration_minutes'] ?? 90,
+          'status': 'confirmada',
+          'invite_status': 'aceptada',
+          'calendar_sync_status': p['calendar_sync_status'] ?? 'pending',
+          'is_managed': p['is_organizer'] == true,
+          'participants': participants,
+        });
+        if (date.isAfter(now.subtract(const Duration(days: 1)))) {
+          upcoming.add(model);
+        } else {
+          history.add(model);
+        }
+      }
+      setState(() {
+        _communityUpcoming = upcoming;
+        _communityHistory = history;
+      });
+    } catch (_) {
+      // comunidad no crítica, no bloqueamos el calendario
+    }
+  }
+
+  static List<dynamic> _extractList(dynamic source, String key) {
+    if (source is Map && source[key] is List) {
+      return source[key] as List<dynamic>;
+    }
+    return const [];
   }
 
   Future<void> _cancelBooking(int bookingId) async {
@@ -192,6 +263,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       primary: _feedOrEmpty.managedUpcoming,
       secondary: _feedOrEmpty.agendaUpcoming,
     );
+    all.addAll(_communityUpcoming);
     all.sort(compareCalendarBookingsChronologically);
     return all;
   }
@@ -201,6 +273,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       primary: _feedOrEmpty.managedHistory,
       secondary: _feedOrEmpty.agendaHistory,
     );
+    all.addAll(_communityHistory);
     all.sort(compareCalendarBookingsChronologically);
     return all;
   }
