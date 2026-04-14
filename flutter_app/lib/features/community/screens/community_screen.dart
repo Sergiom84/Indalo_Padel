@@ -832,12 +832,14 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                   children: [
                     _buildPlanSelector(dashboard, selectedPlan),
-                    const SizedBox(height: 16),
-                    _buildCreateCard(dashboard, selectedPlan),
-                    const SizedBox(height: 16),
-                    _buildStatusCard(selectedPlan),
-                    const SizedBox(height: 16),
-                    _buildReservationCard(selectedPlan, reservationVenue),
+                    if (selectedPlan != null || _forceNewDraft) ...[
+                      const SizedBox(height: 16),
+                      _buildCreateCard(dashboard, selectedPlan),
+                      const SizedBox(height: 16),
+                      _buildStatusCard(selectedPlan),
+                      const SizedBox(height: 16),
+                      _buildReservationCard(selectedPlan, reservationVenue),
+                    ],
                   ],
                 ),
               ),
@@ -860,7 +862,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     CommunityPlanModel? selectedPlan,
   ) {
     return OutlinedButton.icon(
-      onPressed: selectedPlan == null ? null : _selectNewDraft,
+      onPressed: _selectNewDraft,
       icon: const Icon(Icons.add, size: 18),
       label: const Text(
         'Nueva convocatoria',
