@@ -851,8 +851,10 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     APP_TIME_ZONE,
   ).toISO({ suppressMilliseconds: true });
 
+  const organizerEmail = (process.env.GOOGLE_ORGANIZER_EMAIL || '').toLowerCase().trim();
   const attendees = participants
     .filter((participant) => participant.email)
+    .filter((participant) => participant.email.toLowerCase().trim() !== organizerEmail)
     .map((participant) => ({
       email: participant.email,
       displayName: participant.display_name || participant.nombre,
@@ -969,6 +971,7 @@ async function syncCommunityCalendarEvent(client, plan, userId) {
     console.error(
       'Error sincronizando convocatoria con Google Calendar:',
       error.message,
+      error.googleError ? JSON.stringify(error.googleError) : '',
     );
     await client.query(
       `UPDATE app.padel_community_plans
