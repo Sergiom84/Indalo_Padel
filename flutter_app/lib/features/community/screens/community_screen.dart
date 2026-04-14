@@ -859,88 +859,22 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     CommunityDashboardModel dashboard,
     CommunityPlanModel? selectedPlan,
   ) {
-    return _CommunityCard(
-      borderColor: AppColors.border,
-      title: 'Convocatorias',
-      subtitle: dashboard.activePlans.isEmpty
-          ? 'No tienes convocatorias activas ahora mismo.'
-          : 'Elige una activa para seguirla o crea una nueva.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ChoiceChip(
-                label: const Text('Nueva convocatoria'),
-                selected: selectedPlan == null,
-                onSelected: (_) => _selectNewDraft(),
-                selectedColor: AppColors.primary.withValues(alpha: 0.2),
-                labelStyle: TextStyle(
-                  color:
-                      selectedPlan == null ? AppColors.primary : Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-                backgroundColor: AppColors.surface2,
-                side: BorderSide(
-                  color: selectedPlan == null
-                      ? AppColors.primary
-                      : AppColors.border,
-                ),
-              ),
-              ...dashboard.activePlans.map(
-                (plan) => ChoiceChip(
-                  label: Text(
-                    '#${plan.id} · ${_formatDisplayDate(plan.scheduledDate)} ${_formatDisplayTime(plan.scheduledTime)}',
-                  ),
-                  selected: selectedPlan?.id == plan.id,
-                  onSelected: (_) => _selectPlan(plan),
-                  selectedColor:
-                      _statusColorForPlan(plan).withValues(alpha: 0.18),
-                  labelStyle: TextStyle(
-                    color: selectedPlan?.id == plan.id
-                        ? _statusColorForPlan(plan)
-                        : Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  backgroundColor: AppColors.surface2,
-                  side: BorderSide(
-                    color: selectedPlan?.id == plan.id
-                        ? _statusColorForPlan(plan)
-                        : AppColors.border,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (selectedPlan != null) ...[
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _StatusPill(
-                  label: _inviteStateLabel(selectedPlan.inviteState),
-                  color: _inviteStateColor(selectedPlan.inviteState),
-                ),
-                if (selectedPlan.reservationConfirmed)
-                  const _StatusPill(
-                    label: 'Reserva confirmada',
-                    color: AppColors.success,
-                  ),
-                PadelBadge(
-                  label: selectedPlan.isOrganizer
-                      ? 'La has creado tú'
-                      : 'Organiza ${selectedPlan.creatorName}',
-                  variant: selectedPlan.isOrganizer
-                      ? PadelBadgeVariant.success
-                      : PadelBadgeVariant.info,
-                ),
-              ],
-            ),
-          ],
-        ],
+    return OutlinedButton.icon(
+      onPressed: selectedPlan == null ? null : _selectNewDraft,
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text(
+        'Nueva convocatoria',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.primary,
+        side: BorderSide(
+          color: selectedPlan == null
+              ? AppColors.primary
+              : AppColors.border,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
     );
   }
