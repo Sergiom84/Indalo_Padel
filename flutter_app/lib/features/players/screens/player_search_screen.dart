@@ -39,7 +39,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _searchCtrl.addListener(_onSearchChanged);
     _refreshAll();
   }
@@ -245,6 +245,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
           unselectedLabelColor: AppColors.muted,
           tabs: const [
             Tab(text: 'Mi red'),
+            Tab(text: 'Invitaciones'),
+            Tab(text: 'Mis peticiones'),
             Tab(text: 'Descubrir'),
           ],
         ),
@@ -253,6 +255,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
         controller: _tabController,
         children: [
           _buildMyNetworkTab(),
+          _buildInvitacionesTab(),
+          _buildMisPeticionesTab(),
           _buildDiscoverTab(),
         ],
       ),
@@ -272,126 +276,195 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         children: [
-          _NetworkSection(
-            title: 'Solicitudes recibidas',
-            subtitle: 'Acepta o rechaza las invitaciones para jugar.',
-            emptyMessage:
-                'No tienes solicitudes pendientes. Cuando otro jugador te escriba, aparecerá aquí.',
-            children: _network.incomingRequests
-                .map(
-                  (player) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PlayerConnectionCard(
-                      player: player,
-                      onTap: () => context.push('/players/${player.userId}'),
-                      headline:
-                          '${player.displayName} te ha mandado una solicitud para jugar.',
-                      timestampLabel: _formatConnectionMoment(
-                        player.connectionRequestedAt,
-                        prefix: 'Recibida',
-                      ),
-                      footer: Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isBusy(player.userId)
-                                  ? null
-                                  : () => _runPlayerAction(
-                                        player.userId,
-                                        () => _respondToRequest(
-                                          player,
-                                          'rejected',
-                                        ),
-                                      ),
-                              child: const Text('Rechazar'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: _isBusy(player.userId)
-                                  ? null
-                                  : () => _runPlayerAction(
-                                        player.userId,
-                                        () => _respondToRequest(
-                                          player,
-                                          'accepted',
-                                        ),
-                                      ),
-                              child: _isBusy(player.userId)
-                                  ? const SizedBox(
-                                      height: 18,
-                                      width: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text('Aceptar'),
-                            ),
-                          ),
-                        ],
-                      ),
+          if (_network.companions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.people_outline, color: AppColors.muted, size: 42),
+                  SizedBox(height: 12),
+                  Text(
+                    'Todavía no tienes compañeros confirmados.',
+                    style: TextStyle(color: AppColors.muted),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Explora jugadores en Descubrir y envía solicitudes.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._network.companions.map(
+              (player) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _PlayerConnectionCard(
+                  player: player,
+                  onTap: () => context.push('/players/${player.userId}'),
+                  footer: const Align(
+                    alignment: Alignment.centerLeft,
+                    child: PadelBadge(
+                      label: 'Compañero confirmado',
+                      variant: PadelBadgeVariant.success,
                     ),
                   ),
-                )
-                .toList(growable: false),
-          ),
-          const SizedBox(height: 18),
-          _NetworkSection(
-            title: 'Mi red',
-            subtitle: 'Tus compañeros confirmados para jugar.',
-            emptyMessage:
-                'Todavía no tienes compañeros confirmados. Explora jugadores y envía solicitudes desde Descubrir.',
-            children: _network.companions
-                .map(
-                  (player) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PlayerConnectionCard(
-                      player: player,
-                      onTap: () => context.push('/players/${player.userId}'),
-                      footer: const Align(
-                        alignment: Alignment.centerLeft,
-                        child: PadelBadge(
-                          label: 'Compañero confirmado',
-                          variant: PadelBadgeVariant.success,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInvitacionesTab() {
+    if (_loadingNetwork && _network.isEmpty) {
+      return const Center(child: LoadingSpinner());
+    }
+
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: AppColors.surface,
+      onRefresh: _fetchNetwork,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
+          if (_network.incomingRequests.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.mark_email_unread_outlined,
+                      color: AppColors.muted, size: 42),
+                  SizedBox(height: 12),
+                  Text(
+                    'Sin invitaciones pendientes.',
+                    style: TextStyle(color: AppColors.muted),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Cuando otro jugador te mande una solicitud, aparecerá aquí.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._network.incomingRequests.map(
+              (player) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _PlayerConnectionCard(
+                  player: player,
+                  onTap: () => context.push('/players/${player.userId}'),
+                  headline:
+                      '${player.displayName} quiere jugar contigo.',
+                  timestampLabel: _formatConnectionMoment(
+                    player.connectionRequestedAt,
+                    prefix: 'Recibida',
+                  ),
+                  footer: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _isBusy(player.userId)
+                              ? null
+                              : () => _runPlayerAction(
+                                    player.userId,
+                                    () => _respondToRequest(player, 'rejected'),
+                                  ),
+                          child: const Text('Rechazar'),
                         ),
                       ),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-          const SizedBox(height: 18),
-          _NetworkSection(
-            title: 'Tus solicitudes',
-            subtitle:
-                'Aquí ves si una solicitud está pendiente, aceptada o no.',
-            emptyMessage:
-                'No has enviado solicitudes todavía. Usa Descubrir para pedir jugar a otros jugadores.',
-            children: _network.outgoingRequests
-                .map(
-                  (player) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _PlayerConnectionCard(
-                      player: player,
-                      onTap: () => context.push('/players/${player.userId}'),
-                      headline: _outgoingHeadline(player),
-                      timestampLabel: _outgoingTimestamp(player),
-                      footer: _OutgoingFooter(
-                        player: player,
-                        busy: _isBusy(player.userId),
-                        onRetry: player.connectionStatus == 'rejected'
-                            ? () => _runPlayerAction(
-                                  player.userId,
-                                  () => _sendPlayRequest(player),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isBusy(player.userId)
+                              ? null
+                              : () => _runPlayerAction(
+                                    player.userId,
+                                    () => _respondToRequest(player, 'accepted'),
+                                  ),
+                          child: _isBusy(player.userId)
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
                                 )
-                            : null,
+                              : const Text('Aceptar'),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                )
-                .toList(growable: false),
-          ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMisPeticionesTab() {
+    if (_loadingNetwork && _network.isEmpty) {
+      return const Center(child: LoadingSpinner());
+    }
+
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: AppColors.surface,
+      onRefresh: _fetchNetwork,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
+          if (_network.outgoingRequests.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(Icons.send_outlined, color: AppColors.muted, size: 42),
+                  SizedBox(height: 12),
+                  Text(
+                    'No has enviado solicitudes todavía.',
+                    style: TextStyle(color: AppColors.muted),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Usa Descubrir para pedir jugar a otros jugadores.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._network.outgoingRequests.map(
+              (player) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _PlayerConnectionCard(
+                  player: player,
+                  onTap: () => context.push('/players/${player.userId}'),
+                  headline: _outgoingHeadline(player),
+                  timestampLabel: _outgoingTimestamp(player),
+                  footer: _OutgoingFooter(
+                    player: player,
+                    busy: _isBusy(player.userId),
+                    onRetry: player.connectionStatus == 'rejected'
+                        ? () => _runPlayerAction(
+                              player.userId,
+                              () => _sendPlayRequest(player),
+                            )
+                        : null,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
