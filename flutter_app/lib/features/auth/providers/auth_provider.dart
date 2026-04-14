@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/storage/secure_storage.dart';
@@ -92,14 +93,34 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = const AuthState();
       return;
     }
+
+    // Carga inmediata del usuario cacheado para no bloquear la UI
+    final cachedJson = await SecureStorage.getUser();
+    if (cachedJson != null) {
+      try {
+        final cached = UserModel.fromJson(
+          jsonDecode(cachedJson) as Map<String, dynamic>,
+        );
+        state = AuthState(user: cached);
+      } catch (_) {}
+    }
+
+    // Verificación en segundo plano: solo desloguea en 401/403 reales
     try {
       final data = await _api.get('/padel/auth/verify');
       final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403) {
+        // Token realmente inválido o expirado → desloguear
+        await SecureStorage.clearAll();
+        state = const AuthState();
+      }
+      // Error de red / timeout / cold start → mantener sesión cacheada
     } catch (_) {
-      await SecureStorage.clearAll();
-      state = const AuthState();
+      // Cualquier otro error inesperado → mantener sesión cacheada
     }
   }
 
