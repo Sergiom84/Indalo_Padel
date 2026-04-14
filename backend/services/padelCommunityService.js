@@ -1764,17 +1764,17 @@ export async function updateCommunityReservationStatus({
         SET reservation_state = $2,
             reservation_handled_by = $3,
             reservation_confirmed_at = CASE
-              WHEN $2 = 'confirmed' THEN NOW()
+              WHEN $4 THEN NOW()
               ELSE reservation_confirmed_at
             END,
             calendar_sync_status = CASE
-              WHEN $2 = 'confirmed' THEN 'pending'
+              WHEN $4 THEN 'pending'
               ELSE calendar_sync_status
             END,
             updated_at = NOW()
         WHERE id = $1
       `,
-      [planId, confirmed ? 'confirmed' : 'retry', handlerId],
+      [planId, confirmed ? 'confirmed' : 'retry', handlerId, confirmed],
     );
 
     const handler = participantResult.rows.find(
