@@ -27,6 +27,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<dynamic> _venues = [];
   Map<String, dynamic> _bookings = {'upcoming': [], 'past': []};
   List<dynamic> _matches = [];
+  List<Map<String, dynamic>> _confirmedCommunityPlans = [];
 
   @override
   void initState() {
@@ -86,7 +87,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       });
     });
 
-    await Future.wait([venuesFuture, bookingsFuture, matchesFuture]);
+    final communityFuture = api
+        .get('/padel/community')
+        .catchError((_) => <String, dynamic>{})
+        .then((result) {
+      if (!mounted) return;
+      final allPlans = [
+        ..._asList(result is Map ? result['plans'] : null),
+        ..._asList(result is Map ? result['history_plans'] : null),
+      ];
+      final today = DateTime.now();
+      final confirmed = allPlans
+          .whereType<Map>()
+          .map((p) => Map<String, dynamic>.from(p))
+          .where((p) {
+            if (p['reservation_state'] != 'confirmed') return false;
+            final dateStr = p['scheduled_date']?.toString() ?? '';
+            if (dateStr.isEmpty) return false;
+            try {
+              return DateTime.parse(dateStr).isAfter(today.subtract(const Duration(days: 1)));
+            } catch (_) {
+              return false;
+            }
+          })
+          .map((p) {
+            final venue = p['venue'] is Map ? Map<String, dynamic>.from(p['venue'] as Map) : <String, dynamic>{};
+            final time = (p['scheduled_time']?.toString() ?? '').substring(0, 5);
+            return <String, dynamic>{
+              '_type': 'community',
+              'id': p['id'],
+              'venue_name': venue['name']?.toString() ?? 'Convocatoria',
+              'booking_date': p['scheduled_date']?.toString() ?? '',
+              'start_time': time,
+              'status': 'confirmada',
+            };
+          })
+          .toList();
+      setState(() => _confirmedCommunityPlans = confirmed);
+    });
+
+    await Future.wait([venuesFuture, bookingsFuture, matchesFuture, communityFuture]);
   }
 
   List<dynamic> _asList(dynamic value) {
@@ -128,7 +168,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .map((booking) => Map<String, dynamic>.from(booking))
         .toList();
 
-    bookings.sort((left, right) {
+    final all = [...bookings, ..._confirmedCommunityPlans];
+
+    all.sort((left, right) {
       final comparison = compareChronology(
         leftDate: left['booking_date']?.toString() ?? left['fecha']?.toString(),
         leftTime:
@@ -146,7 +188,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return leftId.compareTo(rightId);
     });
 
-    return bookings.take(3).toList();
+    return all.take(3).toList();
   }
 
   @override
