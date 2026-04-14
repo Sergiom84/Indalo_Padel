@@ -1043,6 +1043,55 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                 ),
               ],
               const SizedBox(height: 20),
+              // ── Contacto del club ─────────────────────────────────────
+              const Divider(color: AppColors.border, height: 1),
+              const SizedBox(height: 16),
+              const Text(
+                'Contacto del club',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surface2,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plan.venue?.phone?.isNotEmpty == true
+                          ? plan.venue!.phone!
+                          : 'Teléfono pendiente de configurar',
+                      style: TextStyle(
+                        color: plan.venue?.phone?.isNotEmpty == true
+                            ? Colors.white
+                            : AppColors.muted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _buildReservationTemplate(plan, plan.venue),
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
               // ── Botón cerrar ─────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
