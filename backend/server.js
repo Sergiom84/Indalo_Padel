@@ -11,6 +11,7 @@ import padelCommunityRoutes from './routes/padelCommunity.js';
 import padelPlayersRoutes from './routes/padelPlayers.js';
 import { startCalendarSyncJob } from './services/padelCalendarSync.js';
 import { startCommunityLifecycleJob } from './services/padelCommunityLifecycle.js';
+import { isTransactionalEmailConfigured } from './services/authEmailService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3011;
@@ -102,7 +103,8 @@ app.get('/api/health', (req, res) => {
     message: 'Indalo Padel API funcionando correctamente',
     timestamp: new Date().toISOString(),
     version: '1.0',
-    mode: hasDatabaseConnection ? 'database' : 'demo'
+    mode: hasDatabaseConnection ? 'database' : 'demo',
+    email_delivery: isTransactionalEmailConfigured() ? 'configured' : 'degraded',
   });
 });
 
@@ -133,6 +135,9 @@ app.use((err, req, res, _next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Indalo Padel API en http://0.0.0.0:${PORT}`);
   console.log(`📊 Health: http://0.0.0.0:${PORT}/api/health`);
+  console.log(
+    `✉️ Correo transaccional: ${isTransactionalEmailConfigured() ? 'configurado' : 'sin configurar'}`
+  );
   startCalendarSyncJob();
   startCommunityLifecycleJob();
 });

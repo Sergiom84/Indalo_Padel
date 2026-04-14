@@ -72,8 +72,22 @@ function renderEmailText({ heading, intro, ctaLabel, ctaUrl, secondaryText }) {
   ].join('\n');
 }
 
+function getTransactionalEmailConfigIssues() {
+  const missing = [];
+
+  if (!process.env.RESEND_API_KEY?.trim()) {
+    missing.push('RESEND_API_KEY');
+  }
+
+  if (!process.env.EMAIL_FROM?.trim()) {
+    missing.push('EMAIL_FROM');
+  }
+
+  return missing;
+}
+
 function isTransactionalEmailConfigured() {
-  return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
+  return getTransactionalEmailConfigIssues().length === 0;
 }
 
 async function sendWithResend({ to, subject, html, text }) {
@@ -134,22 +148,36 @@ async function deliverEmail({ to, subject, heading, intro, ctaLabel, ctaUrl, sec
     secondaryText,
   });
 
-  if (!isTransactionalEmailConfigured()) {
+  const missingConfig = getTransactionalEmailConfigIssues();
+  if (missingConfig.length > 0) {
     console.warn(
-      `⚠️ Correo transaccional no configurado. Destino=${to} enlace=${ctaUrl}`
+      `⚠️ Correo transaccional no configurado (${missingConfig.join(', ')}). Destino=${to} enlace=${ctaUrl}`
     );
 
     return {
       delivered: false,
       debugUrl: ctaUrl,
+      reason: 'missing_configuration',
     };
   }
 
-  await sendWithResend({ to, subject, html, text });
-  return {
-    delivered: true,
-    debugUrl: ctaUrl,
-  };
+  try {
+    await sendWithResend({ to, subject, html, text });
+    return {
+      delivered: true,
+      debugUrl: ctaUrl,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Error enviando correo transaccional a ${to}:`, message);
+
+    return {
+      delivered: false,
+      debugUrl: ctaUrl,
+      reason: 'delivery_failed',
+      error: message,
+    };
+  }
 }
 
 async function sendVerificationEmail({ email, nombre, token }) {
@@ -190,6 +218,7 @@ export {
   generateOneTimeToken,
   getPublicApiBaseUrl,
   hashOneTimeToken,
+  getTransactionalEmailConfigIssues,
   isTransactionalEmailConfigured,
   sendPasswordResetEmail,
   sendVerificationEmail,

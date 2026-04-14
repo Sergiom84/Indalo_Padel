@@ -26,10 +26,10 @@ class UserModel {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'email': email,
-    'nombre': nombre,
-  };
+        'id': id,
+        'email': email,
+        'nombre': nombre,
+      };
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,23 @@ class AuthState {
       user: clearUser ? null : (user ?? this.user),
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),
+    );
+  }
+}
+
+class AuthActionResult {
+  final String message;
+  final bool emailDeliveryFailed;
+
+  const AuthActionResult({
+    required this.message,
+    this.emailDeliveryFailed = false,
+  });
+
+  factory AuthActionResult.fromJson(Map<String, dynamic> json) {
+    return AuthActionResult(
+      message: (json['message'] as String?) ?? '',
+      emailDeliveryFailed: json['email_delivery_failed'] as bool? ?? false,
     );
   }
 }
@@ -99,22 +116,40 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString(), clearUser: false);
+      state =
+          state.copyWith(loading: false, error: e.toString(), clearUser: false);
       rethrow;
     }
   }
 
-  Future<void> register(Map<String, dynamic> userData) async {
+  Future<AuthActionResult> register(Map<String, dynamic> userData) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
-      final data = await _api.post('/padel/auth/register', data: userData);
-      final token = data['token'] as String;
-      final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
-      await SecureStorage.saveToken(token);
-      await SecureStorage.saveUser(jsonEncode(user.toJson()));
-      state = AuthState(user: user);
+      final data = Map<String, dynamic>.from(
+        await _api.post('/padel/auth/register', data: userData) as Map,
+      );
+      state = state.copyWith(loading: false, clearError: true);
+      return AuthActionResult.fromJson(data);
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString(), clearUser: false);
+      state =
+          state.copyWith(loading: false, error: e.toString(), clearUser: false);
+      rethrow;
+    }
+  }
+
+  Future<AuthActionResult> resendVerification(String email) async {
+    state = state.copyWith(loading: true, clearError: true);
+    try {
+      final data = Map<String, dynamic>.from(
+        await _api.post('/padel/auth/resend-verification', data: {
+          'email': email,
+        }) as Map,
+      );
+      state = state.copyWith(loading: false, clearError: true);
+      return AuthActionResult.fromJson(data);
+    } catch (e) {
+      state =
+          state.copyWith(loading: false, error: e.toString(), clearUser: false);
       rethrow;
     }
   }

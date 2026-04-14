@@ -36,9 +36,11 @@ function buildJwt(user) {
 
 function buildVerificationResponse(delivery) {
   return {
-    message:
-      'Registro completado. Revisa tu correo y valida la cuenta antes de iniciar sesión.',
+    message: delivery.delivered
+      ? 'Registro completado. Revisa tu correo y valida la cuenta antes de iniciar sesión.'
+      : 'Cuenta creada, pero no hemos podido enviar el correo de verificación ahora mismo. Vuelve al login y usa "Reenviar verificación" cuando el servicio esté disponible.',
     requires_email_verification: true,
+    email_delivery_failed: !delivery.delivered,
     ...(delivery.delivered || isProduction()
       ? {}
       : { debug_verification_url: delivery.debugUrl }),
@@ -212,6 +214,7 @@ async function storePasswordResetToken(client, userId) {
 // POST /api/padel/auth/register
 router.post('/register', validate(registerSchema), async (req, res) => {
   const client = await pool.connect();
+  let transactionOpen = false;
 
   try {
     const {
@@ -230,6 +233,7 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     } = req.body;
 
     await client.query('BEGIN');
+    transactionOpen = true;
 
     const existing = await client.query(
       `SELECT id
@@ -240,6 +244,7 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     );
     if (existing.rows.length > 0) {
       await client.query('ROLLBACK');
+      transactionOpen = false;
       return res
         .status(400)
         .json({ error: 'Ya existe un usuario con este email' });
@@ -286,24 +291,26 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     );
 
     const verificationToken = await storeEmailVerificationToken(client, user.id);
+    await client.query('COMMIT');
+    transactionOpen = false;
+
     const delivery = await sendVerificationEmail({
       email: user.email,
       nombre: user.nombre,
       token: verificationToken,
     });
 
-    if (isProduction() && !delivery.delivered) {
-      await client.query('ROLLBACK');
-      return res.status(503).json({
-        error:
-          'No se ha podido enviar el correo de verificación. Inténtalo de nuevo más tarde.',
-      });
+    if (!delivery.delivered) {
+      console.warn(
+        `⚠️ Usuario ${user.email} creado sin correo de verificación entregado. reason=${delivery.reason || 'unknown'}`
+      );
     }
 
-    await client.query('COMMIT');
     return res.status(201).json(buildVerificationResponse(delivery));
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error en registro:', error);
     return res.status(500).json({
       error: 'Error interno del servidor',
@@ -379,10 +386,12 @@ router.post(
   validate(emailActionSchema),
   async (req, res) => {
     const client = await pool.connect();
+    let transactionOpen = false;
 
     try {
       const { email } = req.body;
       await client.query('BEGIN');
+      transactionOpen = true;
 
       const result = await client.query(
         `SELECT id, nombre, email, email_verified_at
@@ -395,6 +404,7 @@ router.post(
 
       if (result.rows.length === 0) {
         await client.query('ROLLBACK');
+        transactionOpen = false;
         return res.json({
           message:
             'Si existe una cuenta pendiente de verificación, te hemos enviado un nuevo correo.',
@@ -404,25 +414,27 @@ router.post(
       const user = result.rows[0];
       if (user.email_verified_at) {
         await client.query('ROLLBACK');
+        transactionOpen = false;
         return res.json({ message: 'Tu correo ya está verificado' });
       }
 
       const verificationToken = await storeEmailVerificationToken(client, user.id);
+      await client.query('COMMIT');
+      transactionOpen = false;
+
       const delivery = await sendVerificationEmail({
         email: user.email,
         nombre: user.nombre,
         token: verificationToken,
       });
 
-      if (isProduction() && !delivery.delivered) {
-        await client.query('ROLLBACK');
+      if (!delivery.delivered) {
         return res.status(503).json({
           error:
-            'No se ha podido reenviar el correo de verificación. Inténtalo de nuevo más tarde.',
+            'La cuenta sigue pendiente de verificación, pero no hemos podido reenviar el correo ahora mismo. Inténtalo de nuevo más tarde.',
         });
       }
 
-      await client.query('COMMIT');
       return res.json({
         message:
           'Te hemos enviado un nuevo correo para verificar tu cuenta.',
@@ -431,7 +443,9 @@ router.post(
           : { debug_verification_url: delivery.debugUrl }),
       });
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (transactionOpen) {
+        await client.query('ROLLBACK');
+      }
       console.error('Error reenviando verificación:', error);
       return res.status(500).json({ error: 'Error interno del servidor' });
     } finally {
@@ -521,10 +535,12 @@ router.post(
   validate(emailActionSchema),
   async (req, res) => {
     const client = await pool.connect();
+    let transactionOpen = false;
 
     try {
       const { email } = req.body;
       await client.query('BEGIN');
+      transactionOpen = true;
 
       const result = await client.query(
         `SELECT id, nombre, email, email_verified_at
@@ -537,29 +553,33 @@ router.post(
 
       if (result.rows.length === 0 || !result.rows[0].email_verified_at) {
         await client.query('ROLLBACK');
+        transactionOpen = false;
         return res.json(buildPasswordResetResponse({ delivered: true }));
       }
 
       const user = result.rows[0];
       const resetToken = await storePasswordResetToken(client, user.id);
+      await client.query('COMMIT');
+      transactionOpen = false;
+
       const delivery = await sendPasswordResetEmail({
         email: user.email,
         nombre: user.nombre,
         token: resetToken,
       });
 
-      if (isProduction() && !delivery.delivered) {
-        await client.query('ROLLBACK');
+      if (!delivery.delivered) {
         return res.status(503).json({
           error:
-            'No se ha podido enviar el correo para restablecer la contraseña. Inténtalo de nuevo más tarde.',
+            'La solicitud se ha guardado, pero no hemos podido enviar el correo para restablecer la contraseña. Inténtalo de nuevo más tarde.',
         });
       }
 
-      await client.query('COMMIT');
       return res.json(buildPasswordResetResponse(delivery));
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (transactionOpen) {
+        await client.query('ROLLBACK');
+      }
       console.error('Error solicitando reset de contraseña:', error);
       return res.status(500).json({ error: 'Error interno del servidor' });
     } finally {

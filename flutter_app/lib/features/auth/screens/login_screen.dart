@@ -18,8 +18,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
   bool _warming = false;
+  bool _resendingVerification = false;
   bool _obscurePassword = true;
   String? _error;
+  String? _info;
 
   @override
   void initState() {
@@ -55,6 +57,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
     try {
       await ref.read(authProvider.notifier).login(
@@ -65,6 +68,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(
+          () => _error = 'Introduce tu correo para reenviar la verificación');
+      return;
+    }
+
+    setState(() {
+      _resendingVerification = true;
+      _error = null;
+      _info = null;
+    });
+
+    try {
+      final result =
+          await ref.read(authProvider.notifier).resendVerification(email);
+      if (!mounted) return;
+      setState(() => _info = result.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _resendingVerification = false);
     }
   }
 
@@ -146,6 +176,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
+              if (_info != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Text(
+                    _info!,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Email field
               TextFormField(
@@ -185,6 +235,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 onFieldSubmitted: (_) => _submit(),
               ),
               const SizedBox(height: 20),
+              if (_error ==
+                  'Debes verificar tu correo antes de iniciar sesión') ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed:
+                        _resendingVerification ? null : _resendVerification,
+                    child: _resendingVerification
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Reenviar verificación'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
 
               // Submit button
               SizedBox(

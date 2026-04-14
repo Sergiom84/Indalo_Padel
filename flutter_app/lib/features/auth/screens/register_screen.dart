@@ -47,7 +47,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       _error = null;
     });
     try {
-      await ref.read(authProvider.notifier).register({
+      final result = await ref.read(authProvider.notifier).register({
         'nombre': _nombreCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
         'password': _passwordCtrl.text,
@@ -58,6 +58,36 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         'availability_preferences': _availabilityPreferences,
         'match_preferences': _matchPreferences,
       });
+
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            result.emailDeliveryFailed ? 'Cuenta creada' : 'Revisa tu correo',
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            result.message,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cerrar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                context.go('/login');
+              },
+              child: const Text('Ir al login'),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {

@@ -96,6 +96,13 @@ El backend carga el `.env` de la raíz del proyecto.
 - `PORT`: puerto de la API
 - `DEMO_MODE`: arranca sin base de datos si vale `true`
 - `CORS_ORIGINS`: lista opcional de orígenes web separados por comas
+- `PUBLIC_API_BASE_URL`: URL pública base de la API para construir enlaces de verificación y reset
+- `RESEND_API_KEY`: API key de Resend para el envío de correos transaccionales
+- `EMAIL_FROM`: remitente verificado en Resend, por ejemplo `Indalo Padel <no-reply@tu-dominio>`
+
+Importante para producción:
+- El registro, la verificación de correo y el reset de contraseña necesitan `RESEND_API_KEY` y `EMAIL_FROM`.
+- Si falta esa configuración, la cuenta puede quedar creada pero el correo no se enviará hasta que el servicio de email vuelva a estar disponible.
 
 ## Notas de conexión Flutter
 
