@@ -82,7 +82,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _selectedDay = DateTime.now();
     _fetchCalendar();
   }
@@ -363,6 +363,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
           unselectedLabelColor: AppColors.muted,
           tabs: const [
             Tab(text: 'Agenda'),
+            Tab(text: 'Próximos'),
             Tab(text: 'Historial'),
           ],
         ),
@@ -392,7 +393,6 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
                   controller: _tabController,
                   children: [
                     _AgendaTab(
-                      upcoming: _allUpcoming,
                       eventDates: _eventDates,
                       focusedDay: _focusedDay,
                       selectedDay: _selectedDay,
@@ -406,6 +406,15 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
                         setState(() => _focusedDay = focused);
                       },
                       bookingsForDay: _bookingsForDay,
+                      onRefresh: _fetchCalendar,
+                      formatDate: _formatDate,
+                      formatTimeRange: _formatTimeRange,
+                      onRespond: _respondBooking,
+                      onEdit: _editBooking,
+                      onCancel: _cancelBooking,
+                    ),
+                    _ProximosTab(
+                      upcoming: _allUpcoming,
                       onRefresh: _fetchCalendar,
                       onRespond: _respondBooking,
                       onEdit: _editBooking,
@@ -427,10 +436,9 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
 }
 
 // ---------------------------------------------------------------------------
-// Agenda tab: Calendar widget + next 3 events + selected day events
+// Agenda tab: Calendar widget + selected day events
 // ---------------------------------------------------------------------------
 class _AgendaTab extends StatelessWidget {
-  final List<CalendarBookingModel> upcoming;
   final Set<DateTime> eventDates;
   final DateTime focusedDay;
   final DateTime? selectedDay;
@@ -443,10 +451,8 @@ class _AgendaTab extends StatelessWidget {
   final Future<void> Function(int) onCancel;
   final String Function(String?) formatDate;
   final String Function(CalendarBookingModel) formatTimeRange;
-  final VoidCallback onNewBooking;
 
   const _AgendaTab({
-    required this.upcoming,
     required this.eventDates,
     required this.focusedDay,
     required this.selectedDay,
@@ -459,7 +465,6 @@ class _AgendaTab extends StatelessWidget {
     required this.onCancel,
     required this.formatDate,
     required this.formatTimeRange,
-    required this.onNewBooking,
   });
 
   @override
@@ -467,11 +472,6 @@ class _AgendaTab extends StatelessWidget {
     final selectedBookings = selectedDay != null
         ? bookingsForDay(selectedDay!)
         : <CalendarBookingModel>[];
-    final selectedIds = selectedBookings.map((b) => b.id).toSet();
-    final next3 = upcoming
-        .where((b) => !selectedIds.contains(b.id))
-        .take(3)
-        .toList();
 
     return RefreshIndicator(
       color: AppColors.primary,
@@ -558,7 +558,7 @@ class _AgendaTab extends StatelessWidget {
           ),
 
           // Events for selected day
-          if (selectedDay != null && selectedBookings.isNotEmpty) ...[
+          if (selectedDay != null) ...[
             const SizedBox(height: 16),
             Text(
               'Eventos del ${formatDate(selectedDay!.toIso8601String().substring(0, 10))}',
@@ -569,23 +569,69 @@ class _AgendaTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            ...selectedBookings.map(
-              (b) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _CompactBookingCard(
-                  booking: b,
-                  formatDate: formatDate,
-                  formatTimeRange: formatTimeRange,
-                  onRespond: onRespond,
-                  onEdit: onEdit,
-                  onCancel: onCancel,
+            if (selectedBookings.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  'Sin eventos este día.',
+                  style: TextStyle(color: AppColors.muted),
+                ),
+              )
+            else
+              ...selectedBookings.map(
+                (b) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _CompactBookingCard(
+                    booking: b,
+                    formatDate: formatDate,
+                    formatTimeRange: formatTimeRange,
+                    onRespond: onRespond,
+                    onEdit: onEdit,
+                    onCancel: onCancel,
+                  ),
                 ),
               ),
-            ),
           ],
+        ],
+      ),
+    );
+  }
+}
 
-          // Next 3 upcoming
-          const SizedBox(height: 20),
+// ---------------------------------------------------------------------------
+// Próximos tab
+// ---------------------------------------------------------------------------
+class _ProximosTab extends StatelessWidget {
+  final List<CalendarBookingModel> upcoming;
+  final Future<void> Function() onRefresh;
+  final Future<void> Function(int, String) onRespond;
+  final void Function(CalendarBookingModel) onEdit;
+  final Future<void> Function(int) onCancel;
+  final String Function(String?) formatDate;
+  final String Function(CalendarBookingModel) formatTimeRange;
+  final VoidCallback onNewBooking;
+
+  const _ProximosTab({
+    required this.upcoming,
+    required this.onRefresh,
+    required this.onRespond,
+    required this.onEdit,
+    required this.onCancel,
+    required this.formatDate,
+    required this.formatTimeRange,
+    required this.onNewBooking,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: AppColors.surface,
+      onRefresh: onRefresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
           Row(
             children: [
               const Expanded(
@@ -605,9 +651,9 @@ class _AgendaTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          if (next3.isEmpty)
+          if (upcoming.isEmpty)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
+              padding: EdgeInsets.symmetric(vertical: 40),
               child: Column(
                 children: [
                   Icon(Icons.calendar_month_outlined,
@@ -622,7 +668,7 @@ class _AgendaTab extends StatelessWidget {
               ),
             )
           else
-            ...next3.map(
+            ...upcoming.map(
               (b) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _CompactBookingCard(
