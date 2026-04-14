@@ -15,6 +15,8 @@ import { isTransactionalEmailConfigured } from './services/authEmailService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3011;
+const requireEmailVerification =
+  process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
 
 // Red de seguridad global: capturamos errores no manejados para evitar que un
 // hipo transitorio (DNS EAI_AGAIN hacia Supabase, ECONNRESET en Google Calendar,
@@ -105,6 +107,7 @@ app.get('/api/health', (req, res) => {
     version: '1.0',
     mode: hasDatabaseConnection ? 'database' : 'demo',
     email_delivery: isTransactionalEmailConfigured() ? 'configured' : 'degraded',
+    require_email_verification: requireEmailVerification,
   });
 });
 
@@ -137,6 +140,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📊 Health: http://0.0.0.0:${PORT}/api/health`);
   console.log(
     `✉️ Correo transaccional: ${isTransactionalEmailConfigured() ? 'configurado' : 'sin configurar'}`
+  );
+  console.log(
+    `🔐 Verificación de correo: ${requireEmailVerification ? 'activa' : 'desactivada'}`
   );
   startCalendarSyncJob();
   startCommunityLifecycleJob();

@@ -26,6 +26,10 @@ function isProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
+function isEmailVerificationRequired() {
+  return process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
+}
+
 function buildJwt(user) {
   return jwt.sign(
     { userId: user.id, email: user.email },
@@ -35,6 +39,14 @@ function buildJwt(user) {
 }
 
 function buildVerificationResponse(delivery) {
+  if (!isEmailVerificationRequired()) {
+    return {
+      message: 'Registro completado. La verificación por correo está temporalmente desactivada y ya puedes iniciar sesión.',
+      requires_email_verification: false,
+      email_delivery_failed: false,
+    };
+  }
+
   return {
     message: delivery.delivered
       ? 'Registro completado. Revisa tu correo y valida la cuenta antes de iniciar sesión.'
@@ -193,6 +205,19 @@ async function storeEmailVerificationToken(client, userId) {
   return token;
 }
 
+async function markEmailVerified(client, userId) {
+  await client.query(
+    `UPDATE app.users
+     SET email_verified_at = COALESCE(email_verified_at, NOW()),
+         email_verification_token_hash = NULL,
+         email_verification_sent_at = NULL,
+         email_verification_expires_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [userId]
+  );
+}
+
 async function storePasswordResetToken(client, userId) {
   const token = generateOneTimeToken();
   const sentAt = new Date();
@@ -290,20 +315,28 @@ router.post('/register', validate(registerSchema), async (req, res) => {
       ]
     );
 
-    const verificationToken = await storeEmailVerificationToken(client, user.id);
-    await client.query('COMMIT');
-    transactionOpen = false;
+    let delivery = { delivered: true };
 
-    const delivery = await sendVerificationEmail({
-      email: user.email,
-      nombre: user.nombre,
-      token: verificationToken,
-    });
+    if (isEmailVerificationRequired()) {
+      const verificationToken = await storeEmailVerificationToken(client, user.id);
+      await client.query('COMMIT');
+      transactionOpen = false;
 
-    if (!delivery.delivered) {
-      console.warn(
-        `⚠️ Usuario ${user.email} creado sin correo de verificación entregado. reason=${delivery.reason || 'unknown'}`
-      );
+      delivery = await sendVerificationEmail({
+        email: user.email,
+        nombre: user.nombre,
+        token: verificationToken,
+      });
+
+      if (!delivery.delivered) {
+        console.warn(
+          `⚠️ Usuario ${user.email} creado sin correo de verificación entregado. reason=${delivery.reason || 'unknown'}`
+        );
+      }
+    } else {
+      await markEmailVerified(client, user.id);
+      await client.query('COMMIT');
+      transactionOpen = false;
     }
 
     return res.status(201).json(buildVerificationResponse(delivery));
@@ -352,7 +385,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
       return res.status(401).json({ error: 'Credenciales incorrectas' });
     }
 
-    if (!user.email_verified_at) {
+    if (isEmailVerificationRequired() && !user.email_verified_at) {
       return res.status(403).json({
         error: 'Debes verificar tu correo antes de iniciar sesión',
       });
@@ -385,6 +418,13 @@ router.post(
   '/resend-verification',
   validate(emailActionSchema),
   async (req, res) => {
+    if (!isEmailVerificationRequired()) {
+      return res.json({
+        message:
+          'La verificación por correo está temporalmente desactivada. Puedes iniciar sesión directamente.',
+      });
+    }
+
     const client = await pool.connect();
     let transactionOpen = false;
 
@@ -551,7 +591,10 @@ router.post(
         [email]
       );
 
-      if (result.rows.length === 0 || !result.rows[0].email_verified_at) {
+      if (
+        result.rows.length === 0 ||
+        (isEmailVerificationRequired() && !result.rows[0].email_verified_at)
+      ) {
         await client.query('ROLLBACK');
         transactionOpen = false;
         return res.json(buildPasswordResetResponse({ delivered: true }));
