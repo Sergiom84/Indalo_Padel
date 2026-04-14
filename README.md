@@ -97,6 +97,7 @@ El backend carga el `.env` de la raíz del proyecto.
 - `DEMO_MODE`: arranca sin base de datos si vale `true`
 - `CORS_ORIGINS`: lista opcional de orígenes web separados por comas
 - `PUBLIC_API_BASE_URL`: URL pública base de la API para construir enlaces de verificación y reset
+- `REQUIRE_EMAIL_VERIFICATION`: si vale `false`, permite iniciar sesión sin validar correo y desactiva temporalmente ese flujo
 - `RESEND_API_KEY`: API key de Resend para el envío de correos transaccionales
 - `EMAIL_FROM`: remitente verificado en Resend, por ejemplo `Indalo Padel <no-reply@tu-dominio>`
 
