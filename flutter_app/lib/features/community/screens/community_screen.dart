@@ -19,13 +19,15 @@ class CommunityScreen extends ConsumerStatefulWidget {
   ConsumerState<CommunityScreen> createState() => _CommunityScreenState();
 }
 
-class _CommunityScreenState extends ConsumerState<CommunityScreen> {
+class _CommunityScreenState extends ConsumerState<CommunityScreen>
+    with SingleTickerProviderStateMixin {
   late DateTime _draftDate;
   late TimeOfDay _draftTime;
 
   final Set<int> _selectedParticipantIds = <int>{};
   final Set<int> _handledNotificationIds = <int>{};
 
+  late TabController _tabController;
   Timer? _pollTimer;
   int? _selectedPlanId;
   int? _reservationHandlerUserId;
@@ -38,6 +40,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     final suggested = _nextSuggestedDateTime();
     _draftDate = DateTime(suggested.year, suggested.month, suggested.day);
     _draftTime = TimeOfDay(hour: suggested.hour, minute: suggested.minute);
@@ -51,6 +54,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _pollTimer?.cancel();
     super.dispose();
   }
@@ -793,6 +797,16 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           ],
         ),
         backgroundColor: AppColors.surface,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.primary,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: AppColors.muted,
+          tabs: const [
+            Tab(text: 'Convocatorias'),
+            Tab(text: 'Historial'),
+          ],
+        ),
       ),
       body: dashboardAsync.when(
         loading: () => const Center(child: LoadingSpinner()),
@@ -805,23 +819,36 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           final selectedPlan = _effectivePlan(dashboard);
           final reservationVenue = selectedPlan?.venue ?? dashboard.venue;
 
-          return RefreshIndicator(
-            color: AppColors.primary,
-            backgroundColor: AppColors.surface,
-            onRefresh: _refreshDashboard,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-              children: [
-                _buildPlanSelector(dashboard, selectedPlan),
-                const SizedBox(height: 16),
-                _buildCreateCard(dashboard, selectedPlan),
-                const SizedBox(height: 16),
-                _buildStatusCard(selectedPlan),
-                const SizedBox(height: 16),
-                _buildReservationCard(selectedPlan, reservationVenue),
-              ],
-            ),
+          return TabBarView(
+            controller: _tabController,
+            children: [
+              // ── Pestaña 1: Convocatorias ──────────────────────────────
+              RefreshIndicator(
+                color: AppColors.primary,
+                backgroundColor: AppColors.surface,
+                onRefresh: _refreshDashboard,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                  children: [
+                    _buildPlanSelector(dashboard, selectedPlan),
+                    const SizedBox(height: 16),
+                    _buildCreateCard(dashboard, selectedPlan),
+                    const SizedBox(height: 16),
+                    _buildStatusCard(selectedPlan),
+                    const SizedBox(height: 16),
+                    _buildReservationCard(selectedPlan, reservationVenue),
+                  ],
+                ),
+              ),
+              // ── Pestaña 2: Historial ──────────────────────────────────
+              RefreshIndicator(
+                color: AppColors.primary,
+                backgroundColor: AppColors.surface,
+                onRefresh: _refreshDashboard,
+                child: _buildHistorialTab(dashboard),
+              ),
+            ],
           );
         },
       ),
@@ -887,46 +914,6 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
               ),
             ],
           ),
-          if (dashboard.historyPlans.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'Historial',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: dashboard.historyPlans
-                  .map(
-                    (plan) => ChoiceChip(
-                      label: Text(
-                        '#${plan.id} · ${_inviteStateLabel(plan.inviteState)}',
-                      ),
-                      selected: selectedPlan?.id == plan.id,
-                      onSelected: (_) => _selectPlan(plan),
-                      selectedColor:
-                          _statusColorForPlan(plan).withValues(alpha: 0.18),
-                      labelStyle: TextStyle(
-                        color: selectedPlan?.id == plan.id
-                            ? _statusColorForPlan(plan)
-                            : Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      backgroundColor: AppColors.surface2,
-                      side: BorderSide(
-                        color: selectedPlan?.id == plan.id
-                            ? _statusColorForPlan(plan)
-                            : AppColors.border,
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-          ],
           if (selectedPlan != null) ...[
             const SizedBox(height: 14),
             Wrap(
@@ -955,6 +942,95 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildHistorialTab(CommunityDashboardModel dashboard) {
+    if (dashboard.historyPlans.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.history, color: AppColors.muted, size: 42),
+            SizedBox(height: 12),
+            Text(
+              'Sin historial todavía.',
+              style: TextStyle(color: AppColors.muted),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      itemCount: dashboard.historyPlans.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final plan = dashboard.historyPlans[index];
+        final color = _statusColorForPlan(plan);
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            _selectPlan(plan);
+            _tabController.animateTo(0);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surface2,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        plan.venue?.name ?? 'Convocatoria #${plan.id}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_formatDisplayDate(plan.scheduledDate)} · ${_formatDisplayTime(plan.scheduledTime)}',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                PadelBadge(
+                  label: plan.reservationConfirmed
+                      ? 'Confirmada'
+                      : _inviteStateLabel(plan.inviteState),
+                  variant: plan.reservationConfirmed
+                      ? PadelBadgeVariant.success
+                      : plan.isCancelled || plan.isExpired
+                          ? PadelBadgeVariant.danger
+                          : PadelBadgeVariant.neutral,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
