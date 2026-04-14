@@ -207,11 +207,15 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   TextButton(
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
-                      if (snapshot == null) {
-                        return;
-                      }
+                      if (snapshot == null) return;
                       final targetPlan = _planById(snapshot, notification.planId);
-                      if (targetPlan != null && mounted) {
+                      if (targetPlan == null || !mounted) return;
+                      if (!targetPlan.isOrganizer) {
+                        // Invitación recibida → ir a pestaña Convocatorias
+                        _tabController.animateTo(1);
+                      } else {
+                        // Plan propio → abrir en pestaña Reservar
+                        _tabController.animateTo(0);
                         setState(() {
                           _applyPlanToDraftInternal(
                             targetPlan,
@@ -805,7 +809,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           unselectedLabelColor: AppColors.muted,
           tabs: const [
             Tab(text: 'Reservar'),
-            Tab(text: 'Me invitan'),
+            Tab(text: 'Convocatorias'),
             Tab(text: 'Historial'),
           ],
         ),
@@ -1124,17 +1128,42 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      plan.venue?.phone?.isNotEmpty == true
-                          ? plan.venue!.phone!
-                          : 'Teléfono pendiente de configurar',
-                      style: TextStyle(
-                        color: plan.venue?.phone?.isNotEmpty == true
-                            ? Colors.white
-                            : AppColors.muted,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            plan.venue?.phone?.isNotEmpty == true
+                                ? plan.venue!.phone!
+                                : 'Teléfono pendiente de configurar',
+                            style: TextStyle(
+                              color: plan.venue?.phone?.isNotEmpty == true
+                                  ? Colors.white
+                                  : AppColors.muted,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.copy_outlined,
+                              size: 18, color: AppColors.muted),
+                          tooltip: 'Copiar texto',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            final template = _buildReservationTemplate(
+                              plan, plan.venue);
+                            Clipboard.setData(
+                                ClipboardData(text: template));
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(
+                                content: Text('Texto copiado'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Text(
