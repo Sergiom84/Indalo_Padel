@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../models/player_model.dart';
+import '../providers/player_provider.dart';
 
 class PlayerSearchScreen extends ConsumerStatefulWidget {
   const PlayerSearchScreen({super.key});
@@ -167,7 +168,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
       if (message != null && mounted) {
         _showMessage(message);
       }
-      await _refreshAll();
+      notifyPlayerNetworkChanged(ref);
     } catch (error) {
       if (mounted) {
         _showMessage(error.toString(), isError: true);
@@ -220,6 +221,12 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(playerNetworkRefreshProvider, (previous, next) {
+      if (previous != next) {
+        unawaited(_refreshAll());
+      }
+    });
+
     return Scaffold(
       backgroundColor: AppColors.dark,
       appBar: AppBar(
@@ -1011,24 +1018,24 @@ class _LevelDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String?>(
-      value: value,
+      key: ValueKey<String?>(value),
+      initialValue: value,
       dropdownColor: AppColors.surface2,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         labelText: label,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
-      hint: Text(
+      hint: const Text(
         'Todos',
-        style: const TextStyle(color: AppColors.muted),
+        style: TextStyle(color: AppColors.muted),
       ),
-      items: [
-        DropdownMenuItem<String?>(
+      items: <DropdownMenuItem<String?>>[
+        const DropdownMenuItem<String?>(
           value: null,
           child: Text(
             'Todos',
-            style: const TextStyle(color: AppColors.muted),
+            style: TextStyle(color: AppColors.muted),
           ),
         ),
         ...items.map(

@@ -2,6 +2,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../models/player_model.dart';
 
+final playerNetworkRefreshProvider = StateProvider<int>((ref) => 0);
+
+void notifyPlayerNetworkChanged(WidgetRef ref) {
+  ref.read(playerNetworkRefreshProvider.notifier).state++;
+  ref.invalidate(networkProvider);
+  ref.invalidate(favoritesProvider);
+}
+
 /// Provider para obtener el perfil del jugador actual.
 final myProfileProvider = FutureProvider<PlayerModel>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -12,6 +20,7 @@ final myProfileProvider = FutureProvider<PlayerModel>((ref) async {
 
 /// Provider para obtener la red del jugador actual.
 final networkProvider = FutureProvider<PlayerNetworkSnapshot>((ref) async {
+  ref.watch(playerNetworkRefreshProvider);
   final api = ref.watch(apiClientProvider);
   final data = await api.get('/padel/players/network');
   return PlayerNetworkSnapshot.fromJson(

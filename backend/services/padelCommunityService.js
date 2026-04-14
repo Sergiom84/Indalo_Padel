@@ -856,7 +856,7 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     .map((participant) => ({
       email: participant.email,
       displayName: participant.display_name || participant.nombre,
-      responseStatus: 'accepted',
+      responseStatus: 'needsAction',
       optional: false,
     }));
 

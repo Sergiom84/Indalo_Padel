@@ -9,6 +9,8 @@ import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../players/models/player_model.dart';
+import '../../players/providers/player_provider.dart';
 import '../../profile/providers/current_profile_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -34,6 +36,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _fetchData() async {
     final api = ref.read(apiClientProvider);
+    ref.invalidate(networkProvider);
     if (mounted) {
       setState(() {
         _loadingVenues = true;
@@ -150,6 +153,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
     final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final networkAsync = ref.watch(networkProvider);
+    final incomingRequests =
+        networkAsync.valueOrNull?.incomingRequests ?? const <PlayerModel>[];
     final greeting = (profile?['display_name'] ??
             profile?['nombre'] ??
             user?.nombre ??
@@ -196,6 +202,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   ),
                 ),
+                _NotificationBellButton(
+                  pendingCount: incomingRequests.length,
+                  loading: networkAsync.isLoading && incomingRequests.isEmpty,
+                  onTap: () => _openNotificationsDialog(
+                    incomingRequests,
+                    loading: networkAsync.isLoading && incomingRequests.isEmpty,
+                  ),
+                ),
+                const SizedBox(width: 12),
                 GestureDetector(
                   onTap: () {
                     appLightImpact();
@@ -343,6 +358,163 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Future<void> _openNotificationsDialog(List<PlayerModel> initialRequests,
+      {required bool loading}) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final requests = List<PlayerModel>.from(initialRequests);
+        final busyIds = <int>{};
+        final navigator = Navigator.of(dialogContext);
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> handleAction(PlayerModel player, String action) async {
+              if (busyIds.contains(player.userId)) {
+                return;
+              }
+
+              setDialogState(() => busyIds.add(player.userId));
+
+              try {
+                final message = await _respondToNetworkRequest(player, action);
+                notifyPlayerNetworkChanged(ref);
+                if (!mounted) {
+                  return;
+                }
+
+                setDialogState(() {
+                  busyIds.remove(player.userId);
+                  requests.removeWhere(
+                    (request) => request.userId == player.userId,
+                  );
+                });
+
+                _showMessage(
+                  message ??
+                      (action == 'accepted'
+                          ? '${player.displayName} ya forma parte de tu red.'
+                          : 'Has rechazado la solicitud de ${player.displayName}.'),
+                );
+
+                if (requests.isEmpty && navigator.canPop()) {
+                  navigator.pop();
+                }
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+                setDialogState(() => busyIds.remove(player.userId));
+                _showMessage(error.toString(), isError: true);
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: AppColors.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+                side: const BorderSide(color: AppColors.border),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(20, 18, 12, 0),
+              contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              title: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Solicitudes de red',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => navigator.pop(),
+                    icon: const Icon(Icons.close, color: AppColors.muted),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 420,
+                child: loading
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            LoadingSpinner(),
+                            SizedBox(height: 12),
+                            Text(
+                              'Cargando solicitudes...',
+                              style: TextStyle(color: AppColors.muted),
+                            ),
+                          ],
+                        ),
+                      )
+                    : requests.isEmpty
+                        ? const _EmptyState(
+                            icon: Icons.notifications_none_outlined,
+                            message: 'No tienes solicitudes pendientes.',
+                          )
+                        : SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: requests
+                                  .map(
+                                    (player) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: _NetworkRequestDialogCard(
+                                        player: player,
+                                        busy: busyIds.contains(player.userId),
+                                        onAccept: () =>
+                                            handleAction(player, 'accepted'),
+                                        onReject: () =>
+                                            handleAction(player, 'rejected'),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                            ),
+                          ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _respondToNetworkRequest(
+    PlayerModel player,
+    String action,
+  ) async {
+    final api = ref.read(apiClientProvider);
+    final data = await api.post(
+      '/padel/players/${player.userId}/network/respond',
+      data: {'action': action},
+    );
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    return null;
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.danger : AppColors.surface,
+      ),
+    );
+  }
+
   String _headlineDate() {
     final now = DateTime.now();
     const weekDays = [
@@ -369,6 +541,85 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       'diciembre',
     ];
     return '${weekDays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
+  }
+}
+
+class _NotificationBellButton extends StatelessWidget {
+  final int pendingCount;
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _NotificationBellButton({
+    required this.pendingCount,
+    required this.loading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: Ink(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: pendingCount > 0
+                      ? AppColors.primary.withValues(alpha: 0.45)
+                      : AppColors.border,
+                ),
+              ),
+              child: loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: AppColors.primary,
+                      ),
+                    )
+                  : Icon(
+                      pendingCount > 0
+                          ? Icons.notifications_active_outlined
+                          : Icons.notifications_none_outlined,
+                      color:
+                          pendingCount > 0 ? AppColors.primary : Colors.white,
+                    ),
+            ),
+          ),
+        ),
+        if (!loading && pendingCount > 0)
+          Positioned(
+            top: -4,
+            right: -4,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.dark, width: 2),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                pendingCount > 9 ? '9+' : '$pendingCount',
+                style: const TextStyle(
+                  color: AppColors.dark,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
@@ -676,6 +927,96 @@ class _EmptyState extends StatelessWidget {
             message,
             style: const TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NetworkRequestDialogCard extends StatelessWidget {
+  final PlayerModel player;
+  final bool busy;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  const _NetworkRequestDialogCard({
+    required this.player,
+    required this.busy,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              UserAvatar(
+                displayName: player.displayName,
+                avatarUrl: player.avatarUrl,
+                size: 44,
+                fontSize: 16,
+                backgroundColor: AppColors.surface,
+                borderColor: AppColors.border,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: player.displayName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const TextSpan(
+                        text: ' ha solicitado unirse a tu red.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: busy ? null : onReject,
+                  child: const Text('Rechazar'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: busy ? null : onAccept,
+                  child: busy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Aceptar'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

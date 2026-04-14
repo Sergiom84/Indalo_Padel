@@ -11,6 +11,7 @@ import '../../../shared/widgets/preference_checkbox_group.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/player_model.dart';
+import '../providers/player_provider.dart';
 
 class PlayerProfileScreen extends ConsumerStatefulWidget {
   final String playerId;
@@ -227,7 +228,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
           SnackBar(content: Text(data['message'].toString())),
         );
       }
-      await _fetchPlayer();
+      notifyPlayerNetworkChanged(ref);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -255,7 +256,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
           SnackBar(content: Text(data['message'].toString())),
         );
       }
-      await _fetchPlayer();
+      notifyPlayerNetworkChanged(ref);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -272,6 +273,12 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(playerNetworkRefreshProvider, (previous, next) {
+      if (previous != next) {
+        _fetchPlayer();
+      }
+    });
+
     if (_loading) {
       return Scaffold(
         backgroundColor: AppColors.dark,
@@ -294,6 +301,8 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
     final player = _player!;
     final user = ref.watch(authProvider).user;
     final isOwnProfile = user?.id == player.userId;
+    final preferenceCards = _PreferenceSectionData.fromPlayer(player);
+    final metaCards = _playerMetaItems(player);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -403,23 +412,25 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                               color: AppColors.muted, fontSize: 14)),
                     ),
                   ],
-                  if (_PreferenceSectionData.fromPlayer(player).isNotEmpty) ...[
+                  if (preferenceCards.isNotEmpty) ...[
                     const SizedBox(height: 14),
-                    _PlayerPreferenceSummary(player: player),
-                  ],
-                  if (_playerMetaItems(player).isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _playerMetaItems(player)
+                    _PlayerInfoSection(
+                      title: 'Preferencias de juego',
+                      items: preferenceCards
                           .map(
-                            (item) => PadelBadge(
-                              label: item,
-                              variant: PadelBadgeVariant.outline,
+                            (section) => _PlayerDetailCardData(
+                              title: section.title,
+                              value: section.labels.join(' · '),
                             ),
                           )
-                          .toList(),
+                          .toList(growable: false),
+                    ),
+                  ],
+                  if (metaCards.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    _PlayerInfoSection(
+                      title: 'Datos del jugador',
+                      items: metaCards,
                     ),
                   ],
                   if (!isOwnProfile) ...[
@@ -561,18 +572,33 @@ DateTime? _parsePlayerBirthDate(String? value) {
   }
 }
 
-List<String> _playerMetaItems(PlayerModel player) {
-  final items = <String>[];
+List<_PlayerDetailCardData> _playerMetaItems(PlayerModel player) {
+  final items = <_PlayerDetailCardData>[];
   final genderLabel = PlayerPreferenceCatalog.labelForGender(player.gender);
   if (genderLabel.isNotEmpty) {
-    items.add(genderLabel);
+    items.add(
+      _PlayerDetailCardData(
+        title: 'Género',
+        value: genderLabel,
+      ),
+    );
   }
   final birthDate = _parsePlayerBirthDate(player.birthDate);
   if (birthDate != null) {
-    items.add(DateFormat('dd/MM/yyyy').format(birthDate));
+    items.add(
+      _PlayerDetailCardData(
+        title: 'Fecha de nacimiento',
+        value: DateFormat('dd/MM/yyyy').format(birthDate),
+      ),
+    );
   }
   if (player.phone != null && player.phone!.trim().isNotEmpty) {
-    items.add(player.phone!.trim());
+    items.add(
+      _PlayerDetailCardData(
+        title: 'Teléfono',
+        value: player.phone!.trim(),
+      ),
+    );
   }
   return items;
 }
@@ -608,15 +634,28 @@ class _PreferenceSectionData {
   }
 }
 
-class _PlayerPreferenceSummary extends StatelessWidget {
-  final PlayerModel player;
+class _PlayerDetailCardData {
+  final String title;
+  final String value;
 
-  const _PlayerPreferenceSummary({required this.player});
+  const _PlayerDetailCardData({
+    required this.title,
+    required this.value,
+  });
+}
+
+class _PlayerInfoSection extends StatelessWidget {
+  final String title;
+  final List<_PlayerDetailCardData> items;
+
+  const _PlayerInfoSection({
+    required this.title,
+    required this.items,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final sections = _PreferenceSectionData.fromPlayer(player);
-    if (sections.isEmpty) {
+    if (items.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -632,30 +671,100 @@ class _PlayerPreferenceSummary extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        for (var index = 0; index < sections.length; index++) ...[
-          Text(
-            sections[index].title,
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final label in sections[index].labels)
-                PadelBadge(
-                  label: label,
-                  variant: PadelBadgeVariant.outline,
-                ),
-            ],
-          ),
-          if (index < sections.length - 1) const SizedBox(height: 14),
-        ],
+        _PlayerInfoGrid(items: items),
       ],
+    );
+  }
+}
+
+class _PlayerInfoGrid extends StatelessWidget {
+  final List<_PlayerDetailCardData> items;
+
+  const _PlayerInfoGrid({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 1040
+            ? 3
+            : width >= 620
+                ? 2
+                : 1;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 92,
+          ),
+          itemBuilder: (context, index) => _PlayerInfoCard(item: items[index]),
+        );
+      },
+    );
+  }
+}
+
+class _PlayerInfoCard extends StatelessWidget {
+  final _PlayerDetailCardData item;
+
+  const _PlayerInfoCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF202020),
+            AppColors.surface2,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      alignment: Alignment.centerLeft,
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '${item.title}: ',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                height: 1.35,
+              ),
+            ),
+            TextSpan(
+              text: item.value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 }
