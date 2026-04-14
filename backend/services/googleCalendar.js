@@ -118,10 +118,10 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
   const venueAddress = venue.address || venue.venue_address || '';
   const courtName = court.name || court.court_name || 'Pista';
 
-  const organizerEmail = (process.env.GOOGLE_ORGANIZER_EMAIL || '').toLowerCase().trim();
+  const calendarOwnerEmail = (organizerEmail || process.env.GOOGLE_ORGANIZER_EMAIL || '').toLowerCase().trim();
   const attendees = players
     .filter((player) => Boolean(player.email))
-    .filter((player) => player.email.toLowerCase().trim() !== organizerEmail)
+    .filter((player) => player.email.toLowerCase().trim() !== calendarOwnerEmail)
     .map((player) => ({
       email: player.email,
       displayName: player.nombre || player.display_name || player.email,
