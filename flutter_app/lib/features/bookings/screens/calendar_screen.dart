@@ -467,7 +467,11 @@ class _AgendaTab extends StatelessWidget {
     final selectedBookings = selectedDay != null
         ? bookingsForDay(selectedDay!)
         : <CalendarBookingModel>[];
-    final next3 = upcoming.take(3).toList();
+    final selectedIds = selectedBookings.map((b) => b.id).toSet();
+    final next3 = upcoming
+        .where((b) => !selectedIds.contains(b.id))
+        .take(3)
+        .toList();
 
     return RefreshIndicator(
       color: AppColors.primary,
