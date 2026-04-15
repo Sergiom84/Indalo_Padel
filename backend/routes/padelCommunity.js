@@ -6,6 +6,7 @@ import {
   previewCommunityConflictsSchema,
   proposeCommunityTimeSchema,
   respondCommunityPlanSchema,
+  submitMatchResultSchema,
   updateCommunityPlanSchema,
   updateCommunityReservationSchema,
 } from '../validators/communityValidators.js';
@@ -13,10 +14,12 @@ import {
   cancelCommunityPlan,
   createCommunityPlan,
   getCommunityDashboard,
+  getMatchResult,
   markCommunityNotificationRead,
   previewCommunityPlanConflicts,
   proposeCommunityPlanTime,
   respondToCommunityPlan,
+  submitMatchResult,
   updateCommunityPlan,
   updateCommunityReservationStatus,
 } from '../services/padelCommunityService.js';
@@ -173,6 +176,40 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+router.get('/:id/result', authenticateToken, async (req, res) => {
+  try {
+    const result = await getMatchResult({
+      planId: Number.parseInt(req.params.id, 10),
+      userId: req.user.userId,
+    });
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    console.error('Error obteniendo resultado de partido:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+router.post(
+  '/:id/result/submit',
+  authenticateToken,
+  validate(submitMatchResultSchema),
+  async (req, res) => {
+    try {
+      const result = await submitMatchResult({
+        planId: Number.parseInt(req.params.id, 10),
+        userId: req.user.userId,
+        partnerUserId: req.body.partner_user_id ?? null,
+        winnerTeam: req.body.winner_team,
+        sets: req.body.sets,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error('Error registrando resultado de partido:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+);
 
 router.post('/notifications/:id/read', authenticateToken, async (req, res) => {
   try {

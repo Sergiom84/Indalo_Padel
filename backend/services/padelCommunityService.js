@@ -5,6 +5,7 @@ import {
   DEFAULT_DURATION_MINUTES,
   combineDateAndTime,
   calculateEndTime,
+  nowInAppZone,
   normalizeDateValue,
   toGoogleDateTime,
 } from './calendarUtils.js';
@@ -2076,6 +2077,365 @@ export async function runCommunityLifecycleMaintenance() {
       expired,
       retry_cancelled: retryCancelled,
       synced,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Resultados de partido (consenso entre jugadores aceptados)
+// ─────────────────────────────────────────────────────────────
+
+function normalizeSetsPayload(sets) {
+  if (!Array.isArray(sets)) {
+    return null;
+  }
+  return sets.map((set) => ({
+    a: Number(set?.a ?? 0),
+    b: Number(set?.b ?? 0),
+  }));
+}
+
+function setsEqual(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (Number(a[i]?.a) !== Number(b[i]?.a)) return false;
+    if (Number(a[i]?.b) !== Number(b[i]?.b)) return false;
+  }
+  return true;
+}
+
+function reconcilePartition(submissions, acceptedUserIds) {
+  // Input: Map<userId, submission>, Set<userId>
+  // Output: { teamA: int[], teamB: int[] } o null si inconsistente
+  const accepted = [...acceptedUserIds];
+  if (accepted.length === 2) {
+    const sorted = [...accepted].sort((x, y) => x - y);
+    return { teamA: [sorted[0]], teamB: [sorted[1]] };
+  }
+  if (accepted.length !== 4) return null;
+
+  const pairs = new Map();
+  for (const uid of accepted) {
+    const s = submissions.get(uid);
+    if (!s) return null;
+    const partner = Number(s.partner_user_id);
+    if (!partner || !acceptedUserIds.has(partner) || partner === uid) {
+      return null;
+    }
+    pairs.set(uid, partner);
+  }
+
+  const teams = [];
+  const seen = new Set();
+  for (const uid of accepted) {
+    if (seen.has(uid)) continue;
+    const partner = pairs.get(uid);
+    if (pairs.get(partner) !== uid) return null;
+    teams.push([uid, partner].sort((x, y) => x - y));
+    seen.add(uid);
+    seen.add(partner);
+  }
+  if (teams.length !== 2) return null;
+  teams.sort((x, y) => x[0] - y[0]);
+  return { teamA: teams[0], teamB: teams[1] };
+}
+
+function reconcileWinnerAndSets(submissions, partition) {
+  const teamASet = new Set(partition.teamA);
+  let absoluteWinner = null;
+  let canonicalSets = null;
+
+  for (const [uid, s] of submissions) {
+    const inA = teamASet.has(Number(uid));
+    const myTeamWon = Number(s.winner_team) === 1;
+    const winnerFromView = myTeamWon ? (inA ? 'A' : 'B') : (inA ? 'B' : 'A');
+    if (absoluteWinner === null) {
+      absoluteWinner = winnerFromView;
+    } else if (absoluteWinner !== winnerFromView) {
+      return null;
+    }
+
+    const mySets = Array.isArray(s.sets) ? s.sets : [];
+    const normalized = mySets.map((set) => ({
+      a: inA ? Number(set?.a ?? 0) : Number(set?.b ?? 0),
+      b: inA ? Number(set?.b ?? 0) : Number(set?.a ?? 0),
+    }));
+    if (canonicalSets === null) {
+      canonicalSets = normalized;
+    } else if (!setsEqual(canonicalSets, normalized)) {
+      return null;
+    }
+  }
+
+  return {
+    winnerTeam: absoluteWinner === 'A' ? 1 : 2,
+    sets: canonicalSets || [],
+  };
+}
+
+async function loadAcceptedPlayerIds(client, planId) {
+  const result = await client.query(
+    `
+      SELECT user_id
+      FROM app.padel_community_plan_players
+      WHERE plan_id = $1
+        AND response_state = 'accepted'
+    `,
+    [planId],
+  );
+  return new Set(result.rows.map((row) => Number(row.user_id)));
+}
+
+async function loadMatchResultRow(client, planId) {
+  const result = await client.query(
+    `
+      SELECT id, plan_id, status, team_a_user_ids, team_b_user_ids,
+             winner_team, sets, resolved_at, created_at, updated_at
+      FROM app.padel_match_results
+      WHERE plan_id = $1
+      LIMIT 1
+    `,
+    [planId],
+  );
+  return result.rows[0] || null;
+}
+
+async function loadMatchResultSubmissions(client, planId) {
+  const result = await client.query(
+    `
+      SELECT id, plan_id, user_id, partner_user_id, winner_team, sets,
+             submitted_at, updated_at
+      FROM app.padel_match_result_submissions
+      WHERE plan_id = $1
+      ORDER BY submitted_at ASC
+    `,
+    [planId],
+  );
+  return result.rows;
+}
+
+function mapResultRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    plan_id: Number(row.plan_id),
+    status: row.status,
+    team_a_user_ids: (row.team_a_user_ids || []).map((v) => Number(v)),
+    team_b_user_ids: (row.team_b_user_ids || []).map((v) => Number(v)),
+    winner_team: row.winner_team != null ? Number(row.winner_team) : null,
+    sets: Array.isArray(row.sets) ? row.sets : row.sets ?? null,
+    resolved_at: row.resolved_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function mapSubmissionRow(row) {
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    partner_user_id: row.partner_user_id != null ? Number(row.partner_user_id) : null,
+    winner_team: Number(row.winner_team),
+    sets: Array.isArray(row.sets) ? row.sets : row.sets ?? [],
+    submitted_at: row.submitted_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function reconcileMatchResult(client, planId) {
+  const acceptedIds = await loadAcceptedPlayerIds(client, planId);
+  const submissionRows = await loadMatchResultSubmissions(client, planId);
+
+  const submissions = new Map();
+  for (const row of submissionRows) {
+    if (acceptedIds.has(Number(row.user_id))) {
+      submissions.set(Number(row.user_id), row);
+    }
+  }
+
+  const allSubmitted = submissions.size === acceptedIds.size && acceptedIds.size >= 2;
+  let status = 'pending';
+  let teamA = [];
+  let teamB = [];
+  let winnerTeam = null;
+  let sets = null;
+  let resolvedAt = null;
+
+  if (allSubmitted) {
+    const partition = reconcilePartition(submissions, acceptedIds);
+    if (!partition) {
+      status = 'disputa';
+    } else {
+      const winner = reconcileWinnerAndSets(submissions, partition);
+      if (!winner) {
+        status = 'disputa';
+        teamA = partition.teamA;
+        teamB = partition.teamB;
+      } else {
+        status = 'consensuado';
+        teamA = partition.teamA;
+        teamB = partition.teamB;
+        winnerTeam = winner.winnerTeam;
+        sets = winner.sets;
+        resolvedAt = new Date();
+      }
+    }
+  }
+
+  await client.query(
+    `
+      INSERT INTO app.padel_match_results
+        (plan_id, status, team_a_user_ids, team_b_user_ids, winner_team, sets, resolved_at)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+      ON CONFLICT (plan_id) DO UPDATE
+        SET status = EXCLUDED.status,
+            team_a_user_ids = EXCLUDED.team_a_user_ids,
+            team_b_user_ids = EXCLUDED.team_b_user_ids,
+            winner_team = EXCLUDED.winner_team,
+            sets = EXCLUDED.sets,
+            resolved_at = EXCLUDED.resolved_at
+    `,
+    [
+      planId,
+      status,
+      teamA,
+      teamB,
+      winnerTeam,
+      sets != null ? JSON.stringify(sets) : null,
+      resolvedAt,
+    ],
+  );
+}
+
+function buildMatchResultPayload(resultRow, submissionRows) {
+  return {
+    result: mapResultRow(resultRow),
+    submissions: submissionRows.map(mapSubmissionRow),
+  };
+}
+
+export async function getMatchResult({ planId, userId }) {
+  const client = await pool.connect();
+  try {
+    const plan = await loadPlanForMember(client, planId, userId);
+    if (!plan) {
+      return {
+        status: 404,
+        body: { error: 'Convocatoria no encontrada.' },
+      };
+    }
+
+    const resultRow = await loadMatchResultRow(client, planId);
+    const submissionRows = await loadMatchResultSubmissions(client, planId);
+    return {
+      status: 200,
+      body: buildMatchResultPayload(resultRow, submissionRows),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function submitMatchResult({
+  planId,
+  userId,
+  partnerUserId = null,
+  winnerTeam,
+  sets,
+}) {
+  const normalizedSets = normalizeSetsPayload(sets);
+  if (!normalizedSets || normalizedSets.length === 0) {
+    return {
+      status: 400,
+      body: { error: 'Debes indicar al menos un set válido.' },
+    };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const plan = await loadPlanForMember(client, planId, userId);
+    if (!plan) {
+      await client.query('ROLLBACK');
+      return { status: 404, body: { error: 'Convocatoria no encontrada.' } };
+    }
+
+    const endMoment = calculateEndTime(
+      normalizeDateValue(plan.scheduled_date),
+      plan.scheduled_time,
+      plan.duration_minutes || DEFAULT_DURATION_MINUTES,
+    );
+    if (endMoment > nowInAppZone()) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'El partido aún no ha terminado. Espera a que finalice para registrar el resultado.',
+          code: 'match_not_finished',
+        },
+      };
+    }
+
+    const acceptedIds = await loadAcceptedPlayerIds(client, planId);
+    if (!acceptedIds.has(Number(userId))) {
+      await client.query('ROLLBACK');
+      return {
+        status: 403,
+        body: { error: 'Solo los jugadores aceptados pueden registrar el resultado.' },
+      };
+    }
+
+    if (acceptedIds.size === 4) {
+      if (!partnerUserId || !acceptedIds.has(Number(partnerUserId)) || Number(partnerUserId) === Number(userId)) {
+        await client.query('ROLLBACK');
+        return {
+          status: 400,
+          body: { error: 'Selecciona una pareja válida entre los jugadores aceptados.' },
+        };
+      }
+    } else if (acceptedIds.size !== 2) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'Se necesitan 2 o 4 jugadores aceptados para registrar el resultado.',
+          code: 'invalid_player_count',
+        },
+      };
+    }
+
+    const partnerForInsert = acceptedIds.size === 4 ? Number(partnerUserId) : null;
+
+    await client.query(
+      `
+        INSERT INTO app.padel_match_result_submissions
+          (plan_id, user_id, partner_user_id, winner_team, sets)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
+        ON CONFLICT (plan_id, user_id) DO UPDATE
+          SET partner_user_id = EXCLUDED.partner_user_id,
+              winner_team = EXCLUDED.winner_team,
+              sets = EXCLUDED.sets,
+              submitted_at = NOW()
+      `,
+      [planId, userId, partnerForInsert, winnerTeam, JSON.stringify(normalizedSets)],
+    );
+
+    await reconcileMatchResult(client, planId);
+
+    const resultRow = await loadMatchResultRow(client, planId);
+    const submissionRows = await loadMatchResultSubmissions(client, planId);
+
+    await client.query('COMMIT');
+
+    return {
+      status: 200,
+      body: buildMatchResultPayload(resultRow, submissionRows),
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

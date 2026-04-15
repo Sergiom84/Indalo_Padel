@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
 import '../models/community_model.dart';
+import '../models/match_result_model.dart';
 
 final communityDashboardProvider = FutureProvider<CommunityDashboardModel>((
   ref,
@@ -134,6 +135,35 @@ class CommunityActions {
         ? response
         : Map<String, dynamic>.from(response as Map);
     return CommunityConflictPreviewModel.fromJson(json);
+  }
+
+  Future<MatchResultModel> fetchMatchResult(int planId) async {
+    final response = await _api.get('/padel/community/$planId/result');
+    final json = response is Map<String, dynamic>
+        ? response
+        : Map<String, dynamic>.from(response as Map);
+    return MatchResultModel.fromPayload(planId: planId, payload: json);
+  }
+
+  Future<MatchResultModel> submitMatchResult({
+    required int planId,
+    int? partnerUserId,
+    required int winnerTeam,
+    required List<SetScore> sets,
+  }) async {
+    final response = await _api.post(
+      '/padel/community/$planId/result/submit',
+      data: {
+        'partner_user_id': partnerUserId,
+        'winner_team': winnerTeam,
+        'sets': sets.map((s) => s.toJson()).toList(),
+      },
+    );
+    final json = response is Map<String, dynamic>
+        ? response
+        : Map<String, dynamic>.from(response as Map);
+    _ref.invalidate(communityDashboardProvider);
+    return MatchResultModel.fromPayload(planId: planId, payload: json);
   }
 
   Future<void> markNotificationRead(

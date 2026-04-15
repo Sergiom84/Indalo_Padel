@@ -20,6 +20,7 @@ const migrationFiles = [
   path.join(__dirname, 'padel_clubs_community_closure.sql'),
   path.join(__dirname, 'padel_auth_account_lifecycle.sql'),
   path.join(__dirname, 'padel_profile_deletion.sql'),
+  path.join(__dirname, 'padel_match_results.sql'),
 ];
 
 async function run() {

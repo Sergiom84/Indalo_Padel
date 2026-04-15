@@ -10,6 +10,7 @@ import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../../players/models/player_model.dart';
 import '../models/community_model.dart';
+import '../models/match_result_model.dart';
 import '../providers/community_provider.dart';
 
 class CommunityScreen extends ConsumerStatefulWidget {
@@ -185,12 +186,14 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
             final canJump = notification.planId > 0;
             // Gap 6: para bajas, el organizador ve "Seleccionar sustituto"
             final snapshot = ref.read(communityDashboardProvider).valueOrNull;
-            final notificationPlan =
-                snapshot != null ? _planById(snapshot, notification.planId) : null;
+            final notificationPlan = snapshot != null
+                ? _planById(snapshot, notification.planId)
+                : null;
             final isOrganizerOfPlan = notificationPlan?.isOrganizer ?? false;
-            final jumpLabel = notification.type == 'member_declined' && isOrganizerOfPlan
-                ? 'Seleccionar sustituto'
-                : 'Ver convocatoria';
+            final jumpLabel =
+                notification.type == 'member_declined' && isOrganizerOfPlan
+                    ? 'Seleccionar sustituto'
+                    : 'Ver convocatoria';
 
             return AlertDialog(
               backgroundColor: AppColors.surface,
@@ -208,7 +211,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
                       if (snapshot == null) return;
-                      final targetPlan = _planById(snapshot, notification.planId);
+                      final targetPlan =
+                          _planById(snapshot, notification.planId);
                       if (targetPlan == null || !mounted) return;
                       if (!targetPlan.isOrganizer) {
                         // Invitación recibida → ir a pestaña Convocatorias
@@ -312,12 +316,6 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     });
   }
 
-  void _selectPlan(CommunityPlanModel plan) {
-    setState(() {
-      _applyPlanToDraftInternal(plan, token: _planToken(plan));
-    });
-  }
-
   void _markDraftDirty() {
     _draftDirty = true;
     _lastSyncedPlanToken = null;
@@ -372,7 +370,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     });
   }
 
-  Future<bool> _confirmConflictsIfNeeded(CommunityPlanModel? selectedPlan) async {
+  Future<bool> _confirmConflictsIfNeeded(
+      CommunityPlanModel? selectedPlan) async {
     final preview = await ref.read(communityActionsProvider).previewConflicts(
           planId: selectedPlan?.id,
           scheduledDate: _formatApiDate(_draftDate),
@@ -385,7 +384,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     }
 
     final conflictLines = preview.conflicts
-        .expand((player) => player.items.map((item) => item.message ?? player.displayName))
+        .expand((player) =>
+            player.items.map((item) => item.message ?? player.displayName))
         .toList(growable: false);
 
     final confirmed = await showDialog<bool>(
@@ -393,7 +393,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
         title: Text(
-          preview.hasHardConflicts ? 'Conflictos fuertes detectados' : 'Conflictos detectados',
+          preview.hasHardConflicts
+              ? 'Conflictos fuertes detectados'
+              : 'Conflictos detectados',
           style: const TextStyle(color: Colors.white),
         ),
         content: SingleChildScrollView(
@@ -884,9 +886,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.primary,
         side: BorderSide(
-          color: selectedPlan == null
-              ? AppColors.primary
-              : AppColors.border,
+          color: selectedPlan == null ? AppColors.primary : AppColors.border,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -895,9 +895,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   }
 
   Widget _buildMeInvitanTab(CommunityDashboardModel dashboard) {
-    final invitations = dashboard.activePlans
-        .where((p) => !p.isOrganizer)
-        .toList();
+    final invitations =
+        dashboard.activePlans.where((p) => !p.isOrganizer).toList();
 
     if (invitations.isEmpty) {
       return const Center(
@@ -1012,7 +1011,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
               const SizedBox(height: 16),
               // ── Estado ────────────────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
@@ -1053,56 +1053,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   ],
                 ),
               ),
-              // ── Jugadores ────────────────────────────────────────────
-              if (plan.participants.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  'Jugadores',
-                  style: TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ...plan.participants.map(
-                  (p) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      children: [
-                        Icon(
-                          p.role == 'organizer'
-                              ? Icons.star_rounded
-                              : Icons.person_outline,
-                          color: p.role == 'organizer'
-                              ? AppColors.primary
-                              : AppColors.muted,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            p.displayName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        if (p.numericLevel > 0)
-                          Text(
-                            'Nv ${p.numericLevel}',
-                            style: const TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              // ── Jugadores / Resultado ────────────────────────────────
+              if (plan.participants.isNotEmpty)
+                _HistoryPlanResultSection(plan: plan),
               const SizedBox(height: 20),
               // ── Contacto del club ─────────────────────────────────────
               const Divider(color: AppColors.border, height: 1),
@@ -1151,10 +1104,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           onPressed: () {
-                            final template = _buildReservationTemplate(
-                              plan, plan.venue);
-                            Clipboard.setData(
-                                ClipboardData(text: template));
+                            final template =
+                                _buildReservationTemplate(plan, plan.venue);
+                            Clipboard.setData(ClipboardData(text: template));
                             ScaffoldMessenger.of(ctx).showSnackBar(
                               const SnackBar(
                                 content: Text('Texto copiado'),
@@ -1290,8 +1242,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     CommunityDashboardModel dashboard,
     CommunityPlanModel? selectedPlan,
   ) {
-    final editable = selectedPlan == null
-        || (selectedPlan.isOrganizer && !selectedPlan.isTerminal);
+    final editable = selectedPlan == null ||
+        (selectedPlan.isOrganizer && !selectedPlan.isTerminal);
     final borderColor = selectedPlan != null && selectedPlan.isOrganizer
         ? AppColors.success
         : AppColors.warning;
@@ -1551,8 +1503,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   style: currentUser.responseState == 'doubt'
                       ? OutlinedButton.styleFrom(
                           foregroundColor: AppColors.warning,
-                          side:
-                              const BorderSide(color: AppColors.warning))
+                          side: const BorderSide(color: AppColors.warning))
                       : null,
                   child: const Text('Estoy en duda'),
                 ),
@@ -1634,12 +1585,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final reservationBlocked = plan.isCancelled || plan.isExpired;
 
     return _CommunityCard(
-      borderColor:
-          plan.reservationConfirmed
-              ? AppColors.success
-              : reservationBlocked
-                  ? AppColors.danger
-                  : AppColors.warning,
+      borderColor: plan.reservationConfirmed
+          ? AppColors.success
+          : reservationBlocked
+              ? AppColors.danger
+              : AppColors.warning,
       title: '3. Reserva con el club',
       subtitle:
           'Una sola persona llama o escribe al centro, pero todos ven el mismo estado.',
@@ -1717,8 +1667,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                     ),
                   )
                   .toList(growable: false),
-              onChanged: plan.reservationConfirmed
-                  || reservationBlocked
+              onChanged: plan.reservationConfirmed || reservationBlocked
                   ? null
                   : (value) {
                       setState(() {
@@ -2477,13 +2426,11 @@ class _InvitationCard extends StatelessWidget {
                 Expanded(
                   child: RichText(
                     text: TextSpan(
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                       children: [
                         TextSpan(
                           text: plan.creatorName,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800),
+                          style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         const TextSpan(text: ' te ha invitado a jugar'),
                       ],
@@ -2501,8 +2448,7 @@ class _InvitationCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   '$date · $time',
-                  style: const TextStyle(
-                      color: AppColors.muted, fontSize: 13),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ],
             ),
@@ -2514,8 +2460,7 @@ class _InvitationCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   venueName,
-                  style: const TextStyle(
-                      color: AppColors.muted, fontSize: 13),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ],
             ),
@@ -2613,10 +2558,269 @@ class _ResponseButton extends StatelessWidget {
         backgroundColor: selected ? color : Colors.transparent,
         side: BorderSide(color: color),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+}
+
+class _HistoryPlanResultSection extends ConsumerStatefulWidget {
+  final CommunityPlanModel plan;
+
+  const _HistoryPlanResultSection({required this.plan});
+
+  @override
+  ConsumerState<_HistoryPlanResultSection> createState() =>
+      _HistoryPlanResultSectionState();
+}
+
+class _HistoryPlanResultSectionState
+    extends ConsumerState<_HistoryPlanResultSection> {
+  late Future<MatchResultModel?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<MatchResultModel?> _load() async {
+    try {
+      return await ref
+          .read(communityActionsProvider)
+          .fetchMatchResult(widget.plan.id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<MatchResultModel?>(
+      future: _future,
+      builder: (context, snapshot) {
+        final result = snapshot.data;
+        if (result != null && result.isConsensuado) {
+          return _ConsensusView(plan: widget.plan, result: result);
+        }
+        return _PlainPlayersView(plan: widget.plan);
+      },
+    );
+  }
+}
+
+class _PlainPlayersView extends StatelessWidget {
+  final CommunityPlanModel plan;
+
+  const _PlainPlayersView({required this.plan});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        const Text(
+          'Jugadores',
+          style: TextStyle(
+            color: AppColors.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...plan.participants.map(
+          (p) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Icon(
+                  p.role == 'organizer'
+                      ? Icons.star_rounded
+                      : Icons.person_outline,
+                  color: p.role == 'organizer'
+                      ? AppColors.primary
+                      : AppColors.muted,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    p.displayName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                if (p.numericLevel > 0)
+                  Text(
+                    'Nv ${p.numericLevel}',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConsensusView extends StatelessWidget {
+  final CommunityPlanModel plan;
+  final MatchResultModel result;
+
+  const _ConsensusView({required this.plan, required this.result});
+
+  String _namesFor(List<int> userIds) {
+    final names = <String>[];
+    for (final uid in userIds) {
+      for (final p in plan.participants) {
+        if (p.userId == uid) {
+          names.add(p.displayName);
+          break;
+        }
+      }
+    }
+    return names.join(' + ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final winner = result.winnerTeam;
+    final teamAName = _namesFor(result.teamAUserIds);
+    final teamBName = _namesFor(result.teamBUserIds);
+    final setsAWon = result.sets.where((s) => s.a > s.b).length;
+    final setsBWon = result.sets.where((s) => s.b > s.a).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        const Text(
+          'Resultado',
+          style: TextStyle(
+            color: AppColors.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
+        _TeamRow(
+          name: teamAName.isEmpty ? 'Equipo 1' : teamAName,
+          isWinner: winner == 1,
+          setsWon: setsAWon,
+        ),
+        const SizedBox(height: 8),
+        _TeamRow(
+          name: teamBName.isEmpty ? 'Equipo 2' : teamBName,
+          isWinner: winner == 2,
+          setsWon: setsBWon,
+        ),
+        if (result.sets.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.sports_tennis,
+                    color: AppColors.muted, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    result.sets.map((s) => '${s.a}-${s.b}').join(' · '),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _TeamRow extends StatelessWidget {
+  final String name;
+  final bool isWinner;
+  final int setsWon;
+
+  const _TeamRow({
+    required this.name,
+    required this.isWinner,
+    required this.setsWon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isWinner
+            ? AppColors.primary.withValues(alpha: 0.12)
+            : AppColors.surface2,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isWinner ? AppColors.primary : AppColors.border,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isWinner ? Icons.emoji_events : Icons.group_outlined,
+            color: isWinner ? AppColors.primary : AppColors.muted,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: isWinner ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          if (isWinner)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Text(
+                'Ganadores',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          Text(
+            '$setsWon',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -50,6 +50,22 @@ export const updateCommunityReservationSchema = z.object({
   updated_at: optionalUpdatedAtSchema,
 });
 
+const setScoreSchema = z.object({
+  a: z.number().int().min(0).max(7),
+  b: z.number().int().min(0).max(7),
+});
+
+export const submitMatchResultSchema = z.object({
+  partner_user_id: z.number().int().positive().optional().nullable(),
+  winner_team: z.number().int().refine((v) => v === 1 || v === 2, {
+    message: 'winner_team debe ser 1 o 2',
+  }),
+  sets: z
+    .array(setScoreSchema)
+    .min(1, 'Indica al menos un set')
+    .max(3, 'Máximo 3 sets'),
+});
+
 export const previewCommunityConflictsSchema = z.object({
   plan_id: z.number().int().positive().optional().nullable(),
   scheduled_date: z
