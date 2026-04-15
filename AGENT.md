@@ -156,6 +156,12 @@ pwsh ./scripts/start_flutter_web_preview.ps1
 ## 8) Reglas de seguridad operativa
 - Nunca commitear secretos reales (`.env`, tokens, claves Google, JWT de producción).
 - No ejecutar comandos destructivos de git para “limpiar” cambios ajenos.
+- Los commits deben ir firmados con SSH salvo instrucción explícita en contra. Antes de commit/push, verificar:
+  - `git config --global gpg.format` debe devolver `ssh`.
+  - `git config --global commit.gpgsign` debe devolver `true`.
+  - `git config --global core.sshCommand` debe apuntar a `C:/Windows/System32/OpenSSH/ssh.exe` para usar el `ssh-agent` de Windows.
+  - Si la firma pide passphrase o bloquea el proceso, no desactivar firma ni forzar HTTPS; cargar la clave con `ssh-add C:\Users\sergi\.ssh\github_sergi_ed25519_secure` y repetir.
+- Los push a GitHub deben ir por SSH (`git@github.com:...`). No usar HTTPS como workaround salvo autorización explícita.
 - No modificar migraciones pasadas ya aplicadas en entornos compartidos; crear migración nueva.
 - En cambios de reservas/calendario:
   - preservar consistencia entre estado local (`padel_bookings`) y sync (`calendar_sync_status`);
