@@ -22,7 +22,9 @@
    - crear/editar/cancelar reserva;
    - abrir calendario;
    - listar partidos y abrir detalle;
-   - perfil/favoritos básicos.
+   - perfil, red de jugadores e invitaciones;
+   - convocatorias de comunidad;
+   - favoritos básicos.
 4. Validar logs de error críticos tras las pruebas.
 
 ## Salida esperada

@@ -215,8 +215,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
     );
   }
 
-  void _goToNetworkTab() {
-    _tabController.animateTo(0);
+  void _goToInvitationsTab() {
+    _tabController.animateTo(1);
   }
 
   @override
@@ -361,8 +361,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                 child: _PlayerConnectionCard(
                   player: player,
                   onTap: () => context.push('/players/${player.userId}'),
-                  headline:
-                      '${player.displayName} quiere jugar contigo.',
+                  headline: '${player.displayName} quiere jugar contigo.',
                   timestampLabel: _formatConnectionMoment(
                     player.connectionRequestedAt,
                     prefix: 'Recibida',
@@ -393,8 +392,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                               ? const SizedBox(
                                   height: 18,
                                   width: 18,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Text('Aceptar'),
                         ),
@@ -623,7 +622,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                                   player.userId,
                                   () => _sendPlayRequest(player),
                                 ),
-                                onOpenNetwork: _goToNetworkTab,
+                                onOpenInvitations: _goToInvitationsTab,
                               ),
                             );
                           },
@@ -980,13 +979,13 @@ class _DiscoverFooter extends StatelessWidget {
   final PlayerModel player;
   final bool busy;
   final VoidCallback onRequest;
-  final VoidCallback onOpenNetwork;
+  final VoidCallback onOpenInvitations;
 
   const _DiscoverFooter({
     required this.player,
     required this.busy,
     required this.onRequest,
-    required this.onOpenNetwork,
+    required this.onOpenInvitations,
   });
 
   @override
@@ -1013,8 +1012,8 @@ class _DiscoverFooter extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: onOpenNetwork,
-                child: const Text('Responder en Mi red'),
+                onPressed: onOpenInvitations,
+                child: const Text('Responder en Invitaciones'),
               ),
             ),
           ],

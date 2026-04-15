@@ -19,15 +19,26 @@
   - `backend/routes/padelVenues.js`
   - `backend/routes/padelBookings.js`
   - `backend/routes/padelMatches.js`
+  - `backend/routes/padelCommunity.js`
   - `backend/routes/padelPlayers.js`
 - Servicios de negocio:
   - `backend/services/padelBookingService.js`
   - `backend/services/padelCalendarSync.js`
+  - `backend/services/padelCommunityService.js`
+  - `backend/services/padelCommunityLifecycle.js`
   - `backend/services/googleCalendar.js`
   - `backend/services/calendarUtils.js`
+  - `backend/services/authEmailService.js`
+- Validadores Zod:
+  - `backend/validators/*.js`
 - Migraciones SQL:
   - `backend/migrations/padel_tables.sql`
   - `backend/migrations/padel_calendar.sql`
+  - `backend/migrations/padel_community.sql`
+  - `backend/migrations/padel_clubs_community_closure.sql`
+  - `backend/migrations/padel_player_connections.sql`
+  - `backend/migrations/padel_player_profile_*.sql`
+  - `backend/migrations/padel_auth_account_lifecycle.sql`
   - `backend/migrations/padel_venue_dedup.sql`
   - `backend/migrations/padel_seed_data.sql`
 
@@ -43,7 +54,8 @@
   - Venues/availability
   - Bookings/calendar
   - Matches
-  - Players/profile/favorites
+  - Community/convocatorias
+  - Players/profile/network/invitations/ratings
 
 ## 3) Reglas de dominio padel
 
@@ -63,7 +75,7 @@
 
 ### Reservas
 - Duración: 30-240 minutos (default 90)
-- Horario clubs: 08:00-22:00
+- Horarios por sede: usar `padel_venues.opening_time/closing_time` y `padel_venue_schedule_windows`; no asumir un rango global.
 - Constraint UNIQUE en (court_id, booking_date, start_time): no solapamiento
 - Estados: pendiente → confirmada → completada | cancelada
 - Google Calendar sync: pendiente | sincronizada | error
@@ -74,9 +86,9 @@
 - Seed: estándar 10-14€/h, cristal 14-18€/h, peak +4€/h
 
 ### Sedes actuales (seed data)
-- Centro Deportivo Puerto Rey (Vera) — 11 pistas
-- Labios Pádel (Cuevas del Almanzora) — 4 pistas
-- Desert Springs Resort (Cuevas del Almanzora) — 3 pistas
+- La fuente funcional vive en `backend/migrations/padel_seed_data.sql` y ajustes posteriores de sedes/comunidad.
+- No hardcodear la lista en UI/docs operativas: consultar `padel_venues`, `padel_courts`, `is_active`, `is_bookable` y ventanas horarias.
+- En producción puede haber sedes históricas activas por migraciones de deduplicación/cierre.
 
 ## 4) Entorno y convenciones del repo
 - Puerto por defecto backend: `3011`.
@@ -89,7 +101,7 @@
 ## 5) Schema de base de datos
 
 - **Schema:** `app` (no public). `DB_SEARCH_PATH=app,public`
-- **RLS:** habilitado en todas las tablas, deny PUBLIC. Backend usa server role.
+- **RLS:** habilitado en la mayoría de tablas expuestas con política deny PUBLIC; algunas tablas internas históricas no lo tienen activado. El acceso de la app pasa por el backend con conexión PostgreSQL server-side.
 
 | Tabla | Descripción | Relaciones clave |
 |-------|-------------|-----------------|
@@ -103,15 +115,19 @@
 | `app.padel_player_profiles` | Perfil jugador | FK → users (UNIQUE). numeric_level GENERATED |
 | `app.padel_player_ratings` | Valoraciones 1-5 | FK → users, → matches. UNIQUE(rater, rated, match) |
 | `app.padel_favorites` | Favoritos | FK → users. CHECK(user ≠ favorite) |
+| `app.padel_player_connections` | Red de jugadores e invitaciones "Jugamos?" | Par normalizado user_a/user_b, status pending/accepted/rejected |
+| `app.padel_community_plans` | Convocatorias de comunidad | Creador, sede/pista propuesta, estado de reserva |
+| `app.padel_community_plan_players` | Participantes de convocatorias | FK → community_plans, → users |
+| `app.padel_community_notifications` | Notificaciones internas de comunidad | FK → users, → community_plans |
 | `app.padel_calendar_sync_state` | Sync Google Calendar | PK: calendar_id |
 
 ## 6) Deuda técnica conocida
 
-1. **Autorización inexistente** — `middleware/auth.js` valida JWT pero nunca verifica `users.role`. Cualquier usuario puede crear venues.
-2. **State management parcial (Flutter)** — Solo auth usa Riverpod provider. El resto: API calls directas con setState. Sin caché.
+1. **Autorización parcial** — `requireRole('admin')` protege sedes, pero cada endpoint nuevo debe revisar ownership/permisos explícitos.
+2. **State management mixto (Flutter)** — Hay providers Riverpod por feature, pero varias pantallas aún combinan llamadas API directas con `setState`.
 3. **Servicio monolítico** — `services/padelBookingService.js` tiene 1000+ líneas.
-4. **Sin validación de schema** — No hay Zod/Joi. Solo checks ad-hoc (`if (!campo)`).
-5. **Tests mínimos** — Backend: 0 tests. Flutter: 2 archivos básicos.
+4. **Validación mixta** — Hay Zod en `backend/validators`, pero siguen existiendo validaciones de negocio ad-hoc en rutas/servicios.
+5. **Tests mínimos** — Backend: 0 tests. Flutter: pocos tests básicos.
 6. **Sin push notifications** — No hay FCM ni infraestructura de notificaciones.
 
 ## 7) Comandos oficiales de trabajo
@@ -202,11 +218,13 @@ Checklist rápido:
   3. Simplicidad operativa
 - Toda decisión no obvia debe quedar documentada en PR/commit o en docs.
 
-## 12) Skills de este repo
+## 12) Playbooks/skills documentales de este repo
 - Ruta: `docs/skills/`
-- Skills disponibles:
+- Son guías Markdown del proyecto; no son skills invocables tipo `SKILL.md` salvo que se conviertan a ese formato.
+- Playbooks disponibles:
   - `skill-bookings-calendar.md`
   - `skill-api-contract.md`
+  - `skill-community-plans.md`
   - `skill-matches-players.md`
   - `skill-profile-search.md`
   - `skill-release-smoke.md`

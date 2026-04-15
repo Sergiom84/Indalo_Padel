@@ -8,6 +8,7 @@ App de reserva de pistas de padel para **Mojácar, Garrucha, Vera y alrededores*
 - Backend: `backend/` — Node.js + Express + PostgreSQL (Supabase)
 - Frontend activo: `flutter_app/` — Flutter (Android/iOS/web preview)
 - Frontend legacy: `quarantine/react-vite-web/` — **NO TOCAR**
+- Validación backend: `backend/validators/*.js` con Zod + middleware `validate`.
 
 ## Comandos de desarrollo
 
@@ -48,7 +49,7 @@ cd backend && node migrations/run.js
 
 ### Reservas
 - Duración: 30-240 minutos (default 90)
-- Horario clubs: 08:00-22:00
+- Horarios por sede: usar `padel_venues.opening_time/closing_time` y `padel_venue_schedule_windows`; no asumir un rango global.
 - No se permite solapamiento: constraint UNIQUE en (court_id, booking_date, start_time)
 - Estados: pendiente → confirmada → completada | cancelada
 - Google Calendar sync: pendiente | sincronizada | error
@@ -59,14 +60,14 @@ cd backend && node migrations/run.js
 - Precios seed: estándar 10-14€/h, cristal 14-18€/h, peak +4€/h
 
 ### Sedes actuales (seed data)
-- Centro Deportivo Puerto Rey (Vera) — 11 pistas
-- Labios Pádel (Cuevas del Almanzora) — 4 pistas
-- Desert Springs Resort (Cuevas del Almanzora) — 3 pistas
+- La fuente funcional vive en `backend/migrations/padel_seed_data.sql` y ajustes posteriores de sedes/comunidad.
+- No hardcodear la lista en UI/docs operativas: consultar `padel_venues`, `padel_courts`, `is_active`, `is_bookable` y ventanas horarias.
+- En producción puede haber sedes históricas activas por migraciones de deduplicación/cierre.
 
 ## Base de datos
 
 - **Schema:** `app` (no public). Configurado vía `DB_SEARCH_PATH=app,public`
-- **RLS:** habilitado en todas las tablas, deny PUBLIC. Backend accede vía server role.
+- **RLS:** habilitado en la mayoría de tablas expuestas con política deny PUBLIC; algunas tablas internas históricas no lo tienen activado. La app accede a datos mediante el backend con conexión PostgreSQL server-side.
 - **MCP Supabase** disponible para consultas directas.
 
 ### Tablas principales
@@ -82,15 +83,19 @@ cd backend && node migrations/run.js
 | `app.padel_player_profiles` | Perfil de jugador (nivel, posición, bio) | → users (UNIQUE) |
 | `app.padel_player_ratings` | Valoraciones 1-5 entre jugadores | → users, → matches |
 | `app.padel_favorites` | Jugadores favoritos | → users |
+| `app.padel_player_connections` | Red de jugadores e invitaciones "Jugamos?" | → users |
+| `app.padel_community_plans` | Convocatorias de comunidad | → users, → venues/courts |
+| `app.padel_community_plan_players` | Participantes de convocatorias | → community_plans, → users |
+| `app.padel_community_notifications` | Notificaciones internas de comunidad | → users, → community_plans |
 | `app.padel_calendar_sync_state` | Estado de sync con Google Calendar | — |
 
 ## Deuda técnica conocida
 
-1. **Autorización inexistente** — `backend/middleware/auth.js` valida JWT pero **nunca verifica roles**. `users.role` tiene admin|user pero no se comprueba. Cualquier usuario autenticado puede crear/editar venues.
-2. **State management parcial** — Solo `flutter_app/lib/features/auth/providers/auth_provider.dart` usa Riverpod. El resto de pantallas hacen API calls directas con `setState()`. No hay caché ni estado compartido.
+1. **Autorización parcial** — `requireRole('admin')` protege sedes, pero cada endpoint nuevo debe revisar ownership/permisos explícitos.
+2. **State management mixto** — Hay providers Riverpod por feature, pero varias pantallas aún combinan llamadas API directas con `setState()`.
 3. **Servicio monolítico** — `backend/services/padelBookingService.js` tiene 1000+ líneas. Necesita refactoring en módulos cohesivos.
-4. **Sin validación de schema** — No hay Zod/Joi. Validación ad-hoc con `if (!campo)`. Sin verificación de formato email, fuerza de password, ni sanitización.
-5. **Tests mínimos** — Backend: 0 tests. Flutter: 2 archivos de test básicos.
+4. **Validación mixta** — Hay Zod en `backend/validators`, pero siguen existiendo validaciones de negocio ad-hoc en rutas/servicios.
+5. **Tests mínimos** — Backend: 0 tests. Flutter: pocos tests básicos.
 6. **Sin push notifications** — No hay infraestructura de notificaciones.
 
 ## Infraestructura — Render + Supabase
@@ -110,8 +115,7 @@ cd backend && node migrations/run.js
 | Tipo de URL | Hostname | IPv4/IPv6 | ¿Funciona en Render? |
 |---|---|---|---|
 | Conexión directa | `db.PROJECT.supabase.co` | **Solo IPv6** | ❌ NUNCA |
-| Transaction Pooler | `aws-1-eu-central-1.pooler.supabase.com:6543` | **Solo IPv4** | ✅ SÍ |
-| Session Pooler | `aws-1-eu-central-1.pooler.supabase.com:5432` | **Solo IPv4** | ✅ SÍ |
+| Pooler Supabase usado por el proyecto | `aws-1-eu-central-1.pooler.supabase.com:5432` | **Solo IPv4** | ✅ SÍ |
 
 La `DATABASE_URL` en Render debe apuntar al pooler:
 ```
@@ -154,8 +158,9 @@ Se han aplicado estas defensas en el código para evitar crashes por red transit
 Guías paso a paso para tareas recurrentes. Leer antes de trabajar en el área correspondiente:
 - `docs/skills/skill-api-contract.md` — Cambios de contrato backend/Flutter
 - `docs/skills/skill-bookings-calendar.md` — Reservas y sync Google Calendar
+- `docs/skills/skill-community-plans.md` — Convocatorias de comunidad, participantes, notificaciones y reservas derivadas
 - `docs/skills/skill-matches-players.md` — Partidos, join/leave, contadores
-- `docs/skills/skill-profile-search.md` — Perfil, búsqueda, favoritos, ratings
+- `docs/skills/skill-profile-search.md` — Perfil, búsqueda, red de jugadores, invitaciones, favoritos, ratings
 - `docs/skills/skill-release-smoke.md` — Checklist pre-release
 
 ### Playbooks de incidencia
