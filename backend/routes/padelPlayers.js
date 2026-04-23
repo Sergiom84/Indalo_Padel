@@ -211,6 +211,112 @@ async function loadLegacyMatchForRating(client, { raterId, ratedId, matchId }) {
   return result.rows[0] || null;
 }
 
+async function loadRatingContextsForPlayer(client, { raterId, ratedId }) {
+  const communityResult = await client.query(
+    `
+      SELECT
+        cp.id,
+        cp.scheduled_date,
+        cp.scheduled_time,
+        cp.duration_minutes,
+        cp.invite_state,
+        cp.reservation_state,
+        v.name AS venue_name,
+        mr.status AS result_status,
+        EXISTS (
+          SELECT 1
+          FROM app.padel_match_result_submissions submissions
+          WHERE submissions.plan_id = cp.id
+            AND submissions.user_id = $1
+        ) AS rater_submitted_result,
+        pr.rating AS existing_rating,
+        pr.comment AS existing_comment
+      FROM app.padel_community_plans cp
+      JOIN app.padel_community_plan_players rater_membership
+        ON rater_membership.plan_id = cp.id
+       AND rater_membership.user_id = $1
+       AND rater_membership.response_state = 'accepted'
+      JOIN app.padel_community_plan_players rated_membership
+        ON rated_membership.plan_id = cp.id
+       AND rated_membership.user_id = $2
+       AND rated_membership.response_state = 'accepted'
+      LEFT JOIN app.padel_venues v ON v.id = cp.venue_id
+      LEFT JOIN app.padel_match_results mr ON mr.plan_id = cp.id
+      LEFT JOIN app.padel_player_ratings pr
+        ON pr.rater_id = $1
+       AND pr.rated_id = $2
+       AND pr.community_plan_id = cp.id
+      WHERE cp.reservation_state = 'confirmed'
+        AND cp.invite_state NOT IN ('cancelled', 'expired')
+      ORDER BY cp.scheduled_date DESC, cp.scheduled_time DESC, cp.id DESC
+      LIMIT 20
+    `,
+    [raterId, ratedId],
+  );
+
+  const communityContexts = communityResult.rows
+    .filter((row) => hasCommunityPlanFinished(row))
+    .filter((row) => row.result_status === 'consensuado' || row.rater_submitted_result)
+    .map((row) => ({
+      context_type: 'community_plan',
+      plan_id: Number(row.id),
+      match_id: null,
+      scheduled_date: normalizeDateValue(row.scheduled_date),
+      scheduled_time: row.scheduled_time || null,
+      venue_name: row.venue_name || null,
+      existing_rating: row.existing_rating ? Number(row.existing_rating) : null,
+      existing_comment: row.existing_comment || null,
+    }));
+
+  const legacyResult = await client.query(
+    `
+      SELECT
+        m.id,
+        m.status,
+        m.match_date,
+        m.start_time,
+        v.name AS venue_name,
+        pr.rating AS existing_rating,
+        pr.comment AS existing_comment
+      FROM app.padel_matches m
+      JOIN app.padel_match_players rater_player
+        ON rater_player.match_id = m.id
+       AND rater_player.user_id = $1
+      JOIN app.padel_match_players rated_player
+        ON rated_player.match_id = m.id
+       AND rated_player.user_id = $2
+      LEFT JOIN app.padel_venues v ON v.id = m.venue_id
+      LEFT JOIN app.padel_player_ratings pr
+        ON pr.rater_id = $1
+       AND pr.rated_id = $2
+       AND pr.match_id = m.id
+      ORDER BY m.match_date DESC, m.start_time DESC, m.id DESC
+      LIMIT 20
+    `,
+    [raterId, ratedId],
+  );
+
+  const legacyContexts = legacyResult.rows
+    .filter((row) => hasLegacyMatchFinished(row))
+    .map((row) => ({
+      context_type: 'match',
+      plan_id: null,
+      match_id: Number(row.id),
+      scheduled_date: normalizeDateValue(row.match_date),
+      scheduled_time: row.start_time || null,
+      venue_name: row.venue_name || null,
+      existing_rating: row.existing_rating ? Number(row.existing_rating) : null,
+      existing_comment: row.existing_comment || null,
+    }));
+
+  return [...communityContexts, ...legacyContexts]
+    .sort((left, right) => {
+      const leftKey = `${left.scheduled_date || ''}T${left.scheduled_time || ''}`;
+      const rightKey = `${right.scheduled_date || ''}T${right.scheduled_time || ''}`;
+      return rightKey.localeCompare(leftKey);
+    });
+}
+
 // GET /api/padel/players/profile - Mi perfil
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
@@ -844,9 +950,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
       [req.params.id]
     );
 
+    const ratingContexts = Number(currentUserId) === Number(req.params.id)
+      ? []
+      : await loadRatingContextsForPlayer(pool, {
+        raterId: currentUserId,
+        ratedId: parseInt(req.params.id, 10),
+      });
+
     res.json({
       player: buildPlayerRow(result.rows[0]),
-      ratings: ratings.rows
+      ratings: ratings.rows,
+      rating_contexts: ratingContexts,
     });
   } catch (error) {
     console.error('Error obteniendo jugador:', error);

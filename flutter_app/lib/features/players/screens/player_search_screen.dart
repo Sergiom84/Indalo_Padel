@@ -6,10 +6,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../chat/providers/chat_provider.dart';
+import '../../../shared/utils/player_preferences.dart';
 import '../../notifications/providers/app_alerts_provider.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../../shared/widgets/preference_summary_chips.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../models/player_model.dart';
 import '../providers/player_provider.dart';
@@ -39,6 +42,11 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   Timer? _searchDebounce;
   int _searchSequence = 0;
 
+  int? get _filterNumericLevel => PlayerPreferenceCatalog.numericLevelFor(
+        mainLevel: _filterMainLevel,
+        subLevel: _filterSubLevel,
+      );
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +67,14 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   void _onSearchChanged() {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), _search);
+  }
+
+  void _setFilterNumericLevel(int? numericLevel) {
+    final option = PlayerPreferenceCatalog.optionForNumericLevel(numericLevel);
+    setState(() {
+      _filterMainLevel = option?.mainLevel;
+      _filterSubLevel = option?.subLevel;
+    });
   }
 
   Future<void> _refreshAll() async {
@@ -225,6 +241,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   @override
   Widget build(BuildContext context) {
     final alerts = ref.watch(appAlertsProvider);
+    final chatUnreadCount = ref.watch(chatUnreadCountProvider);
 
     ref.listen<int>(playerNetworkRefreshProvider, (previous, next) {
       if (previous != next) {
@@ -243,6 +260,26 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
           ],
         ),
         backgroundColor: AppColors.surface,
+        actions: [
+          IconButton(
+            tooltip: 'Chat',
+            onPressed: () => context.push('/players/chat'),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.forum_outlined),
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: NotificationDot(
+                    visible: chatUnreadCount > 0,
+                    size: 9,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.primary,
@@ -314,6 +351,28 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                 child: _PlayerConnectionCard(
                   player: player,
                   onTap: () => context.push('/players/${player.userId}'),
+                  footer: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              context.push('/players/${player.userId}'),
+                          icon: const Icon(Icons.person_outline, size: 18),
+                          label: const Text('Perfil'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => context.push(
+                            '/players/chat/direct/${player.userId}',
+                          ),
+                          icon: const Icon(Icons.forum_outlined, size: 18),
+                          label: const Text('Chat'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -509,42 +568,13 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _LevelDropdown(
-                        label: 'Nivel',
-                        value: _filterMainLevel,
-                        items: const ['bajo', 'medio', 'alto'],
-                        labelMap: const {
-                          'bajo': 'Bajo',
-                          'medio': 'Medio',
-                          'alto': 'Alto',
-                        },
-                        onChanged: (v) {
-                          setState(() => _filterMainLevel = v);
-                          _search();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _LevelDropdown(
-                        label: 'Sub-nivel',
-                        value: _filterSubLevel,
-                        items: const ['bajo', 'medio', 'alto'],
-                        labelMap: const {
-                          'bajo': 'Bajo',
-                          'medio': 'Medio',
-                          'alto': 'Alto',
-                        },
-                        onChanged: (v) {
-                          setState(() => _filterSubLevel = v);
-                          _search();
-                        },
-                      ),
-                    ),
-                  ],
+                _NumericLevelDropdown(
+                  label: 'Categoría',
+                  value: _filterNumericLevel,
+                  onChanged: (value) {
+                    _setFilterNumericLevel(value);
+                    _search();
+                  },
                 ),
                 const SizedBox(height: 8),
                 _LevelDropdown(
@@ -713,6 +743,11 @@ class _PlayerConnectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasPreferenceSummary = player.courtPreferences.isNotEmpty ||
+        player.dominantHands.isNotEmpty ||
+        player.availabilityPreferences.isNotEmpty ||
+        player.matchPreferences.isNotEmpty;
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface2,
@@ -780,6 +815,16 @@ class _PlayerConnectionCard extends StatelessWidget {
                                 ),
                             ],
                           ),
+                          if (hasPreferenceSummary) ...[
+                            const SizedBox(height: 8),
+                            PreferenceSummaryChips(
+                              courtPreferences: player.courtPreferences,
+                              dominantHands: player.dominantHands,
+                              availabilityPreferences:
+                                  player.availabilityPreferences,
+                              matchPreferences: player.matchPreferences,
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1025,6 +1070,55 @@ class _EmptyPlayersState extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
       ],
+    );
+  }
+}
+
+class _NumericLevelDropdown extends StatelessWidget {
+  final String label;
+  final int? value;
+  final ValueChanged<int?> onChanged;
+
+  const _NumericLevelDropdown({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<int?>(
+      key: ValueKey<int?>(value),
+      initialValue: value,
+      dropdownColor: AppColors.surface2,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      hint: const Text(
+        'Todas',
+        style: TextStyle(color: AppColors.muted),
+      ),
+      items: <DropdownMenuItem<int?>>[
+        const DropdownMenuItem<int?>(
+          value: null,
+          child: Text(
+            'Todas',
+            style: TextStyle(color: AppColors.muted),
+          ),
+        ),
+        ...PlayerPreferenceCatalog.levelCategoryOptions.map(
+          (option) => DropdownMenuItem<int?>(
+            value: option.numericLevel,
+            child: Text(
+              option.label,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+      onChanged: onChanged,
     );
   }
 }

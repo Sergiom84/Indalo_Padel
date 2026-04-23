@@ -101,6 +101,8 @@ class CommunityVenueModel {
 }
 
 class CommunityPlanModel {
+  static const resultReadyGrace = Duration(minutes: 1);
+
   final int id;
   final int createdBy;
   final String creatorName;
@@ -127,6 +129,7 @@ class CommunityPlanModel {
   final String? lastRescheduleTime;
   final String? reservationConfirmedAt;
   final String calendarSyncStatus;
+  final String? calendarSyncError;
   final String? lastSyncedAt;
   final String? closedAt;
   final int? closedBy;
@@ -172,6 +175,7 @@ class CommunityPlanModel {
     this.lastRescheduleTime,
     this.reservationConfirmedAt,
     this.calendarSyncStatus = 'pending',
+    this.calendarSyncError,
     this.lastSyncedAt,
     this.closedAt,
     this.closedBy,
@@ -232,18 +236,15 @@ class CommunityPlanModel {
     }
 
     final now = reference ?? DateTime.now();
-    return !end.isAfter(now);
+    return !end.add(resultReadyGrace).isAfter(now);
   }
 
   bool shouldAppearInHistory({DateTime? reference}) {
     if (isUpcomingFlag != null && isFinishedFlag != null && reference == null) {
-      return !isUpcomingFlag! || isCancelled || isExpired;
-    }
-    if (!reservationConfirmed) {
-      return true;
+      return isFinishedFlag! || isCancelled || isExpired;
     }
 
-    return hasEnded(reference: reference);
+    return isCancelled || isExpired || hasEnded(reference: reference);
   }
 
   bool canCaptureResult({DateTime? reference}) {
@@ -300,6 +301,7 @@ class CommunityPlanModel {
           _asNullableString(json['reservation_confirmed_at']),
       calendarSyncStatus:
           _asNullableString(json['calendar_sync_status']) ?? 'pending',
+      calendarSyncError: _asNullableString(json['calendar_sync_error']),
       lastSyncedAt: _asNullableString(json['last_synced_at']),
       closedAt: _asNullableString(json['closed_at']),
       closedBy: _asNullableInt(json['closed_by']),
@@ -317,19 +319,16 @@ class CommunityPlanModel {
       participants: parseParticipants(json['participants']),
       isOrganizer: _asBool(json['is_organizer']),
       myResponseState: _asNullableString(json['my_response_state']),
-      isUpcomingFlag: json.containsKey('is_upcoming')
-          ? _asBool(json['is_upcoming'])
-          : null,
-      isFinishedFlag: json.containsKey('is_finished')
-          ? _asBool(json['is_finished'])
-          : null,
+      isUpcomingFlag:
+          json.containsKey('is_upcoming') ? _asBool(json['is_upcoming']) : null,
+      isFinishedFlag:
+          json.containsKey('is_finished') ? _asBool(json['is_finished']) : null,
       canSubmitResultFlag: json.containsKey('can_submit_result')
           ? _asBool(json['can_submit_result'])
           : null,
-      needsResultNotificationFlag:
-          json.containsKey('needs_result_notification')
-              ? _asBool(json['needs_result_notification'])
-              : null,
+      needsResultNotificationFlag: json.containsKey('needs_result_notification')
+          ? _asBool(json['needs_result_notification'])
+          : null,
       myResultSubmission: json['my_result_submission'] is Map<String, dynamic>
           ? MatchResultSubmissionModel.fromJson(
               json['my_result_submission'] as Map<String, dynamic>,
@@ -356,6 +355,10 @@ class CommunityParticipantModel {
   final int numericLevel;
   final String? mainLevel;
   final String? subLevel;
+  final List<String> courtPreferences;
+  final List<String> dominantHands;
+  final List<String> availabilityPreferences;
+  final List<String> matchPreferences;
   final bool isAvailable;
   final String? avatarUrl;
   final String role;
@@ -372,6 +375,10 @@ class CommunityParticipantModel {
     this.numericLevel = 0,
     this.mainLevel,
     this.subLevel,
+    this.courtPreferences = const [],
+    this.dominantHands = const [],
+    this.availabilityPreferences = const [],
+    this.matchPreferences = const [],
     this.isAvailable = true,
     this.avatarUrl,
     this.role = 'player',
@@ -391,6 +398,10 @@ class CommunityParticipantModel {
       numericLevel: _asInt(json['numeric_level']),
       mainLevel: _asNullableString(json['main_level']),
       subLevel: _asNullableString(json['sub_level']),
+      courtPreferences: _asStringList(json['court_preferences']),
+      dominantHands: _asStringList(json['dominant_hands']),
+      availabilityPreferences: _asStringList(json['availability_preferences']),
+      matchPreferences: _asStringList(json['match_preferences']),
       isAvailable: _asBool(json['is_available'], fallback: true),
       avatarUrl: _asNullableString(json['avatar_url']),
       role: (json['role'] ?? 'player').toString(),
@@ -439,7 +450,9 @@ class CommunityNotificationModel {
               : const {}),
       actionType: _asNullableString(
         json['action_type'] ??
-            (json['metadata'] is Map ? (json['metadata'] as Map)['action_type'] : null),
+            (json['metadata'] is Map
+                ? (json['metadata'] as Map)['action_type']
+                : null),
       ),
       isRead: _asBool(json['is_read']),
       createdAt: _asNullableString(json['created_at']),
@@ -470,7 +483,8 @@ class CommunityConflictPreviewModel {
 
     return CommunityConflictPreviewModel(
       conflicts: conflicts,
-      hasConflicts: _asBool(json['has_conflicts'], fallback: conflicts.isNotEmpty),
+      hasConflicts:
+          _asBool(json['has_conflicts'], fallback: conflicts.isNotEmpty),
       hasHardConflicts: _asBool(
         json['has_hard_conflicts'],
         fallback: conflicts.any((conflict) => conflict.level == 'hard'),
@@ -574,6 +588,16 @@ bool _asBool(dynamic value, {bool fallback = false}) {
     }
   }
   return fallback;
+}
+
+List<String> _asStringList(dynamic value) {
+  if (value is List) {
+    return value.map((item) => item.toString()).toList(growable: false);
+  }
+  if (value is String && value.trim().isNotEmpty) {
+    return [value.trim()];
+  }
+  return const [];
 }
 
 DateTime? _combineDateAndTime(String? dateValue, String? timeValue) {

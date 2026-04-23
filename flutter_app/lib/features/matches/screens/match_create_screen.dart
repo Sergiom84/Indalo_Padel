@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/platform/platform_helper.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/utils/player_preferences.dart';
 import '../../../shared/widgets/adaptive_pickers.dart';
 
 class MatchCreateScreen extends ConsumerStatefulWidget {
@@ -58,6 +59,17 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
     return [];
   }
 
+  List<DropdownMenuItem<int>> _levelItems() {
+    return PlayerPreferenceCatalog.levelCategoryOptions
+        .map(
+          (option) => DropdownMenuItem<int>(
+            value: option.numericLevel,
+            child: Text(option.label),
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<void> _pickDate() async {
     final picked = await showAdaptiveAppDatePicker(
       context: context,
@@ -92,7 +104,8 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
       return;
     }
     if (_minLevel > _maxLevel) {
-      setState(() => _error = 'El nivel mínimo no puede ser mayor que el máximo.');
+      setState(
+          () => _error = 'El nivel mínimo no puede ser mayor que el máximo.');
       return;
     }
 
@@ -113,7 +126,8 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
         'match_type': _matchType,
         'min_level': _minLevel,
         'max_level': _maxLevel,
-        if (_descCtrl.text.trim().isNotEmpty) 'description': _descCtrl.text.trim(),
+        if (_descCtrl.text.trim().isNotEmpty)
+          'description': _descCtrl.text.trim(),
       });
 
       final matchId = result?['id'] ?? result?['match']?['id'];
@@ -159,16 +173,22 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                   decoration: BoxDecoration(
                     color: AppColors.danger.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                    border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.3)),
                   ),
-                  child: Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                  child: Text(_error!,
+                      style: const TextStyle(
+                          color: AppColors.danger, fontSize: 13)),
                 ),
                 const SizedBox(height: 16),
               ],
 
               const Text(
                 'Detalles del partido',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16),
               ),
               const SizedBox(height: 16),
 
@@ -179,12 +199,15 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Fecha *', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const Text('Fecha *',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         GestureDetector(
                           onTap: _pickDate,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                             decoration: BoxDecoration(
                               color: AppColors.surface,
                               borderRadius: BorderRadius.circular(12),
@@ -192,12 +215,17 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.calendar_today, color: AppColors.muted, size: 16),
+                                const Icon(Icons.calendar_today,
+                                    color: AppColors.muted, size: 16),
                                 const SizedBox(width: 8),
                                 Text(
-                                  _matchDate.isEmpty ? 'Selecciona' : _matchDate,
+                                  _matchDate.isEmpty
+                                      ? 'Selecciona'
+                                      : _matchDate,
                                   style: TextStyle(
-                                    color: _matchDate.isEmpty ? AppColors.muted : Colors.white,
+                                    color: _matchDate.isEmpty
+                                        ? AppColors.muted
+                                        : Colors.white,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -213,12 +241,15 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Hora *', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const Text('Hora *',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         GestureDetector(
                           onTap: _pickTime,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                             decoration: BoxDecoration(
                               color: AppColors.surface,
                               borderRadius: BorderRadius.circular(12),
@@ -226,14 +257,17 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.access_time, color: AppColors.muted, size: 16),
+                                const Icon(Icons.access_time,
+                                    color: AppColors.muted, size: 16),
                                 const SizedBox(width: 8),
                                 Text(
                                   _startTime == null
                                       ? 'Selecciona'
                                       : '${_startTime!.hour.toString().padLeft(2, '0')}:${_startTime!.minute.toString().padLeft(2, '0')}',
                                   style: TextStyle(
-                                    color: _startTime == null ? AppColors.muted : Colors.white,
+                                    color: _startTime == null
+                                        ? AppColors.muted
+                                        : Colors.white,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -249,16 +283,19 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
               const SizedBox(height: 16),
 
               // Venue
-              const Text('Sede *', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+              const Text('Sede *',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: _venueId.isEmpty ? null : _venueId,
                 dropdownColor: AppColors.surface2,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                 ),
-                hint: const Text('Selecciona una sede', style: TextStyle(color: AppColors.muted)),
+                hint: const Text('Selecciona una sede',
+                    style: TextStyle(color: AppColors.muted)),
                 items: _venues.map<DropdownMenuItem<String>>((v) {
                   return DropdownMenuItem<String>(
                     value: v['id']?.toString() ?? '',
@@ -270,14 +307,16 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
               const SizedBox(height: 16),
 
               // Match type
-              const Text('Tipo de partido', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+              const Text('Tipo de partido',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: _matchType,
                 dropdownColor: AppColors.surface2,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                 ),
                 items: const [
                   DropdownMenuItem(value: 'abierto', child: Text('Abierto')),
@@ -294,18 +333,19 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Nivel mínimo', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const Text('Nivel mínimo',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<int>(
                           initialValue: _minLevel,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                           ),
-                          items: List.generate(9, (i) => i + 1)
-                              .map((n) => DropdownMenuItem(value: n, child: Text('Nivel $n')))
-                              .toList(),
+                          items: _levelItems(),
                           onChanged: (v) => setState(() => _minLevel = v ?? 1),
                         ),
                       ],
@@ -316,18 +356,19 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Nivel máximo', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const Text('Nivel máximo',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<int>(
                           initialValue: _maxLevel,
                           dropdownColor: AppColors.surface2,
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                           ),
-                          items: List.generate(9, (i) => i + 1)
-                              .map((n) => DropdownMenuItem(value: n, child: Text('Nivel $n')))
-                              .toList(),
+                          items: _levelItems(),
                           onChanged: (v) => setState(() => _maxLevel = v ?? 9),
                         ),
                       ],
@@ -338,7 +379,8 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
               const SizedBox(height: 16),
 
               // Description
-              const Text('Descripción', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+              const Text('Descripción',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12)),
               const SizedBox(height: 6),
               TextField(
                 controller: _descCtrl,
@@ -367,14 +409,17 @@ class _MatchCreateScreenState extends ConsumerState<MatchCreateScreen> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.dark),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: AppColors.dark),
                             )
                           : const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(Icons.save, size: 18),
                                 SizedBox(width: 6),
-                                Text('Crear partido', style: TextStyle(fontWeight: FontWeight.w800)),
+                                Text('Crear partido',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w800)),
                               ],
                             ),
                     ),

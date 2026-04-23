@@ -21,11 +21,16 @@
   - `backend/routes/padelMatches.js`
   - `backend/routes/padelCommunity.js`
   - `backend/routes/padelPlayers.js`
+  - `backend/routes/padelFcmTokens.js`
+  - `backend/routes/padelChat.js`
 - Servicios de negocio:
   - `backend/services/padelBookingService.js`
   - `backend/services/padelCalendarSync.js`
   - `backend/services/padelCommunityService.js`
   - `backend/services/padelCommunityLifecycle.js`
+  - `backend/services/pushNotificationService.js`
+  - `backend/services/padelChatService.js`
+  - `backend/services/padelChatSocket.js`
   - `backend/services/googleCalendar.js`
   - `backend/services/calendarUtils.js`
   - `backend/services/authEmailService.js`
@@ -41,6 +46,10 @@
   - `backend/migrations/padel_auth_account_lifecycle.sql`
   - `backend/migrations/padel_venue_dedup.sql`
   - `backend/migrations/padel_seed_data.sql`
+  - `backend/migrations/padel_match_results.sql`
+  - `backend/migrations/padel_fcm_tokens.sql`
+  - `backend/migrations/padel_chat.sql`
+  - `backend/migrations/padel_social_events.sql`
 
 ### Módulos Flutter relevantes
 - App shell/router:
@@ -62,16 +71,40 @@
 ### Niveles de jugador
 - `main_level`: bajo | medio | alto
 - `sub_level`: bajo | medio | alto
-- `numeric_level`: columna GENERATED en PostgreSQL, escala 0-9
+- `numeric_level`: columna GENERATED en PostgreSQL, escala 1-9
   - Cálculo: main (bajo=0, medio=3, alto=6) + sub (bajo=1, medio=2, alto=3)
   - Ejemplo: medio+alto = 3+3 = 6
 - **No modificar la fórmula de numeric_level**: es una columna generada en la tabla `padel_player_profiles`
+- En UI, mostrar nivel como categoría textual (`Bajo`, `Bajo Medio`, `Medio Alto`, etc.) usando `PlayerPreferenceCatalog`/`LevelBadge`; no exponer `numeric_level` como texto visible.
+- Si una pantalla necesita seleccionar nivel, usar la escala visual de `PlayerPreferenceCatalog.levelCategoryOptions` y convertir a `main_level`/`sub_level` o `min_level`/`max_level` antes de enviar al backend.
+
+### Preferencias de jugador
+- Fuente común Flutter: `flutter_app/lib/shared/utils/player_preferences.dart`.
+- Campos backend/API: `court_preferences`, `dominant_hands`, `availability_preferences`, `match_preferences`.
+- Disponibilidad combina días (`laborables`, `fin_de_semana`, `cualquiera`) y franjas (`mananas`, `mediodias`, `tardes_noches`, `flexible`).
+- Perfil, búsqueda y comunidad deben reutilizar catálogo/etiquetas compartidas; no duplicar labels ni opciones por pantalla.
 
 ### Partidos
 - Máximo 4 jugadores, 2 equipos
 - Posiciones: drive | revés | ambos
 - Estados: buscando → completo → en_juego → finalizado | cancelado
 - Filtro por nivel: `min_level` ≤ `numeric_level` ≤ `max_level`
+
+### Convocatorias, resultados y valoraciones
+- La convocatoria de comunidad usa `scheduled_date`, `scheduled_time` y `duration_minutes` como fuente de verdad temporal.
+- Los campos operativos de convocatoria incluyen sede (`venue`/`venue_id`), contacto (`reservation_contact_phone`), responsable (`reservation_handled_by`), sync (`calendar_sync_status`/`calendar_sync_error`) y cierre (`closed_at`, `closed_by`, `closed_reason`).
+- Resultado y valoración solo se desbloquean después de la hora real de fin, con 1 minuto de gracia (`RESULT_READY_GRACE_MINUTES` en backend y `CommunityPlanModel.resultReadyGrace` en Flutter).
+- Los resultados de convocatorias se guardan por jugador en `padel_match_result_submissions`; cuando las versiones coinciden se consolida `padel_match_results.status = 'consensuado'`.
+- El prompt de resultado debe rehidratar `my_result_submission` y no volver a pedir datos ya enviados salvo edición explícita.
+- Las valoraciones de convocatorias usan `community_plan_id`; el backend debe validar que ambos jugadores aceptaron, que la reserva está confirmada y que el resultado está consensuado o que el valorador ya envió su resultado.
+
+### Chat social
+- Chat directo: solo entre jugadores con conexión aceptada en Mi Red (`padel_player_connections.status = 'accepted'`).
+- Chat de grupo: solo puede incluir jugadores de Mi Red.
+- Chat de evento: se abre desde convocatoria/evento y sincroniza miembros con participantes autorizados.
+- Agenda social/local: `padel_social_events` guarda eventos abiertos creados por usuarios; cualquier usuario autenticado puede ver eventos activos futuros y unirse al chat asociado (`kind = 'social_event'`).
+- No mezclar permisos de convocatorias con eventos sociales: `kind = 'event'` sigue ligado a `event_plan_id`; `kind = 'social_event'` sigue ligado a `social_event_id`.
+- UI esperada: entrada visible desde Jugadores/Mi Red, badge de no leídos en pestaña Jugadores, acceso directo desde perfiles/contactos, creación de grupos y pestaña Agenda para eventos abiertos.
 
 ### Reservas
 - Duración: 30-240 minutos (default 90)
@@ -112,13 +145,18 @@
 | `app.padel_booking_players` | Participantes reserva + RSVP | FK → bookings, → users |
 | `app.padel_matches` | Partidos | FK → bookings, → users, → venues |
 | `app.padel_match_players` | Jugadores en partido | FK → matches, → users. UNIQUE(match_id, user_id) |
+| `app.padel_match_result_submissions` | Envíos individuales de resultado de convocatoria | FK → community_plans, → users. UNIQUE(plan_id, user_id) |
+| `app.padel_match_results` | Resultado consolidado de convocatoria | FK → community_plans. status pending/consensuado/disputa |
 | `app.padel_player_profiles` | Perfil jugador | FK → users (UNIQUE). numeric_level GENERATED |
-| `app.padel_player_ratings` | Valoraciones 1-5 | FK → users, → matches. UNIQUE(rater, rated, match) |
+| `app.padel_player_ratings` | Valoraciones 1-5 | FK → users, → matches o community_plans. UNIQUE por contexto |
 | `app.padel_favorites` | Favoritos | FK → users. CHECK(user ≠ favorite) |
 | `app.padel_player_connections` | Red de jugadores e invitaciones "Jugamos?" | Par normalizado user_a/user_b, status pending/accepted/rejected |
 | `app.padel_community_plans` | Convocatorias de comunidad | Creador, sede/pista propuesta, estado de reserva |
 | `app.padel_community_plan_players` | Participantes de convocatorias | FK → community_plans, → users |
 | `app.padel_community_notifications` | Notificaciones internas de comunidad | FK → users, → community_plans |
+| `app.padel_fcm_tokens` | Tokens de dispositivo para push FCM | FK → users. UNIQUE(token) |
+| `app.padel_social_events` | Agenda social/local abierta | Creador, título, lugar, fecha/hora, status active/cancelled |
+| `app.padel_chat_*` | Conversaciones, miembros, mensajes y lecturas | Chat directo, grupo y eventos/convocatorias |
 | `app.padel_calendar_sync_state` | Sync Google Calendar | PK: calendar_id |
 
 ## 6) Deuda técnica conocida
@@ -128,7 +166,7 @@
 3. **Servicio monolítico** — `services/padelBookingService.js` tiene 1000+ líneas.
 4. **Validación mixta** — Hay Zod en `backend/validators`, pero siguen existiendo validaciones de negocio ad-hoc en rutas/servicios.
 5. **Tests mínimos** — Backend: 0 tests. Flutter: pocos tests básicos.
-6. **Sin push notifications** — No hay FCM ni infraestructura de notificaciones.
+6. **Push notifications parcial** — Existe infraestructura FCM backend/Flutter (`padel_fcm_tokens`, `pushNotificationService`, `NotificationService`), pero requiere configuración operativa de Firebase, verificación en dispositivo real y revisar presentación foreground/iOS.
 
 ## 7) Comandos oficiales de trabajo
 ### Backend
@@ -195,6 +233,13 @@ pwsh ./scripts/start_flutter_web_preview.ps1
 2. Mantener semántica de estados: `pendiente | sincronizada | error`.
 3. Para RSVP/eventos borrados, actualizar estado local de invitados y reserva.
 4. Nunca bloquear toda la API por una incidencia externa puntual de Calendar.
+
+### E) Lifecycle de convocatorias/resultados
+1. Mantener backend y Flutter alineados en cálculo de fin: fecha + hora + duración + gracia.
+2. Al tocar resultados, revisar `can_submit_result`, `needs_result_notification`, `my_result_submission` y `needs_rating`.
+3. No mostrar partidos futuros en historial ni en flujos de resultado/valoración.
+4. Las notificaciones de `result_ready` deben crearse solo para jugadores aceptados sin submission y marcarse leídas tras enviar o al consensuar.
+5. Las valoraciones deben quedar ligadas a `community_plan_id` o `match_id`, nunca a un jugador sin contexto de partido.
 
 ## 10) Definición de Done (DoD)
 Una tarea se considera cerrada solo si cumple:

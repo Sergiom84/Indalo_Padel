@@ -27,6 +27,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscurePassword = true;
   String? _error;
 
+  int get _selectedNumericLevel =>
+      PlayerPreferenceCatalog.numericLevelFor(
+        mainLevel: _mainLevel,
+        subLevel: _subLevel,
+      ) ??
+      2;
+
   @override
   void dispose() {
     _nombreCtrl.dispose();
@@ -95,18 +102,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
   }
 
-  Widget _buildDropdown({
-    required String label,
-    required String value,
-    required List<String> options,
-    required void Function(String) onChanged,
-  }) {
+  Widget _buildLevelDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
+        const Text(
+          'CATEGORÍA',
+          style: TextStyle(
             color: AppColors.muted,
             fontSize: 10,
             fontWeight: FontWeight.w700,
@@ -114,25 +116,35 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          initialValue: value,
+        DropdownButtonFormField<int>(
+          initialValue: _selectedNumericLevel,
           dropdownColor: AppColors.surface2,
           style: const TextStyle(color: Colors.white),
           decoration: const InputDecoration(
             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           ),
-          items: options
-              .map((o) =>
-                  DropdownMenuItem(value: o, child: Text(_capitalize(o))))
+          items: PlayerPreferenceCatalog.levelCategoryOptions
+              .map(
+                (option) => DropdownMenuItem(
+                  value: option.numericLevel,
+                  child: Text(option.label),
+                ),
+              )
               .toList(),
-          onChanged: (v) => v != null ? onChanged(v) : null,
+          onChanged: (value) {
+            final option = PlayerPreferenceCatalog.optionForNumericLevel(value);
+            if (option == null) {
+              return;
+            }
+            setState(() {
+              _mainLevel = option.mainLevel;
+              _subLevel = option.subLevel;
+            });
+          },
         ),
       ],
     );
   }
-
-  String _capitalize(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
   @override
   Widget build(BuildContext context) {
@@ -230,28 +242,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Level grid
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDropdown(
-                      label: 'Nivel',
-                      value: _mainLevel,
-                      options: const ['bajo', 'medio', 'alto'],
-                      onChanged: (v) => setState(() => _mainLevel = v),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildDropdown(
-                      label: 'Sub-nivel',
-                      value: _subLevel,
-                      options: const ['bajo', 'medio', 'alto'],
-                      onChanged: (v) => setState(() => _subLevel = v),
-                    ),
-                  ),
-                ],
-              ),
+              _buildLevelDropdown(),
               const SizedBox(height: 16),
 
               PreferenceCheckboxGroup(

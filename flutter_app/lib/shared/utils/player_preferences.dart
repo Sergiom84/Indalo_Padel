@@ -8,6 +8,20 @@ class PreferenceOption {
   });
 }
 
+class LevelCategoryOption {
+  final int numericLevel;
+  final String mainLevel;
+  final String subLevel;
+  final String label;
+
+  const LevelCategoryOption({
+    required this.numericLevel,
+    required this.mainLevel,
+    required this.subLevel,
+    required this.label,
+  });
+}
+
 class PlayerLevelModel {
   final String? mainLevel;
   final String? subLevel;
@@ -21,29 +35,27 @@ class PlayerLevelModel {
 
   factory PlayerLevelModel.fromJson(Map<String, dynamic> json) {
     return PlayerLevelModel(
-      mainLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['main_level']),
+      mainLevel:
+          PlayerPreferenceCatalog.normalizeLevelValue(json['main_level']),
       subLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['sub_level']),
     );
   }
 
   static PlayerLevelModel fromNumericLevel(int? numericLevel) {
-    if (numericLevel == null || numericLevel <= 0) {
+    final option = PlayerPreferenceCatalog.optionForNumericLevel(numericLevel);
+    if (option == null) {
       return const PlayerLevelModel();
     }
 
-    final normalized = numericLevel.clamp(1, 9);
-    final mainIndex = (normalized - 1) ~/ 3;
-    final subIndex = (normalized - 1) % 3;
-
     return PlayerLevelModel(
-      mainLevel: PlayerPreferenceCatalog.levelValues[mainIndex],
-      subLevel: PlayerPreferenceCatalog.levelValues[subIndex],
+      mainLevel: option.mainLevel,
+      subLevel: option.subLevel,
     );
   }
 
   String label({
     int? fallbackNumericLevel,
-    String separator = ' / ',
+    String separator = ' ',
     String emptyLabel = 'Sin nivel',
   }) {
     final effective = hasValue
@@ -57,6 +69,14 @@ class PlayerLevelModel {
     final subLabel = PlayerPreferenceCatalog.labelForLevelValue(
       effective.subLevel,
     );
+
+    final option = PlayerPreferenceCatalog.optionForLevelValues(
+      effective.mainLevel,
+      effective.subLevel,
+    );
+    if (option != null) {
+      return option.label;
+    }
 
     if (mainLabel.isNotEmpty) {
       parts.add(mainLabel);
@@ -110,7 +130,8 @@ class PlayerPreferencesModel {
         json['match_preferences'],
       ),
       gender: PlayerPreferenceCatalog.normalizeNullableText(json['gender']),
-      birthDate: PlayerPreferenceCatalog.normalizeNullableText(json['birth_date']),
+      birthDate:
+          PlayerPreferenceCatalog.normalizeNullableText(json['birth_date']),
       phone: PlayerPreferenceCatalog.normalizeNullableText(json['phone']),
     );
   }
@@ -149,6 +170,63 @@ class PlayerPreferenceCatalog {
     PreferenceOption(value: 'bajo', label: 'Bajo'),
     PreferenceOption(value: 'medio', label: 'Medio'),
     PreferenceOption(value: 'alto', label: 'Alto'),
+  ];
+
+  static const levelCategoryOptions = [
+    LevelCategoryOption(
+      numericLevel: 1,
+      mainLevel: 'bajo',
+      subLevel: 'bajo',
+      label: 'Bajo',
+    ),
+    LevelCategoryOption(
+      numericLevel: 2,
+      mainLevel: 'bajo',
+      subLevel: 'medio',
+      label: 'Bajo Medio',
+    ),
+    LevelCategoryOption(
+      numericLevel: 3,
+      mainLevel: 'bajo',
+      subLevel: 'alto',
+      label: 'Bajo Alto',
+    ),
+    LevelCategoryOption(
+      numericLevel: 4,
+      mainLevel: 'medio',
+      subLevel: 'bajo',
+      label: 'Medio Bajo',
+    ),
+    LevelCategoryOption(
+      numericLevel: 5,
+      mainLevel: 'medio',
+      subLevel: 'medio',
+      label: 'Medio',
+    ),
+    LevelCategoryOption(
+      numericLevel: 6,
+      mainLevel: 'medio',
+      subLevel: 'alto',
+      label: 'Medio Alto',
+    ),
+    LevelCategoryOption(
+      numericLevel: 7,
+      mainLevel: 'alto',
+      subLevel: 'bajo',
+      label: 'Alto Bajo',
+    ),
+    LevelCategoryOption(
+      numericLevel: 8,
+      mainLevel: 'alto',
+      subLevel: 'medio',
+      label: 'Alto Medio',
+    ),
+    LevelCategoryOption(
+      numericLevel: 9,
+      mainLevel: 'alto',
+      subLevel: 'alto',
+      label: 'Alto',
+    ),
   ];
 
   static const courtPreferences = [
@@ -325,11 +403,51 @@ class PlayerPreferenceCatalog {
     return value;
   }
 
+  static LevelCategoryOption? optionForNumericLevel(int? numericLevel) {
+    if (numericLevel == null || numericLevel <= 0) {
+      return null;
+    }
+
+    final normalized = numericLevel.clamp(1, 9);
+    for (final option in levelCategoryOptions) {
+      if (option.numericLevel == normalized) {
+        return option;
+      }
+    }
+    return null;
+  }
+
+  static LevelCategoryOption? optionForLevelValues(
+    String? mainLevel,
+    String? subLevel,
+  ) {
+    final normalizedMain = normalizeLevelValue(mainLevel);
+    final normalizedSub = normalizeLevelValue(subLevel);
+    if (normalizedMain == null || normalizedSub == null) {
+      return null;
+    }
+
+    for (final option in levelCategoryOptions) {
+      if (option.mainLevel == normalizedMain &&
+          option.subLevel == normalizedSub) {
+        return option;
+      }
+    }
+    return null;
+  }
+
+  static int? numericLevelFor({
+    String? mainLevel,
+    String? subLevel,
+  }) {
+    return optionForLevelValues(mainLevel, subLevel)?.numericLevel;
+  }
+
   static String levelLabel({
     String? mainLevel,
     String? subLevel,
     int? numericLevel,
-    String separator = ' / ',
+    String separator = ' ',
     String emptyLabel = 'Sin nivel',
   }) {
     return PlayerLevelModel(

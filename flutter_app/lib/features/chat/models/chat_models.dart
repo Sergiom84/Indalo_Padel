@@ -89,7 +89,11 @@ class ChatEventVenueModel {
 }
 
 class ChatEventModel {
-  final int planId;
+  final String sourceType;
+  final int? planId;
+  final int? socialEventId;
+  final String? titleOverride;
+  final String? descriptionOverride;
   final String? scheduledDate;
   final String? scheduledTime;
   final int? durationMinutes;
@@ -100,7 +104,11 @@ class ChatEventModel {
   final ChatUserSummaryModel? organizer;
 
   const ChatEventModel({
-    required this.planId,
+    this.sourceType = 'community_plan',
+    this.planId,
+    this.socialEventId,
+    this.titleOverride,
+    this.descriptionOverride,
     this.scheduledDate,
     this.scheduledTime,
     this.durationMinutes,
@@ -114,9 +122,17 @@ class ChatEventModel {
   factory ChatEventModel.fromJson(Map<String, dynamic> json) {
     final venueJson = json['venue'];
     final organizerJson = json['organizer'];
+    final sourceType = _asNullableString(json['source_type']) ??
+        (json['social_event_id'] != null ? 'social_event' : 'community_plan');
 
     return ChatEventModel(
-      planId: _asInt(json['plan_id'] ?? json['id']),
+      sourceType: sourceType,
+      planId: sourceType == 'social_event'
+          ? null
+          : _asNullableInt(json['plan_id'] ?? json['id']),
+      socialEventId: _asNullableInt(json['social_event_id']),
+      titleOverride: _asNullableString(json['title']),
+      descriptionOverride: _asNullableString(json['description']),
       scheduledDate: _asNullableString(json['scheduled_date']),
       scheduledTime: _asNullableString(json['scheduled_time']),
       durationMinutes: _asNullableInt(json['duration_minutes']),
@@ -151,9 +167,88 @@ class ChatEventModel {
     return DateTime.tryParse('${date}T$normalizedTime');
   }
 
-  String get title => venue?.name ?? 'Convocatoria';
+  bool get isSocialEvent => sourceType == 'social_event';
+  String get title => titleOverride ?? venue?.name ?? 'Convocatoria';
   String? get venueName => venue?.name;
-  String? get description => venue?.location;
+  String? get description => descriptionOverride ?? venue?.location;
+}
+
+class ChatSocialEventModel {
+  final int id;
+  final String title;
+  final String? description;
+  final String? venueName;
+  final String? location;
+  final String? scheduledDate;
+  final String? scheduledTime;
+  final int durationMinutes;
+  final String status;
+  final int? createdBy;
+  final ChatUserSummaryModel? creator;
+  final int? conversationId;
+  final int participantCount;
+  final bool isJoined;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const ChatSocialEventModel({
+    required this.id,
+    required this.title,
+    this.description,
+    this.venueName,
+    this.location,
+    this.scheduledDate,
+    this.scheduledTime,
+    this.durationMinutes = 90,
+    this.status = 'active',
+    this.createdBy,
+    this.creator,
+    this.conversationId,
+    this.participantCount = 0,
+    this.isJoined = false,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory ChatSocialEventModel.fromJson(Map<String, dynamic> json) {
+    final creatorJson = json['creator'];
+
+    return ChatSocialEventModel(
+      id: _asInt(json['id']),
+      title: _asNullableString(json['title']) ?? 'Evento social',
+      description: _asNullableString(json['description']),
+      venueName: _asNullableString(json['venue_name']),
+      location: _asNullableString(json['location']),
+      scheduledDate: _asNullableString(json['scheduled_date']),
+      scheduledTime: _asNullableString(json['scheduled_time']),
+      durationMinutes: _asInt(json['duration_minutes'], fallback: 90),
+      status: _asNullableString(json['status']) ?? 'active',
+      createdBy: _asNullableInt(json['created_by']),
+      creator: creatorJson is Map<String, dynamic>
+          ? ChatUserSummaryModel.fromJson(creatorJson)
+          : (creatorJson is Map
+              ? ChatUserSummaryModel.fromJson(
+                  Map<String, dynamic>.from(creatorJson),
+                )
+              : null),
+      conversationId: _asNullableInt(json['conversation_id']),
+      participantCount: _asInt(json['participant_count']),
+      isJoined: _asBool(json['is_joined']),
+      createdAt: _asDateTime(json['created_at']),
+      updatedAt: _asDateTime(json['updated_at']),
+    );
+  }
+
+  DateTime? get scheduledAt {
+    final date = scheduledDate?.trim();
+    if (date == null || date.isEmpty) {
+      return null;
+    }
+
+    final time = scheduledTime?.trim();
+    final normalizedTime = time == null || time.isEmpty ? '00:00:00' : time;
+    return DateTime.tryParse('${date}T$normalizedTime');
+  }
 }
 
 class ChatMessageModel {
@@ -232,12 +327,14 @@ class ChatConversationModel {
 
   bool get isDirect => kind == 'direct';
   bool get isGroup => kind == 'group';
-  bool get isEvent => kind == 'event';
+  bool get isSocialEvent => kind == 'social_event';
+  bool get isEvent => kind == 'event' || isSocialEvent;
   bool get hasUnread => unreadCount > 0;
   String? get avatarUrl => directPeer?.avatarUrl;
   String? get subtitle =>
       directPeer?.nombre ??
       event?.venue?.location ??
+      (isSocialEvent ? event?.description : null) ??
       (participants.length > 2 ? '${participants.length} participantes' : null);
   DateTime? get lastMessageAt =>
       lastMessage?.createdAt ?? updatedAt ?? createdAt;

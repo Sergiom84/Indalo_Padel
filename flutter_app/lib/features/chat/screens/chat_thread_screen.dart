@@ -92,7 +92,15 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
             child: state.loading && state.messages.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : state.messages.isEmpty
-                    ? const _EmptyThreadState()
+                    ? _EmptyThreadState(
+                        onSuggestionSelected: (text) {
+                          _composerController.text = text;
+                          _composerController.selection =
+                              TextSelection.fromPosition(
+                            TextPosition(offset: text.length),
+                          );
+                        },
+                      )
                     : RefreshIndicator(
                         color: AppColors.primary,
                         backgroundColor: AppColors.surface,
@@ -127,23 +135,33 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
 }
 
 class _EmptyThreadState extends StatelessWidget {
-  const _EmptyThreadState();
+  const _EmptyThreadState({
+    required this.onSuggestionSelected,
+  });
+
+  final ValueChanged<String> onSuggestionSelected;
+
+  static const _suggestions = [
+    '¿Cuándo te viene bien jugar?',
+    '¿Te apuntas a un partido esta semana?',
+    '¿Post pádel después del partido?',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.forum_outlined,
               color: AppColors.muted,
               size: 42,
             ),
-            SizedBox(height: 12),
-            Text(
+            const SizedBox(height: 12),
+            const Text(
               'Todavía no hay mensajes.',
               style: TextStyle(
                 color: Colors.white,
@@ -151,14 +169,34 @@ class _EmptyThreadState extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            SizedBox(height: 6),
-            Text(
+            const SizedBox(height: 6),
+            const Text(
               'Empieza la conversación y rompe el hielo.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.muted,
                 fontSize: 13,
               ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                for (final suggestion in _suggestions)
+                  ActionChip(
+                    label: Text(suggestion),
+                    onPressed: () => onSuggestionSelected(suggestion),
+                    backgroundColor: AppColors.surface2,
+                    side: const BorderSide(color: AppColors.border),
+                    labelStyle: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
             ),
           ],
         ),

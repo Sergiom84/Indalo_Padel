@@ -10,6 +10,10 @@ export const eventConversationParamsSchema = z.object({
   planId: positiveInt,
 });
 
+export const socialEventParamsSchema = z.object({
+  eventId: positiveInt,
+});
+
 export const conversationParamsSchema = z.object({
   id: positiveInt,
 });
@@ -20,6 +24,16 @@ export const createGroupConversationSchema = z.object({
     .array(z.number().int().positive())
     .min(1, 'Selecciona al menos un participante')
     .max(31, 'El grupo admite como máximo 31 invitados'),
+});
+
+export const createSocialEventSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).optional().nullable(),
+  venue_name: z.string().trim().max(120).optional().nullable(),
+  location: z.string().trim().max(160).optional().nullable(),
+  scheduled_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),
+  scheduled_time: z.string().trim().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+  duration_minutes: z.coerce.number().int().min(30).max(480).optional(),
 });
 
 export const listConversationMessagesQuerySchema = z.object({

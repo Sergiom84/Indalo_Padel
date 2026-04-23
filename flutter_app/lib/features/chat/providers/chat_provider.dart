@@ -25,6 +25,14 @@ final chatConversationsProvider = FutureProvider<List<ChatConversationModel>>((
   return repository.fetchConversations();
 });
 
+final chatSocialEventsProvider = FutureProvider<List<ChatSocialEventModel>>((
+  ref,
+) async {
+  ref.watch(chatSocketSyncProvider);
+  final repository = ref.watch(chatRepositoryProvider);
+  return repository.fetchSocialEvents();
+});
+
 final chatUnreadCountProvider = Provider<int>((ref) {
   ref.watch(chatSocketSyncProvider);
   final conversations = ref.watch(chatConversationsProvider).valueOrNull;
@@ -100,6 +108,24 @@ class ChatRepository {
     return _parseConversationPayload(data);
   }
 
+  Future<List<ChatSocialEventModel>> fetchSocialEvents() async {
+    final data = await _api.get('/padel/chat/social-events');
+    final rawList = data is List
+        ? data
+        : (data is Map
+            ? (data['events'] as List<dynamic>? ?? const [])
+            : const []);
+
+    return rawList
+        .whereType<Map>()
+        .map(
+          (item) => ChatSocialEventModel.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<ChatMessagePageModel> fetchMessages(
     int conversationId, {
     int? beforeMessageId,
@@ -171,6 +197,43 @@ class ChatRepository {
     return _parseConversationPayload(data);
   }
 
+  Future<ChatConversationModel> createSocialEvent({
+    required String title,
+    String? description,
+    String? venueName,
+    String? location,
+    required String scheduledDate,
+    required String scheduledTime,
+    int durationMinutes = 90,
+  }) async {
+    final data = await _api.post(
+      '/padel/chat/social-events',
+      data: {
+        'title': title,
+        if (description != null && description.trim().isNotEmpty)
+          'description': description.trim(),
+        if (venueName != null && venueName.trim().isNotEmpty)
+          'venue_name': venueName.trim(),
+        if (location != null && location.trim().isNotEmpty)
+          'location': location.trim(),
+        'scheduled_date': scheduledDate,
+        'scheduled_time': scheduledTime,
+        'duration_minutes': durationMinutes,
+      },
+    );
+    return _parseConversationPayload(data);
+  }
+
+  Future<ChatConversationModel> openSocialEventConversation({
+    required int eventId,
+  }) async {
+    final data = await _api.post(
+      '/padel/chat/social-events/$eventId/join',
+      data: const {},
+    );
+    return _parseConversationPayload(data);
+  }
+
   ChatConversationModel _parseConversationPayload(dynamic data) {
     final json = data is Map && data['conversation'] is Map
         ? Map<String, dynamic>.from(data['conversation'] as Map)
@@ -207,6 +270,39 @@ class ChatActions {
     return conversation;
   }
 
+  Future<ChatConversationModel> createSocialEvent({
+    required String title,
+    String? description,
+    String? venueName,
+    String? location,
+    required String scheduledDate,
+    required String scheduledTime,
+    int durationMinutes = 90,
+  }) async {
+    final repository = _ref.read(chatRepositoryProvider);
+    final conversation = await repository.createSocialEvent(
+      title: title,
+      description: description,
+      venueName: venueName,
+      location: location,
+      scheduledDate: scheduledDate,
+      scheduledTime: scheduledTime,
+      durationMinutes: durationMinutes,
+    );
+    _ref.invalidate(chatSocialEventsProvider);
+    _ref.invalidate(chatConversationsProvider);
+    return conversation;
+  }
+
+  Future<ChatConversationModel> openSocialEventConversation(int eventId) async {
+    final repository = _ref.read(chatRepositoryProvider);
+    final conversation =
+        await repository.openSocialEventConversation(eventId: eventId);
+    _ref.invalidate(chatSocialEventsProvider);
+    _ref.invalidate(chatConversationsProvider);
+    return conversation;
+  }
+
   Future<ChatConversationModel> openEventConversation(int planId) async {
     final repository = _ref.read(chatRepositoryProvider);
     final conversation =
@@ -231,9 +327,11 @@ class ChatSocketSync {
   Future<void> _initialize() async {
     try {
       await ChatSocketService.instance.connect();
-      _conversationCreatedSubscription = ChatSocketService
-          .instance.conversationCreatedEvents
-          .listen((_) => _ref.invalidate(chatConversationsProvider));
+      _conversationCreatedSubscription =
+          ChatSocketService.instance.conversationCreatedEvents.listen((_) {
+        _ref.invalidate(chatConversationsProvider);
+        _ref.invalidate(chatSocialEventsProvider);
+      });
       _messageCreatedSubscription = ChatSocketService
           .instance.messageCreatedEvents
           .listen((_) => _ref.invalidate(chatConversationsProvider));

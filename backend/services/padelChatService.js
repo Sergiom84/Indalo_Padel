@@ -1,4 +1,10 @@
 import { pool } from '../db.js';
+import {
+  APP_TIME_ZONE,
+  combineDateAndTime,
+  normalizeDateValue,
+  nowInAppZone,
+} from './calendarUtils.js';
 import { sendPushToUsers } from './pushNotificationService.js';
 import {
   emitPadelChatConversationCreated,
@@ -7,10 +13,37 @@ import {
 } from './padelChatSocket.js';
 
 const DEFAULT_MESSAGE_LIMIT = 50;
+const DEFAULT_SOCIAL_EVENT_DURATION_MINUTES = 90;
 
 function asInt(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sanitizeOptionalText(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizeTimeValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  return raw.length === 5 ? `${raw}:00` : raw;
+}
+
+function normalizeTimeOnlyValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  return String(value).slice(0, 8);
 }
 
 function normalizeUserIds(values) {
@@ -88,12 +121,55 @@ function buildMessageDto(row, currentUserId) {
 }
 
 function buildEventMetadata(row) {
+  if (row.social_event_id) {
+    return {
+      source_type: 'social_event',
+      social_event_id: Number(row.social_event_id),
+      plan_id: null,
+      title: row.social_event_title || 'Evento social',
+      description: row.social_event_description || null,
+      scheduled_date: normalizeDateValue(row.social_event_scheduled_date),
+      scheduled_time: normalizeTimeOnlyValue(row.social_event_scheduled_time),
+      duration_minutes: row.social_event_duration_minutes
+        ? Number(row.social_event_duration_minutes)
+        : null,
+      invite_state: null,
+      reservation_state: row.social_event_status || null,
+      closed_at: null,
+      venue: row.social_event_venue_name || row.social_event_location
+        ? {
+            id: 0,
+            name: row.social_event_venue_name || 'Evento local',
+            location: row.social_event_location || null,
+          }
+        : null,
+      organizer: row.social_event_creator_user_id
+        ? {
+            user_id: Number(row.social_event_creator_user_id),
+            display_name: displayNameFromRow(
+              {
+                display_name: row.social_event_creator_display_name,
+                nombre: row.social_event_creator_nombre,
+              },
+              row.social_event_creator_user_id,
+            ),
+            nombre: row.social_event_creator_nombre || null,
+            avatar_url: row.social_event_creator_avatar_url || null,
+          }
+        : null,
+    };
+  }
+
   if (!row.event_id) {
     return null;
   }
 
   return {
+    source_type: 'community_plan',
     plan_id: Number(row.event_id),
+    social_event_id: null,
+    title: null,
+    description: null,
     scheduled_date: row.event_scheduled_date,
     scheduled_time: row.event_scheduled_time,
     duration_minutes: row.event_duration_minutes
@@ -131,6 +207,10 @@ function buildEventTitle(event) {
     return 'Evento';
   }
 
+  if (event.source_type === 'social_event') {
+    return event.title || 'Evento social';
+  }
+
   const timeValue =
     typeof event.scheduled_time === 'string'
       ? event.scheduled_time.slice(0, 5)
@@ -157,7 +237,7 @@ function buildConversationDto(row, participants, unreadCount, currentUserId) {
   let title = row.title || null;
   if (row.kind === 'direct') {
     title = directPeer?.display_name || directPeer?.nombre || 'Chat directo';
-  } else if (row.kind === 'event') {
+  } else if (row.kind === 'event' || row.kind === 'social_event') {
     title = buildEventTitle(event);
   }
 
@@ -480,6 +560,7 @@ async function loadConversationRows(client, userId, conversationId = null) {
         c.direct_user_low_id,
         c.direct_user_high_id,
         c.event_plan_id,
+        c.social_event_id,
         c.last_message_id,
         c.last_message_at,
         c.created_at,
@@ -508,7 +589,20 @@ async function loadConversationRows(client, userId, conversationId = null) {
         organizer.id AS event_organizer_user_id,
         organizer.nombre AS event_organizer_nombre,
         organizer_profile.display_name AS event_organizer_display_name,
-        organizer_profile.avatar_url AS event_organizer_avatar_url
+        organizer_profile.avatar_url AS event_organizer_avatar_url,
+        se.id AS social_event_id,
+        se.title AS social_event_title,
+        se.description AS social_event_description,
+        se.venue_name AS social_event_venue_name,
+        se.location AS social_event_location,
+        se.scheduled_date AS social_event_scheduled_date,
+        se.scheduled_time AS social_event_scheduled_time,
+        se.duration_minutes AS social_event_duration_minutes,
+        se.status AS social_event_status,
+        se_creator.id AS social_event_creator_user_id,
+        se_creator.nombre AS social_event_creator_nombre,
+        se_creator_profile.display_name AS social_event_creator_display_name,
+        se_creator_profile.avatar_url AS social_event_creator_avatar_url
       FROM app.padel_chat_conversations c
       JOIN app.padel_chat_participants me
         ON me.conversation_id = c.id
@@ -527,6 +621,12 @@ async function loadConversationRows(client, userId, conversationId = null) {
         ON organizer.id = cp.created_by
       LEFT JOIN app.padel_player_profiles organizer_profile
         ON organizer_profile.user_id = organizer.id
+      LEFT JOIN app.padel_social_events se
+        ON se.id = c.social_event_id
+      LEFT JOIN app.users se_creator
+        ON se_creator.id = se.created_by
+      LEFT JOIN app.padel_player_profiles se_creator_profile
+        ON se_creator_profile.user_id = se_creator.id
       WHERE ($2::int IS NULL OR c.id = $2)
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
     `,
@@ -642,7 +742,7 @@ async function loadConversationDtoById(client, conversationId, userId) {
 async function ensureConversationReadyForUser(client, conversationId, userId) {
   const conversationResult = await client.query(
     `
-      SELECT id, kind, event_plan_id
+      SELECT id, kind, event_plan_id, social_event_id
       FROM app.padel_chat_conversations
       WHERE id = $1
       LIMIT 1
@@ -675,6 +775,39 @@ async function ensureConversationReadyForUser(client, conversationId, userId) {
     );
   }
 
+  if (conversation.kind === 'social_event' && conversation.social_event_id) {
+    const eventResult = await client.query(
+      `
+        SELECT id, created_by, status
+        FROM app.padel_social_events
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [conversation.social_event_id],
+    );
+
+    if (
+      eventResult.rows.length === 0 ||
+      eventResult.rows[0].status === 'cancelled'
+    ) {
+      return null;
+    }
+
+    const role =
+      Number(eventResult.rows[0].created_by) === Number(userId)
+        ? 'owner'
+        : 'member';
+
+    await client.query(
+      `
+        INSERT INTO app.padel_chat_participants (conversation_id, user_id, role)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (conversation_id, user_id) DO NOTHING
+      `,
+      [conversationId, userId, role],
+    );
+  }
+
   const membershipResult = await client.query(
     `
       SELECT 1
@@ -694,6 +827,9 @@ async function ensureConversationReadyForUser(client, conversationId, userId) {
     kind: conversation.kind,
     event_plan_id: conversation.event_plan_id
       ? Number(conversation.event_plan_id)
+      : null,
+    social_event_id: conversation.social_event_id
+      ? Number(conversation.social_event_id)
       : null,
   };
 }
@@ -1110,6 +1246,335 @@ export async function getOrCreatePadelEventConversation({
 
     return {
       status: ensuredConversation.created ? 201 : 200,
+      body: {
+        conversation,
+      },
+    };
+  } catch (error) {
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function buildSocialEventDto(row) {
+  return {
+    id: Number(row.id),
+    title: row.title,
+    description: row.description || null,
+    venue_name: row.venue_name || null,
+    location: row.location || null,
+    scheduled_date: normalizeDateValue(row.scheduled_date),
+    scheduled_time: normalizeTimeOnlyValue(row.scheduled_time),
+    duration_minutes: Number(
+      row.duration_minutes || DEFAULT_SOCIAL_EVENT_DURATION_MINUTES,
+    ),
+    status: row.status,
+    created_by: row.created_by ? Number(row.created_by) : null,
+    creator: row.creator_user_id
+      ? {
+          user_id: Number(row.creator_user_id),
+          display_name: displayNameFromRow(
+            {
+              display_name: row.creator_display_name,
+              nombre: row.creator_nombre,
+            },
+            row.creator_user_id,
+          ),
+          nombre: row.creator_nombre || null,
+          avatar_url: row.creator_avatar_url || null,
+        }
+      : null,
+    conversation_id: row.conversation_id ? Number(row.conversation_id) : null,
+    participant_count: Number(row.participant_count || 0),
+    is_joined: Boolean(row.is_joined),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function ensureSocialEventConversation(client, eventId, userId) {
+  const eventResult = await client.query(
+    `
+      SELECT id, created_by, status
+      FROM app.padel_social_events
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [eventId],
+  );
+
+  if (
+    eventResult.rows.length === 0 ||
+    eventResult.rows[0].status === 'cancelled'
+  ) {
+    return null;
+  }
+
+  const event = eventResult.rows[0];
+  const insertResult = await client.query(
+    `
+      INSERT INTO app.padel_chat_conversations (
+        kind,
+        created_by,
+        social_event_id
+      )
+      VALUES ('social_event', $1, $2)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `,
+    [event.created_by || userId, eventId],
+  );
+
+  let conversationId = insertResult.rows[0]?.id
+    ? Number(insertResult.rows[0].id)
+    : null;
+
+  if (!conversationId) {
+    const existingResult = await client.query(
+      `
+        SELECT id
+        FROM app.padel_chat_conversations
+        WHERE kind = 'social_event'
+          AND social_event_id = $1
+        LIMIT 1
+      `,
+      [eventId],
+    );
+
+    if (existingResult.rows.length === 0) {
+      return null;
+    }
+
+    conversationId = Number(existingResult.rows[0].id);
+  }
+
+  const role = Number(event.created_by) === Number(userId) ? 'owner' : 'member';
+  const participantResult = await client.query(
+    `
+      INSERT INTO app.padel_chat_participants (conversation_id, user_id, role)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (conversation_id, user_id) DO NOTHING
+      RETURNING user_id
+    `,
+    [conversationId, userId, role],
+  );
+
+  return {
+    conversationId,
+    created: insertResult.rows.length > 0,
+    joined: participantResult.rows.length > 0,
+  };
+}
+
+export async function listPadelSocialEvents(userId) {
+  const client = await pool.connect();
+
+  try {
+    const result = await client.query(
+      `
+        SELECT
+          se.*,
+          creator.id AS creator_user_id,
+          creator.nombre AS creator_nombre,
+          creator_profile.display_name AS creator_display_name,
+          creator_profile.avatar_url AS creator_avatar_url,
+          conversation.id AS conversation_id,
+          COUNT(participant.id)::int AS participant_count,
+          BOOL_OR(participant.user_id = $1)::boolean AS is_joined
+        FROM app.padel_social_events se
+        LEFT JOIN app.users creator
+          ON creator.id = se.created_by
+        LEFT JOIN app.padel_player_profiles creator_profile
+          ON creator_profile.user_id = creator.id
+        LEFT JOIN app.padel_chat_conversations conversation
+          ON conversation.kind = 'social_event'
+         AND conversation.social_event_id = se.id
+        LEFT JOIN app.padel_chat_participants participant
+          ON participant.conversation_id = conversation.id
+        WHERE se.status = 'active'
+          AND (se.scheduled_date + se.scheduled_time) >= (NOW() AT TIME ZONE $2)
+        GROUP BY
+          se.id,
+          creator.id,
+          creator.nombre,
+          creator_profile.display_name,
+          creator_profile.avatar_url,
+          conversation.id
+        ORDER BY se.scheduled_date ASC, se.scheduled_time ASC, se.id ASC
+        LIMIT 100
+      `,
+      [userId, APP_TIME_ZONE],
+    );
+
+    return {
+      status: 200,
+      body: {
+        events: result.rows.map(buildSocialEventDto),
+      },
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPadelSocialEvent({
+  userId,
+  title,
+  description = null,
+  venueName = null,
+  location = null,
+  scheduledDate,
+  scheduledTime,
+  durationMinutes = DEFAULT_SOCIAL_EVENT_DURATION_MINUTES,
+}) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+
+  try {
+    const normalizedDate = normalizeDateValue(scheduledDate);
+    const normalizedTime = normalizeTimeValue(scheduledTime);
+    const startsAt = combineDateAndTime(normalizedDate, normalizedTime);
+
+    if (!startsAt.isValid || startsAt < nowInAppZone().minus({ minutes: 1 })) {
+      return {
+        status: 400,
+        body: {
+          error: 'El evento debe programarse en una fecha futura',
+        },
+      };
+    }
+
+    await client.query('BEGIN');
+    transactionOpen = true;
+
+    const eventResult = await client.query(
+      `
+        INSERT INTO app.padel_social_events (
+          created_by,
+          title,
+          description,
+          venue_name,
+          location,
+          scheduled_date,
+          scheduled_time,
+          duration_minutes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `,
+      [
+        userId,
+        title.trim(),
+        sanitizeOptionalText(description),
+        sanitizeOptionalText(venueName),
+        sanitizeOptionalText(location),
+        normalizedDate,
+        normalizedTime,
+        Number.parseInt(durationMinutes, 10) ||
+          DEFAULT_SOCIAL_EVENT_DURATION_MINUTES,
+      ],
+    );
+
+    const eventId = Number(eventResult.rows[0].id);
+    const conversationInfo = await ensureSocialEventConversation(
+      client,
+      eventId,
+      userId,
+    );
+
+    const conversation = conversationInfo
+      ? await loadConversationDtoById(
+          client,
+          conversationInfo.conversationId,
+          userId,
+        )
+      : null;
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    if (conversationInfo) {
+      emitPadelChatConversationCreated({
+        userIds: [userId],
+        conversationId: conversationInfo.conversationId,
+        kind: 'social_event',
+      });
+    }
+
+    return {
+      status: 201,
+      body: {
+        event: buildSocialEventDto({
+          ...eventResult.rows[0],
+          creator_user_id: userId,
+          conversation_id: conversation?.id || null,
+          participant_count: 1,
+          is_joined: true,
+        }),
+        conversation,
+      },
+    };
+  } catch (error) {
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getOrCreatePadelSocialEventConversation({
+  userId,
+  eventId,
+}) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+
+    const conversationInfo = await ensureSocialEventConversation(
+      client,
+      asInt(eventId),
+      userId,
+    );
+
+    if (!conversationInfo) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 404,
+        body: {
+          error: 'Evento no encontrado o cancelado',
+        },
+      };
+    }
+
+    const conversation = await loadConversationDtoById(
+      client,
+      conversationInfo.conversationId,
+      userId,
+    );
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    if (conversationInfo.created || conversationInfo.joined) {
+      emitPadelChatConversationCreated({
+        userIds: [userId],
+        conversationId: conversationInfo.conversationId,
+        kind: 'social_event',
+      });
+    }
+
+    return {
+      status: conversationInfo.created ? 201 : 200,
       body: {
         conversation,
       },

@@ -27,6 +27,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
   bool _loading = true;
   PlayerModel? _player;
   List<RatingModel> _ratings = [];
+  List<RatingContextModel> _ratingContexts = [];
   bool _networkBusy = false;
 
   // Edit form
@@ -45,6 +46,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
   // Rate form
   bool _rateOpen = false;
   int _rateValue = 0;
+  int? _selectedRatingContextIndex;
   final _rateCommentCtrl = TextEditingController();
 
   @override
@@ -84,6 +86,16 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
           _ratings = ratingsData
               .map((r) => RatingModel.fromJson(r as Map<String, dynamic>))
               .toList();
+          _ratingContexts = isOwnProfile
+              ? const []
+              : (data['rating_contexts'] as List<dynamic>? ?? const [])
+                  .whereType<Map>()
+                  .map(
+                    (context) => RatingContextModel.fromJson(
+                      Map<String, dynamic>.from(context),
+                    ),
+                  )
+                  .toList(growable: false);
           _editNameCtrl.text = player.displayName;
           _editBioCtrl.text = player.bio ?? '';
           _editCourtPreferences = [...player.courtPreferences];
@@ -197,16 +209,38 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
 
   Future<void> _ratePlayer() async {
     if (_rateValue == 0) return;
+    final contextIndex = _selectedRatingContextIndex;
+    final ratingContext = contextIndex != null &&
+            contextIndex >= 0 &&
+            contextIndex < _ratingContexts.length
+        ? _ratingContexts[contextIndex]
+        : null;
+
+    if (ratingContext == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Solo puedes valorar después de compartir un partido cerrado con resultado.',
+          ),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
     try {
       final api = ref.read(apiClientProvider);
-      await api.post('/padel/players/${widget.playerId}/rate', data: {
-        'rating': _rateValue,
-        if (_rateCommentCtrl.text.trim().isNotEmpty)
-          'comment': _rateCommentCtrl.text.trim(),
-      });
+      await api.post(
+        '/padel/players/${widget.playerId}/rate',
+        data: ratingContext.toRatePayload(
+          rating: _rateValue,
+          comment: _rateCommentCtrl.text,
+        ),
+      );
       setState(() {
         _rateOpen = false;
         _rateValue = 0;
+        _selectedRatingContextIndex = null;
         _rateCommentCtrl.clear();
       });
       await _fetchPlayer();
@@ -218,6 +252,45 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
         );
       }
     }
+  }
+
+  void _openRateSheet() {
+    if (_ratingContexts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Solo puedes valorar a un jugador después de compartir un partido cerrado con resultado.',
+          ),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    final initialIndex = _ratingContexts.indexWhere(
+      (context) => !context.hasExistingRating,
+    );
+    final resolvedIndex = initialIndex >= 0 ? initialIndex : 0;
+    final selectedContext = _ratingContexts[resolvedIndex];
+    setState(() {
+      _selectedRatingContextIndex = resolvedIndex;
+      _rateValue = selectedContext.existingRating ?? 0;
+      _rateCommentCtrl.text = selectedContext.existingComment ?? '';
+      _rateOpen = true;
+    });
+  }
+
+  void _selectRatingContext(int? index) {
+    if (index == null || index < 0 || index >= _ratingContexts.length) {
+      return;
+    }
+
+    final selectedContext = _ratingContexts[index];
+    setState(() {
+      _selectedRatingContextIndex = index;
+      _rateValue = selectedContext.existingRating ?? 0;
+      _rateCommentCtrl.text = selectedContext.existingComment ?? '';
+    });
   }
 
   Future<void> _sendPlayRequest() async {
@@ -411,7 +484,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                             IconButton(
                               icon: const Icon(Icons.star_outline,
                                   color: AppColors.primary),
-                              onPressed: () => setState(() => _rateOpen = true),
+                              onPressed: _openRateSheet,
                             ),
                           ],
                         ],
@@ -565,11 +638,19 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
             )
           : _rateOpen
               ? _RatePlayerSheet(
+                  contexts: _ratingContexts,
+                  selectedContextIndex: _selectedRatingContextIndex,
                   rateValue: _rateValue,
                   commentCtrl: _rateCommentCtrl,
+                  onContextChanged: _selectRatingContext,
                   onRateChanged: (v) => setState(() => _rateValue = v),
                   onSubmit: _ratePlayer,
-                  onCancel: () => setState(() => _rateOpen = false),
+                  onCancel: () => setState(() {
+                    _rateOpen = false;
+                    _selectedRatingContextIndex = null;
+                    _rateValue = 0;
+                    _rateCommentCtrl.clear();
+                  }),
                 )
               : null,
     );
@@ -1262,15 +1343,21 @@ class _EditProfileSheet extends StatelessWidget {
 }
 
 class _RatePlayerSheet extends StatelessWidget {
+  final List<RatingContextModel> contexts;
+  final int? selectedContextIndex;
   final int rateValue;
   final TextEditingController commentCtrl;
+  final ValueChanged<int?> onContextChanged;
   final void Function(int) onRateChanged;
   final VoidCallback onSubmit;
   final VoidCallback onCancel;
 
   const _RatePlayerSheet({
+    required this.contexts,
+    required this.selectedContextIndex,
     required this.rateValue,
     required this.commentCtrl,
+    required this.onContextChanged,
     required this.onRateChanged,
     required this.onSubmit,
     required this.onCancel,
@@ -1278,6 +1365,8 @@ class _RatePlayerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canSubmit = selectedContextIndex != null && rateValue > 0;
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -1295,11 +1384,30 @@ class _RatePlayerSheet extends StatelessWidget {
                   fontSize: 18)),
           const SizedBox(height: 8),
           const Text(
-            'La valoración se guarda por partido compartido y solo una vez por encuentro.',
+            'La valoración se guarda en el partido seleccionado y alimenta la media pública del jugador.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 20),
+          DropdownButtonFormField<int>(
+            initialValue: selectedContextIndex,
+            dropdownColor: AppColors.surface2,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              labelText: 'Partido',
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+            items: [
+              for (var i = 0; i < contexts.length; i++)
+                DropdownMenuItem<int>(
+                  value: i,
+                  child: Text(_ratingContextLabel(contexts[i])),
+                ),
+            ],
+            onChanged: onContextChanged,
+          ),
+          const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(5, (i) {
@@ -1332,8 +1440,13 @@ class _RatePlayerSheet extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: rateValue > 0 ? onSubmit : null,
-                  child: const Text('Enviar valoración'),
+                  onPressed: canSubmit ? onSubmit : null,
+                  child: Text(
+                    selectedContextIndex != null &&
+                            contexts[selectedContextIndex!].hasExistingRating
+                        ? 'Actualizar valoración'
+                        : 'Enviar valoración',
+                  ),
                 ),
               ),
             ],
@@ -1342,4 +1455,38 @@ class _RatePlayerSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+String _ratingContextLabel(RatingContextModel context) {
+  final date = _formatShortDate(context.scheduledDate);
+  final time = _formatShortTime(context.scheduledTime);
+  final venue = context.venueName?.trim().isNotEmpty == true
+      ? context.venueName!.trim()
+      : 'Partido';
+  final ratingSuffix = context.hasExistingRating ? ' · ya valorado' : '';
+  return '$venue · $date · $time$ratingSuffix';
+}
+
+String _formatShortDate(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return 'fecha pendiente';
+  }
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) {
+    return raw;
+  }
+  return '${parsed.day.toString().padLeft(2, '0')}/'
+      '${parsed.month.toString().padLeft(2, '0')}/'
+      '${parsed.year}';
+}
+
+String _formatShortTime(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return 'hora pendiente';
+  }
+  final parts = raw.split(':');
+  if (parts.length < 2) {
+    return raw;
+  }
+  return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
 }

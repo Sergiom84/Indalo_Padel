@@ -85,7 +85,8 @@ class PlayerModel {
       displayName: (json['display_name'] ?? json['nombre'] ?? '') as String,
       email: json['email'] as String?,
       level: _asInt(json['level'] ?? json['numeric_level']),
-      mainLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['main_level']),
+      mainLevel:
+          PlayerPreferenceCatalog.normalizeLevelValue(json['main_level']),
       subLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['sub_level']),
       courtPreferences: _asStringList(json['court_preferences']),
       dominantHands: _asStringList(json['dominant_hands']),
@@ -167,6 +168,56 @@ class RatingModel {
       rating: _asDouble(json['rating']) ?? 0,
       comment: json['comment'] as String?,
     );
+  }
+}
+
+class RatingContextModel {
+  final String contextType;
+  final int? planId;
+  final int? matchId;
+  final String? scheduledDate;
+  final String? scheduledTime;
+  final String? venueName;
+  final int? existingRating;
+  final String? existingComment;
+
+  const RatingContextModel({
+    required this.contextType,
+    this.planId,
+    this.matchId,
+    this.scheduledDate,
+    this.scheduledTime,
+    this.venueName,
+    this.existingRating,
+    this.existingComment,
+  });
+
+  bool get hasExistingRating => existingRating != null && existingRating! > 0;
+
+  factory RatingContextModel.fromJson(Map<String, dynamic> json) {
+    return RatingContextModel(
+      contextType: (json['context_type'] ?? '').toString(),
+      planId: _asNullableInt(json['plan_id']),
+      matchId: _asNullableInt(json['match_id']),
+      scheduledDate: json['scheduled_date'] as String?,
+      scheduledTime: json['scheduled_time'] as String?,
+      venueName: json['venue_name'] as String?,
+      existingRating: _asNullableInt(json['existing_rating']),
+      existingComment: json['existing_comment'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toRatePayload({
+    required int rating,
+    String? comment,
+  }) {
+    return {
+      'rating': rating,
+      if (comment != null && comment.trim().isNotEmpty)
+        'comment': comment.trim(),
+      if (planId != null) 'plan_id': planId,
+      if (matchId != null) 'match_id': matchId,
+    };
   }
 }
 

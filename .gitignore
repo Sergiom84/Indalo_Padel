@@ -10,3 +10,4 @@ flutter_app/.packages
 *.log
 .claude/
 .puro/
+quarantine/

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/chat/providers/chat_provider.dart';
 import '../../features/community/models/community_model.dart';
 import '../../features/community/models/match_result_model.dart';
 import '../../features/community/providers/community_provider.dart';
@@ -445,6 +446,7 @@ class _AppShellState extends ConsumerState<AppShell>
     });
 
     final alerts = ref.watch(appAlertsProvider);
+    final chatUnreadCount = ref.watch(chatUnreadCountProvider);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -454,7 +456,7 @@ class _AppShellState extends ConsumerState<AppShell>
         currentIndex: widget.navigationShell.currentIndex,
         badgeVisibility: {
           AppTab.community: alerts.hasCommunityBadge,
-          AppTab.players: alerts.hasPlayersBadge,
+          AppTab.players: alerts.hasPlayersBadge || chatUnreadCount > 0,
         },
         onTap: (index) {
           if (index == AppTab.venues.index) {

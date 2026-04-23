@@ -24,6 +24,7 @@ const migrationFiles = [
   path.join(__dirname, 'padel_community_product_updates.sql'),
   path.join(__dirname, 'padel_fcm_tokens.sql'),
   path.join(__dirname, 'padel_chat.sql'),
+  path.join(__dirname, 'padel_social_events.sql'),
 ];
 
 async function run() {

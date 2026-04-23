@@ -76,7 +76,10 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
       }
     }
 
-    if (_accepted.length == 4) {
+    if (existing != null &&
+        (existing.partnerUserId != null || _accepted.length != 4)) {
+      _step = 2;
+    } else if (_accepted.length == 4) {
       _step = 0;
     } else {
       _step = 1;

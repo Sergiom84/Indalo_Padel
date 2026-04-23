@@ -4,9 +4,12 @@ import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
   createPadelGroupConversation,
+  createPadelSocialEvent,
   getOrCreatePadelDirectConversation,
   getOrCreatePadelEventConversation,
+  getOrCreatePadelSocialEventConversation,
   getPadelChatConversation,
+  listPadelSocialEvents,
   listPadelChatConversations,
   listPadelChatMessages,
   markPadelChatConversationRead,
@@ -15,11 +18,13 @@ import {
 import {
   conversationParamsSchema,
   createGroupConversationSchema,
+  createSocialEventSchema,
   directConversationParamsSchema,
   eventConversationParamsSchema,
   listConversationMessagesQuerySchema,
   markConversationReadSchema,
   sendChatMessageSchema,
+  socialEventParamsSchema,
 } from '../validators/chatValidators.js';
 
 const router = express.Router();
@@ -30,6 +35,16 @@ router.get('/conversations', authenticateToken, async (req, res) => {
     res.status(result.status).json(result.body);
   } catch (error) {
     console.error('Error listando conversaciones de chat:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+router.get('/social-events', authenticateToken, async (req, res) => {
+  try {
+    const result = await listPadelSocialEvents(req.user.userId);
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    console.error('Error listando eventos sociales:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -66,6 +81,48 @@ router.post(
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error('Error creando grupo de chat:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+);
+
+router.post(
+  '/social-events',
+  authenticateToken,
+  validate(createSocialEventSchema),
+  async (req, res) => {
+    try {
+      const result = await createPadelSocialEvent({
+        userId: req.user.userId,
+        title: req.body.title,
+        description: req.body.description,
+        venueName: req.body.venue_name,
+        location: req.body.location,
+        scheduledDate: req.body.scheduled_date,
+        scheduledTime: req.body.scheduled_time,
+        durationMinutes: req.body.duration_minutes,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error('Error creando evento social:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+);
+
+router.post(
+  '/social-events/:eventId/join',
+  authenticateToken,
+  validate(socialEventParamsSchema, 'params'),
+  async (req, res) => {
+    try {
+      const result = await getOrCreatePadelSocialEventConversation({
+        userId: req.user.userId,
+        eventId: req.params.eventId,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error('Error abriendo chat de evento social:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   },

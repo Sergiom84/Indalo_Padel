@@ -11,6 +11,7 @@ import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../../shared/widgets/preference_summary_chips.dart';
 import '../../players/models/player_model.dart';
 import '../widgets/match_result_dialog.dart';
 import '../models/community_model.dart';
@@ -923,15 +924,22 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   List<CommunityPlanModel> _finishedAcceptedPlans(
     CommunityDashboardModel dashboard,
   ) {
-    final now = DateTime.now();
-    final result = <CommunityPlanModel>[];
     final uniquePlans = <int, CommunityPlanModel>{};
 
     for (final plan in [...dashboard.activePlans, ...dashboard.historyPlans]) {
       uniquePlans[plan.id] = plan;
     }
 
-    for (final plan in uniquePlans.values) {
+    return _resultReadyPlans(uniquePlans.values);
+  }
+
+  List<CommunityPlanModel> _resultReadyPlans(
+    Iterable<CommunityPlanModel> plans,
+  ) {
+    final now = DateTime.now();
+    final result = <CommunityPlanModel>[];
+
+    for (final plan in plans) {
       final accepted = plan.myResponseState == 'accepted' || plan.isOrganizer;
       if (!accepted) {
         continue;
@@ -984,6 +992,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   }
 
   Future<void> _openResultDialog(CommunityPlanModel plan) async {
+    if (!plan.canCaptureResult(reference: DateTime.now())) {
+      _showMessage(
+        'El resultado se podrá registrar cuando el partido haya finalizado.',
+      );
+      return;
+    }
+
     final existingSubmission = await _prepareExistingSubmission(plan);
     if (!mounted) {
       return;
@@ -1073,7 +1088,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           final reservationVenue = selectedPlan?.venue ?? dashboard.venue;
           final finishedPlans = alerts.loading
               ? _finishedAcceptedPlans(dashboard)
-              : alerts.pendingResultPlans;
+              : _resultReadyPlans(alerts.pendingResultPlans);
 
           return TabBarView(
             controller: _tabController,
@@ -3096,6 +3111,11 @@ class _ParticipantTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasPreferenceSummary = player.courtPreferences.isNotEmpty ||
+        player.dominantHands.isNotEmpty ||
+        player.availabilityPreferences.isNotEmpty ||
+        player.matchPreferences.isNotEmpty;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -3167,6 +3187,15 @@ class _ParticipantTile extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (hasPreferenceSummary) ...[
+                      const SizedBox(height: 8),
+                      PreferenceSummaryChips(
+                        courtPreferences: player.courtPreferences,
+                        dominantHands: player.dominantHands,
+                        availabilityPreferences: player.availabilityPreferences,
+                        matchPreferences: player.matchPreferences,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -3289,6 +3318,10 @@ class _CommunityParticipantStatusTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasPreferenceSummary = participant.courtPreferences.isNotEmpty ||
+        participant.dominantHands.isNotEmpty ||
+        participant.availabilityPreferences.isNotEmpty ||
+        participant.matchPreferences.isNotEmpty;
     final badgeVariant = switch (participant.responseState) {
       'accepted' => PadelBadgeVariant.success,
       'declined' => PadelBadgeVariant.danger,
@@ -3369,6 +3402,16 @@ class _CommunityParticipantStatusTile extends StatelessWidget {
                   mainLevel: participant.mainLevel,
                   subLevel: participant.subLevel,
                 ),
+                if (hasPreferenceSummary) ...[
+                  const SizedBox(height: 8),
+                  PreferenceSummaryChips(
+                    courtPreferences: participant.courtPreferences,
+                    dominantHands: participant.dominantHands,
+                    availabilityPreferences:
+                        participant.availabilityPreferences,
+                    matchPreferences: participant.matchPreferences,
+                  ),
+                ],
               ],
             ),
           ),
