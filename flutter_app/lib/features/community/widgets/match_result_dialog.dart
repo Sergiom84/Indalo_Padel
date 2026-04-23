@@ -106,6 +106,17 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
         .toList(growable: false);
   }
 
+  static String _planDateTimeLabel(CommunityPlanModel plan) {
+    final parsed = DateTime.tryParse(plan.scheduledDate);
+    final dateStr = parsed != null
+        ? '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}'
+        : plan.scheduledDate;
+    final timeStr = plan.scheduledTime.length >= 5
+        ? plan.scheduledTime.substring(0, 5)
+        : plan.scheduledTime;
+    return '$dateStr · ${timeStr}h';
+  }
+
   bool get _canGoNext {
     switch (_step) {
       case 0:
@@ -219,7 +230,15 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
+              Text(
+                _planDateTimeLabel(widget.plan),
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 10),
               _StepIndicator(
                 current: _step,
                 total: _accepted.length == 4 ? 3 : 2,

@@ -9,8 +9,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/utils/chronology.dart';
 import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
-import '../../community/models/community_model.dart';
-import '../../community/widgets/match_result_dialog.dart';
 import '../models/calendar_booking_model.dart';
 
 PadelBadgeVariant _statusVariant(String status) {
@@ -77,7 +75,6 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
   CalendarFeedModel? _feed;
   List<CalendarBookingModel> _communityUpcoming = [];
   List<CalendarBookingModel> _communityHistory = [];
-  List<CommunityPlanModel> _communityPlans = [];
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
@@ -85,7 +82,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _selectedDay = DateTime.now();
     _fetchCalendar();
   }
@@ -155,13 +152,9 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       final now = DateTime.now();
       final upcoming = <CalendarBookingModel>[];
       final history = <CalendarBookingModel>[];
-      final plansParsed = <CommunityPlanModel>[];
       for (final raw in allPlans) {
         if (raw is! Map) continue;
         final p = Map<String, dynamic>.from(raw);
-        try {
-          plansParsed.add(CommunityPlanModel.fromJson(p));
-        } catch (_) {}
         if (p['reservation_state'] != 'confirmed') continue;
         final dateStr = p['scheduled_date']?.toString() ?? '';
         if (dateStr.isEmpty) continue;
@@ -209,32 +202,10 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       setState(() {
         _communityUpcoming = upcoming;
         _communityHistory = history;
-        _communityPlans = plansParsed;
       });
     } catch (_) {
       // comunidad no crítica, no bloqueamos el calendario
     }
-  }
-
-  /// Plans donde el usuario participa aceptado y la hora de fin ya pasó.
-  List<CommunityPlanModel> get _finishedAcceptedPlans {
-    final now = DateTime.now();
-    final result = <CommunityPlanModel>[];
-    for (final plan in _communityPlans) {
-      final accepted = plan.myResponseState == 'accepted' || plan.isOrganizer;
-      if (!accepted) continue;
-      final end = _planEndDateTime(plan);
-      if (end == null) continue;
-      if (end.isBefore(now)) {
-        result.add(plan);
-      }
-    }
-    result.sort((a, b) {
-      final ea = _planEndDateTime(a) ?? DateTime.now();
-      final eb = _planEndDateTime(b) ?? DateTime.now();
-      return eb.compareTo(ea);
-    });
-    return result;
   }
 
   /// Upcoming filtrado para excluir eventos de hoy (que solo deben verse en Agenda).
@@ -247,22 +218,6 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       final dayStart = DateTime(dt.year, dt.month, dt.day);
       return dayStart.isAfter(todayStart);
     }).toList();
-  }
-
-  static DateTime? _planEndDateTime(CommunityPlanModel plan) {
-    if (plan.scheduledDate.isEmpty || plan.scheduledTime.isEmpty) return null;
-    try {
-      final date = DateTime.parse(plan.scheduledDate);
-      final parts = plan.scheduledTime.split(':');
-      if (parts.length < 2) return null;
-      final hour = int.tryParse(parts[0]);
-      final minute = int.tryParse(parts[1]);
-      if (hour == null || minute == null) return null;
-      final start = DateTime(date.year, date.month, date.day, hour, minute);
-      return start.add(Duration(minutes: plan.durationMinutes));
-    } catch (_) {
-      return null;
-    }
   }
 
   static List<dynamic> _extractList(dynamic source, String key) {
@@ -425,7 +380,6 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
           tabs: const [
             Tab(text: 'Agenda'),
             Tab(text: 'Próximos'),
-            Tab(text: 'Partido'),
             Tab(text: 'Historial'),
           ],
         ),
@@ -484,11 +438,6 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
                       formatDate: _formatDate,
                       formatTimeRange: _formatTimeRange,
                       onNewBooking: () => context.go('/venues'),
-                    ),
-                    _PartidoTab(
-                      plans: _finishedAcceptedPlans,
-                      onRefresh: _fetchCalendar,
-                      formatDate: _formatDate,
                     ),
                     _HistoryTab(
                       history: _allHistory,
@@ -750,139 +699,6 @@ class _ProximosTab extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Partido tab: convocatorias finalizadas pendientes de registrar resultado
-// ---------------------------------------------------------------------------
-class _PartidoTab extends StatelessWidget {
-  final List<CommunityPlanModel> plans;
-  final Future<void> Function() onRefresh;
-  final String Function(String?) formatDate;
-
-  const _PartidoTab({
-    required this.plans,
-    required this.onRefresh,
-    required this.formatDate,
-  });
-
-  String _timeRange(CommunityPlanModel plan) {
-    final start = plan.scheduledTime.length >= 5
-        ? plan.scheduledTime.substring(0, 5)
-        : plan.scheduledTime;
-    final parts = plan.scheduledTime.split(':');
-    if (parts.length < 2) return start;
-    final h = int.tryParse(parts[0]);
-    final m = int.tryParse(parts[1]);
-    if (h == null || m == null) return start;
-    final end =
-        DateTime(2000, 1, 1, h, m).add(Duration(minutes: plan.durationMinutes));
-    final endStr =
-        '${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}';
-    return '$start - $endStr';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return RefreshIndicator(
-      color: AppColors.primary,
-      backgroundColor: AppColors.surface,
-      onRefresh: onRefresh,
-      child: plans.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: const [
-                SizedBox(height: 80),
-                Center(
-                  child: Column(
-                    children: [
-                      Icon(Icons.sports_tennis,
-                          color: AppColors.muted, size: 34),
-                      SizedBox(height: 10),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          'No hay partidos recientes pendientes de resultado.',
-                          style: TextStyle(color: AppColors.muted),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-              itemCount: plans.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) {
-                final plan = plans[i];
-                final venueName = plan.venue?.name ?? 'Centro deportivo';
-                return InkWell(
-                  onTap: () async {
-                    await showMatchResultDialog(context, plan: plan);
-                    await onRefresh();
-                  },
-                  borderRadius: BorderRadius.circular(18),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.emoji_events,
-                              color: AppColors.primary, size: 20),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                venueName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${formatDate(plan.scheduledDate)} · ${_timeRange(plan)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.chevron_right, color: AppColors.muted),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
     );
   }
 }

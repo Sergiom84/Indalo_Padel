@@ -47,12 +47,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!mounted) {
         return;
       }
+      ref
+          .read(currentProfileProvider.notifier)
+          .setProfile(Map<String, dynamic>.from(data['profile'] as Map));
       setState(() {
         _syncProfileState(Map<String, dynamic>.from(data['profile'] as Map));
         _loading = false;
       });
     } catch (e) {
       if (!mounted) {
+        return;
+      }
+      final cachedProfile = ref.read(currentProfileProvider).valueOrNull;
+      if (cachedProfile != null) {
+        setState(() {
+          _syncProfileState(Map<String, dynamic>.from(cachedProfile));
+          _loading = false;
+          _error = null;
+        });
         return;
       }
       setState(() {
@@ -71,18 +83,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         return false;
       }
       final incoming = Map<String, dynamic>.from(data['profile'] as Map);
+      final mergedProfile = <String, dynamic>{
+        ...?_profile,
+        ...incoming,
+        if (_profile?['nombre'] != null) 'nombre': _profile!['nombre'],
+        if (_profile?['email'] != null) 'email': _profile!['email'],
+      };
       setState(() {
-        _syncProfileState({
-          ...?_profile,
-          ...incoming,
-          if (_profile?['nombre'] != null) 'nombre': _profile!['nombre'],
-          if (_profile?['email'] != null) 'email': _profile!['email'],
-        });
+        _syncProfileState(mergedProfile);
       });
+      ref.read(currentProfileProvider.notifier).setProfile(mergedProfile);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Perfil actualizado')),
       );
-      ref.invalidate(currentProfileProvider);
       return true;
     } catch (e) {
       if (mounted) {
@@ -111,14 +124,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return _PreferencesSheet(
-          initialCourt: PlayerPreferenceCatalog.parseValues(
-              profile['court_preferences']),
-          initialHands: PlayerPreferenceCatalog.parseValues(
-              profile['dominant_hands']),
+          initialCourt:
+              PlayerPreferenceCatalog.parseValues(profile['court_preferences']),
+          initialHands:
+              PlayerPreferenceCatalog.parseValues(profile['dominant_hands']),
           initialAvailability: PlayerPreferenceCatalog.parseValues(
               profile['availability_preferences']),
-          initialMatch: PlayerPreferenceCatalog.parseValues(
-              profile['match_preferences']),
+          initialMatch:
+              PlayerPreferenceCatalog.parseValues(profile['match_preferences']),
           onSave: (payload) => _updateProfile(payload),
         );
       },

@@ -11,8 +11,11 @@ import {
   toGoogleDateTime,
 } from './calendarUtils.js';
 import {
+  buildEventReminders,
   createCalendarEvent,
+  deleteCalendarEvent,
   isGoogleCalendarConfigured,
+  shouldExcludeCalendarOwnerFromAttendees,
   updateCalendarEvent,
 } from './googleCalendar.js';
 
@@ -861,23 +864,46 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     APP_TIME_ZONE,
   ).toISO({ suppressMilliseconds: true });
 
-  const organizerEmail = (process.env.GOOGLE_ORGANIZER_EMAIL || '').toLowerCase().trim();
+  const organizerEmail = (process.env.GOOGLE_ORGANIZER_EMAIL || '')
+    .toLowerCase()
+    .trim();
+  const excludeCalendarOwner = shouldExcludeCalendarOwnerFromAttendees(
+    organizerEmail,
+  );
+  const seenAttendees = new Set();
   const attendees = participants
     .filter((participant) => participant.email)
-    .filter((participant) => participant.email.toLowerCase().trim() !== organizerEmail)
+    .filter((participant) => {
+      const email = String(participant.email || '').toLowerCase().trim();
+      if (!email) {
+        return false;
+      }
+
+      if (excludeCalendarOwner && email === organizerEmail) {
+        return false;
+      }
+
+      if (seenAttendees.has(email)) {
+        return false;
+      }
+
+      seenAttendees.add(email);
+      return true;
+    })
     .map((participant) => ({
       email: participant.email,
       displayName: participant.display_name || participant.nombre,
-      responseStatus: 'needsAction',
+      responseStatus: mapCommunityResponseStateToGoogle(participant.response_state),
       optional: false,
     }));
 
   const playersList = participants
     .map((participant) => participant.display_name || participant.nombre)
     .join(', ');
+  const reservationLabel = describeCommunityCalendarState(plan.reservation_state);
 
   return {
-    summary: `Partido confirmado · ${venue?.name || 'Centro deportivo'}`,
+    summary: `${reservationLabel} · ${venue?.name || 'Centro deportivo'}`,
     location:
       [venue?.address, venue?.location].filter(Boolean).join(' - ') ||
       venue?.name ||
@@ -888,7 +914,7 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
       `Organiza: ${plan.creator_name}`,
       `Jugadores: ${playersList}`,
       '',
-      'Reserva confirmada por el centro deportivo.',
+      describeCommunityCalendarDescription(plan.reservation_state),
     ].join('\n'),
     start: {
       dateTime: startDateTime,
@@ -902,7 +928,7 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     guestsCanSeeOtherGuests: true,
-    reminders: { useDefault: true },
+    reminders: buildEventReminders(),
     extendedProperties: {
       private: {
         app: 'indalo_padel',
@@ -910,6 +936,49 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
       },
     },
   };
+}
+
+function mapCommunityResponseStateToGoogle(state) {
+  switch (state) {
+    case 'accepted':
+      return 'accepted';
+    case 'declined':
+      return 'declined';
+    case 'doubt':
+      return 'tentative';
+    default:
+      return 'needsAction';
+  }
+}
+
+function describeCommunityCalendarState(reservationState) {
+  switch (reservationState) {
+    case 'confirmed':
+      return 'Partido confirmado';
+    case 'retry':
+      return 'Reserva en seguimiento';
+    case 'cancelled':
+      return 'Convocatoria cancelada';
+    case 'expired':
+      return 'Convocatoria expirada';
+    default:
+      return 'Convocatoria pendiente';
+  }
+}
+
+function describeCommunityCalendarDescription(reservationState) {
+  switch (reservationState) {
+    case 'confirmed':
+      return 'Reserva confirmada por el centro deportivo.';
+    case 'retry':
+      return 'Seguimos intentando cerrar la reserva con el centro deportivo.';
+    case 'cancelled':
+      return 'La convocatoria se ha cancelado.';
+    case 'expired':
+      return 'La convocatoria ha expirado.';
+    default:
+      return 'Convocatoria creada en Comunidad. Pendiente de confirmar la reserva.';
+  }
 }
 
 async function syncCommunityCalendarEvent(client, plan, userId) {
@@ -1188,6 +1257,16 @@ export async function createCommunityPlan({
 
     await client.query('COMMIT');
 
+    let calendarInfo = {
+      google_event_id: plan.google_event_id || null,
+      sync_error: null,
+    };
+    calendarInfo = await syncCommunityCalendarEvent(
+      client,
+      { ...plan, google_event_id: plan.google_event_id },
+      userId,
+    );
+
     let planDto = null;
     try {
       planDto = await loadPlanBundle(client, plan.id, userId);
@@ -1197,7 +1276,11 @@ export async function createCommunityPlan({
 
     return {
       status: 201,
-      body: { plan: planDto },
+      body: {
+        plan: planDto,
+        google_event_id: calendarInfo.google_event_id,
+        calendar_sync_error: calendarInfo.sync_error,
+      },
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1299,6 +1382,7 @@ export async function updateCommunityPlan({
         SET scheduled_date = $2,
             scheduled_time = $3,
             invite_state = 'pending',
+            calendar_sync_status = 'pending',
             reservation_state = CASE
               WHEN reservation_state IN ('confirmed', 'cancelled', 'expired')
                 THEN reservation_state
@@ -1359,6 +1443,16 @@ export async function updateCommunityPlan({
 
     await client.query('COMMIT');
 
+    let calendarInfo = {
+      google_event_id: plan.google_event_id || null,
+      sync_error: null,
+    };
+    calendarInfo = await syncCommunityCalendarEvent(
+      client,
+      { ...plan, google_event_id: plan.google_event_id },
+      userId,
+    );
+
     let planDto = null;
     try {
       planDto = await loadPlanBundle(client, planId, userId);
@@ -1368,7 +1462,11 @@ export async function updateCommunityPlan({
 
     return {
       status: 200,
-      body: { plan: planDto },
+      body: {
+        plan: planDto,
+        google_event_id: calendarInfo.google_event_id,
+        calendar_sync_error: calendarInfo.sync_error,
+      },
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1538,6 +1636,16 @@ export async function respondToCommunityPlan({
 
     await client.query('COMMIT');
 
+    let calendarInfo = {
+      google_event_id: plan.google_event_id || null,
+      sync_error: null,
+    };
+    calendarInfo = await syncCommunityCalendarEvent(
+      client,
+      { ...plan, google_event_id: plan.google_event_id },
+      userId,
+    );
+
     let planDto = null;
     try {
       planDto = await loadPlanBundle(client, planId, userId);
@@ -1547,7 +1655,11 @@ export async function respondToCommunityPlan({
 
     return {
       status: 200,
-      body: { plan: planDto },
+      body: {
+        plan: planDto,
+        google_event_id: calendarInfo.google_event_id,
+        calendar_sync_error: calendarInfo.sync_error,
+      },
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1595,6 +1707,7 @@ export async function proposeCommunityPlanTime({
         SET scheduled_date = $2,
             scheduled_time = $3,
             invite_state = 'reschedule_pending',
+            calendar_sync_status = 'pending',
             reservation_state = CASE
               WHEN reservation_state IN ('confirmed', 'cancelled', 'expired')
                 THEN reservation_state
@@ -1666,6 +1779,16 @@ export async function proposeCommunityPlanTime({
 
     await client.query('COMMIT');
 
+    let calendarInfo = {
+      google_event_id: plan.google_event_id || null,
+      sync_error: null,
+    };
+    calendarInfo = await syncCommunityCalendarEvent(
+      client,
+      { ...plan, google_event_id: plan.google_event_id },
+      userId,
+    );
+
     let planDto = null;
     try {
       planDto = await loadPlanBundle(client, planId, userId);
@@ -1675,7 +1798,11 @@ export async function proposeCommunityPlanTime({
 
     return {
       status: 200,
-      body: { plan: planDto },
+      body: {
+        plan: planDto,
+        google_event_id: calendarInfo.google_event_id,
+        calendar_sync_error: calendarInfo.sync_error,
+      },
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1780,10 +1907,7 @@ export async function updateCommunityReservationStatus({
               WHEN $4 THEN NOW()
               ELSE reservation_confirmed_at
             END,
-            calendar_sync_status = CASE
-              WHEN $4 THEN 'pending'
-              ELSE calendar_sync_status
-            END,
+            calendar_sync_status = 'pending',
             updated_at = NOW()
         WHERE id = $1
       `,
@@ -1821,14 +1945,15 @@ export async function updateCommunityReservationStatus({
 
     await client.query('COMMIT');
 
-    let calendarInfo = { google_event_id: plan.google_event_id || null, sync_error: null };
-    if (confirmed) {
-      calendarInfo = await syncCommunityCalendarEvent(
-        client,
-        { ...plan, google_event_id: plan.google_event_id },
-        userId,
-      );
-    }
+    let calendarInfo = {
+      google_event_id: plan.google_event_id || null,
+      sync_error: null,
+    };
+    calendarInfo = await syncCommunityCalendarEvent(
+      client,
+      { ...plan, google_event_id: plan.google_event_id },
+      userId,
+    );
 
     let planDto = null;
     try {
@@ -1918,9 +2043,53 @@ export async function cancelCommunityPlan({
 
     await client.query('COMMIT');
 
+    let calendarSyncError = null;
+    if (plan.google_event_id) {
+      try {
+        await deleteCalendarEvent(plan.google_event_id);
+        await pool.query(
+          `UPDATE app.padel_community_plans
+           SET calendar_sync_status = 'synced',
+               last_synced_at = NOW(),
+               updated_at = NOW()
+           WHERE id = $1`,
+          [planId],
+        );
+      } catch (error) {
+        if (error.statusCode === 404 || error.statusCode === 410) {
+          await pool.query(
+            `UPDATE app.padel_community_plans
+             SET calendar_sync_status = 'synced',
+                 last_synced_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [planId],
+          );
+        } else {
+          calendarSyncError = error.message;
+          await pool.query(
+            `UPDATE app.padel_community_plans
+             SET calendar_sync_status = 'error',
+                 last_synced_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [planId],
+          );
+          console.error(
+            'Error cancelando convocatoria en Google Calendar:',
+            error.message,
+          );
+        }
+      }
+    }
+
     return {
       status: 200,
-      body: { cancelled: true, plan_id: planId },
+      body: {
+        cancelled: true,
+        plan_id: planId,
+        calendar_sync_error: calendarSyncError,
+      },
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -2054,7 +2223,8 @@ async function retryPendingCommunityCalendarSyncs() {
       `
         SELECT id, created_by, google_event_id
         FROM app.padel_community_plans
-        WHERE reservation_state = 'confirmed'
+        WHERE invite_state NOT IN ('cancelled', 'expired')
+          AND reservation_state NOT IN ('cancelled', 'expired')
           AND calendar_sync_status IN ('pending', 'error')
       `,
     );

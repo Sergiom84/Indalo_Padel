@@ -15,6 +15,53 @@ function buildCalendarId() {
   return process.env.GOOGLE_CALENDAR_ID || 'primary';
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeReminderMinutes(value) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return 300;
+  }
+
+  return Math.min(Math.max(parsed, 5), 40320);
+}
+
+export function shouldExcludeCalendarOwnerFromAttendees(
+  calendarOwnerEmail,
+  calendarId = buildCalendarId(),
+) {
+  const normalizedOwnerEmail = normalizeEmail(calendarOwnerEmail);
+  if (!normalizedOwnerEmail) {
+    return false;
+  }
+
+  const normalizedCalendarId = normalizeEmail(calendarId);
+  return normalizedCalendarId === 'primary'
+    || normalizedCalendarId === normalizedOwnerEmail;
+}
+
+export function buildEventReminders() {
+  const reminderMinutes = normalizeReminderMinutes(
+    process.env.GOOGLE_EVENT_REMINDER_MINUTES || '300',
+  );
+
+  return {
+    useDefault: false,
+    overrides: [
+      {
+        method: 'popup',
+        minutes: reminderMinutes,
+      },
+      {
+        method: 'email',
+        minutes: reminderMinutes,
+      },
+    ],
+  };
+}
+
 export function isGoogleCalendarConfigured() {
   return Boolean(
     process.env.GOOGLE_CLIENT_ID &&
@@ -49,6 +96,13 @@ async function getAccessToken() {
 
   const data = await response.json();
   if (!response.ok) {
+    const isRevoked = data.error === 'invalid_grant';
+    if (isRevoked) {
+      console.error(
+        '🔴 [Google Calendar] GOOGLE_REFRESH_TOKEN revocado o expirado. ' +
+        'Ejecuta: node backend/scripts/get-google-token.js y actualiza la variable de entorno.',
+      );
+    }
     throw new Error(data.error_description || data.error || 'No se pudo renovar el access token de Google');
   }
 
@@ -118,10 +172,32 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
   const venueAddress = venue.address || venue.venue_address || '';
   const courtName = court.name || court.court_name || 'Pista';
 
-  const calendarOwnerEmail = (organizerEmail || process.env.GOOGLE_ORGANIZER_EMAIL || '').toLowerCase().trim();
+  const calendarOwnerEmail = normalizeEmail(
+    organizerEmail || process.env.GOOGLE_ORGANIZER_EMAIL || '',
+  );
+  const excludeCalendarOwner = shouldExcludeCalendarOwnerFromAttendees(
+    calendarOwnerEmail,
+  );
+  const seenAttendees = new Set();
   const attendees = players
     .filter((player) => Boolean(player.email))
-    .filter((player) => player.email.toLowerCase().trim() !== calendarOwnerEmail)
+    .filter((player) => {
+      const email = normalizeEmail(player.email);
+      if (!email) {
+        return false;
+      }
+
+      if (excludeCalendarOwner && email === calendarOwnerEmail) {
+        return false;
+      }
+
+      if (seenAttendees.has(email)) {
+        return false;
+      }
+
+      seenAttendees.add(email);
+      return true;
+    })
     .map((player) => ({
       email: player.email,
       displayName: player.nombre || player.display_name || player.email,
@@ -153,9 +229,7 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     guestsCanSeeOtherGuests: true,
-    reminders: {
-      useDefault: true,
-    },
+    reminders: buildEventReminders(),
     extendedProperties: {
       private: {
         app: GOOGLE_APP_TAG,

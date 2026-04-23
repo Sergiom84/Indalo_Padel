@@ -5,10 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
 import '../../../shared/widgets/adaptive_pickers.dart';
 import '../../../shared/widgets/loading_spinner.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../../players/models/player_model.dart';
+import '../widgets/match_result_dialog.dart';
 import '../models/community_model.dart';
 import '../models/match_result_model.dart';
 import '../providers/community_provider.dart';
@@ -41,7 +44,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     final suggested = _nextSuggestedDateTime();
     _draftDate = DateTime(suggested.year, suggested.month, suggested.day);
     _draftTime = TimeOfDay(hour: suggested.hour, minute: suggested.minute);
@@ -789,9 +792,69 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     );
   }
 
+  List<CommunityPlanModel> _finishedAcceptedPlans(
+    CommunityDashboardModel dashboard,
+  ) {
+    final now = DateTime.now();
+    final result = <CommunityPlanModel>[];
+    final uniquePlans = <int, CommunityPlanModel>{};
+
+    for (final plan in [...dashboard.activePlans, ...dashboard.historyPlans]) {
+      uniquePlans[plan.id] = plan;
+    }
+
+    for (final plan in uniquePlans.values) {
+      final accepted = plan.myResponseState == 'accepted' || plan.isOrganizer;
+      if (!accepted) {
+        continue;
+      }
+
+      final end = _planEndDateTime(plan);
+      if (end == null || !end.isBefore(now)) {
+        continue;
+      }
+
+      result.add(plan);
+    }
+
+    result.sort((a, b) {
+      final leftEnd = _planEndDateTime(a) ?? DateTime.now();
+      final rightEnd = _planEndDateTime(b) ?? DateTime.now();
+      return rightEnd.compareTo(leftEnd);
+    });
+
+    return result;
+  }
+
+  static DateTime? _planEndDateTime(CommunityPlanModel plan) {
+    if (plan.scheduledDate.isEmpty || plan.scheduledTime.isEmpty) {
+      return null;
+    }
+
+    try {
+      final date = DateTime.parse(plan.scheduledDate);
+      final parts = plan.scheduledTime.split(':');
+      if (parts.length < 2) {
+        return null;
+      }
+
+      final hour = int.tryParse(parts[0]);
+      final minute = int.tryParse(parts[1]);
+      if (hour == null || minute == null) {
+        return null;
+      }
+
+      final start = DateTime(date.year, date.month, date.day, hour, minute);
+      return start.add(Duration(minutes: plan.durationMinutes));
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dashboardAsync = ref.watch(communityDashboardProvider);
+    final alerts = ref.watch(appAlertsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -809,10 +872,21 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           indicatorColor: AppColors.primary,
           labelColor: AppColors.primary,
           unselectedLabelColor: AppColors.muted,
-          tabs: const [
-            Tab(text: 'Reservar'),
-            Tab(text: 'Convocatorias'),
-            Tab(text: 'Historial'),
+          tabs: [
+            Tab(
+              child: NotificationLabel(
+                label: 'Reservar',
+                showDot: alerts.hasCommunityPlannerBadge,
+              ),
+            ),
+            Tab(
+              child: NotificationLabel(
+                label: 'Convocatorias',
+                showDot: alerts.hasCommunityInvitationsBadge,
+              ),
+            ),
+            const Tab(text: 'Partido'),
+            const Tab(text: 'Historial'),
           ],
         ),
       ),
@@ -826,6 +900,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           _maybeSyncDashboard(dashboard);
           final selectedPlan = _effectivePlan(dashboard);
           final reservationVenue = selectedPlan?.venue ?? dashboard.venue;
+          final finishedPlans = _finishedAcceptedPlans(dashboard);
 
           return TabBarView(
             controller: _tabController,
@@ -840,13 +915,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                   children: [
                     _buildPlanSelector(dashboard, selectedPlan),
-                    if (selectedPlan != null || _forceNewDraft) ...[
+                    if (_shouldShowReservationFlow(selectedPlan)) ...[
                       const SizedBox(height: 16),
-                      _buildCreateCard(dashboard, selectedPlan),
-                      const SizedBox(height: 16),
-                      _buildStatusCard(selectedPlan),
-                      const SizedBox(height: 16),
-                      _buildReservationCard(selectedPlan, reservationVenue),
+                      ..._buildReservationFlowCards(
+                        dashboard,
+                        selectedPlan,
+                        reservationVenue,
+                      ),
                     ],
                   ],
                 ),
@@ -858,7 +933,14 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                 onRefresh: _refreshDashboard,
                 child: _buildMeInvitanTab(dashboard),
               ),
-              // ── Pestaña 3: Historial ──────────────────────────────────
+              // ── Pestaña 3: Partido ────────────────────────────────────
+              RefreshIndicator(
+                color: AppColors.primary,
+                backgroundColor: AppColors.surface,
+                onRefresh: _refreshDashboard,
+                child: _buildPartidoTab(finishedPlans),
+              ),
+              // ── Pestaña 4: Historial ──────────────────────────────────
               RefreshIndicator(
                 color: AppColors.primary,
                 backgroundColor: AppColors.surface,
@@ -939,6 +1021,189 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         );
       },
     );
+  }
+
+  Widget _buildPartidoTab(List<CommunityPlanModel> plans) {
+    return _CommunityPartidoTab(
+      plans: plans,
+      onRefresh: _refreshDashboard,
+      formatDate: _formatDisplayDate,
+    );
+  }
+
+  bool _shouldShowReservationFlow(CommunityPlanModel? selectedPlan) {
+    return _forceNewDraft || selectedPlan != null;
+  }
+
+  bool _shouldExpandCreateStep(CommunityPlanModel? selectedPlan) {
+    if (_forceNewDraft) {
+      return true;
+    }
+
+    if (selectedPlan == null) {
+      return false;
+    }
+
+    return selectedPlan.isOrganizer && selectedPlan.hasDecline;
+  }
+
+  bool _isStatusStepCompleted(CommunityPlanModel plan) {
+    return plan.isReady ||
+        plan.reservationState == 'retry' ||
+        plan.reservationConfirmed ||
+        plan.isCancelled ||
+        plan.isExpired;
+  }
+
+  bool _isReservationStepCompleted(CommunityPlanModel plan) {
+    return plan.reservationConfirmed || plan.isCancelled || plan.isExpired;
+  }
+
+  List<Widget> _buildReservationFlowCards(
+    CommunityDashboardModel dashboard,
+    CommunityPlanModel? selectedPlan,
+    CommunityVenueModel? reservationVenue,
+  ) {
+    if (_forceNewDraft) {
+      return [_buildCreateCard(dashboard, selectedPlan)];
+    }
+
+    if (selectedPlan == null) {
+      return const [];
+    }
+
+    final cards = <Widget>[];
+    final expandCreateStep = _shouldExpandCreateStep(selectedPlan);
+    final statusCompleted = _isStatusStepCompleted(selectedPlan);
+    final reservationCompleted = _isReservationStepCompleted(selectedPlan);
+
+    if (expandCreateStep) {
+      cards.add(_buildCreateCard(dashboard, selectedPlan));
+      return cards;
+    }
+
+    cards.add(
+      _CommunityCollapsedStepCard(
+        borderColor: AppColors.success,
+        title: '1. Convoca a tu red',
+        statusLabel: 'Invitación enviada',
+        summary: _buildCreateStepSummary(selectedPlan),
+      ),
+    );
+
+    if (!statusCompleted) {
+      cards
+        ..add(const SizedBox(height: 16))
+        ..add(_buildStatusCard(selectedPlan));
+      return cards;
+    }
+
+    cards
+      ..add(const SizedBox(height: 16))
+      ..add(
+        _CommunityCollapsedStepCard(
+          borderColor: _statusColorForPlan(selectedPlan),
+          title: '2. Estado de la convocatoria',
+          statusLabel: _statusStepLabel(selectedPlan),
+          summary: _buildStatusStepSummary(selectedPlan),
+        ),
+      );
+
+    if (!reservationCompleted) {
+      cards
+        ..add(const SizedBox(height: 16))
+        ..add(_buildReservationCard(selectedPlan, reservationVenue));
+      return cards;
+    }
+
+    cards
+      ..add(const SizedBox(height: 16))
+      ..add(
+        _CommunityCollapsedStepCard(
+          borderColor: _statusColorForPlan(selectedPlan),
+          title: '3. Reserva con el club',
+          statusLabel: _reservationStepLabel(selectedPlan),
+          summary: _buildReservationStepSummary(
+            selectedPlan,
+            reservationVenue,
+          ),
+        ),
+      );
+
+    return cards;
+  }
+
+  String _buildCreateStepSummary(CommunityPlanModel plan) {
+    final invitedCount = plan.participants
+        .where((participant) => !participant.isOrganizer)
+        .length;
+    final playersLabel = invitedCount == 1 ? 'jugador' : 'jugadores';
+    return '${_formatDisplayDate(plan.scheduledDate)} a las '
+        '${_formatDisplayTime(plan.scheduledTime)} · '
+        '$invitedCount $playersLabel convocados';
+  }
+
+  String _statusStepLabel(CommunityPlanModel plan) {
+    if (plan.reservationConfirmed) {
+      return 'Estado resuelto';
+    }
+    if (plan.reservationState == 'retry') {
+      return 'Lista para reintento';
+    }
+    if (plan.isCancelled) {
+      return 'Convocatoria cancelada';
+    }
+    if (plan.isExpired) {
+      return 'Convocatoria expirada';
+    }
+    return 'Todos han respondido';
+  }
+
+  String _buildStatusStepSummary(CommunityPlanModel plan) {
+    if (plan.reservationConfirmed) {
+      return 'Todos aceptaron y la convocatoria ya pasó a reserva confirmada.';
+    }
+    if (plan.reservationState == 'retry') {
+      return 'Todos aceptaron. La reserva sigue abierta para un segundo intento.';
+    }
+    if (plan.isCancelled) {
+      return 'La convocatoria quedó cancelada y ya no requiere seguimiento.';
+    }
+    if (plan.isExpired) {
+      return 'La fecha pasó y la convocatoria se cerró automáticamente.';
+    }
+    return 'Todos aceptaron y ya puedes continuar con la reserva del club.';
+  }
+
+  String _reservationStepLabel(CommunityPlanModel plan) {
+    if (plan.reservationConfirmed) {
+      return 'Reserva confirmada';
+    }
+    if (plan.isCancelled) {
+      return 'Reserva cancelada';
+    }
+    if (plan.isExpired) {
+      return 'Reserva expirada';
+    }
+    return 'Reserva cerrada';
+  }
+
+  String _buildReservationStepSummary(
+    CommunityPlanModel plan,
+    CommunityVenueModel? venue,
+  ) {
+    final venueName = plan.venue?.name ?? venue?.name ?? 'el club';
+    if (plan.reservationConfirmed) {
+      return 'Confirmada con $venueName. Al refrescar, esta convocatoria '
+          'saldrá de Reservar.';
+    }
+    if (plan.isCancelled) {
+      return 'La reserva quedó cancelada y la convocatoria pasa a historial.';
+    }
+    if (plan.isExpired) {
+      return 'La convocatoria expiró antes de cerrar la reserva.';
+    }
+    return 'La reserva ya no necesita más acciones.';
   }
 
   void _showHistoryPlanDialog(CommunityPlanModel plan) {
@@ -1907,6 +2172,222 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       return 'Buenas tardes;';
     }
     return 'Buenas noches;';
+  }
+}
+
+class _CommunityPartidoTab extends StatelessWidget {
+  final List<CommunityPlanModel> plans;
+  final Future<void> Function() onRefresh;
+  final String Function(String) formatDate;
+
+  const _CommunityPartidoTab({
+    required this.plans,
+    required this.onRefresh,
+    required this.formatDate,
+  });
+
+  String _timeRange(CommunityPlanModel plan) {
+    if (plan.scheduledTime.isEmpty) {
+      return '';
+    }
+
+    try {
+      final parts = plan.scheduledTime.split(':');
+      if (parts.length < 2) {
+        return plan.scheduledTime;
+      }
+      final hour = int.tryParse(parts[0]);
+      final minute = int.tryParse(parts[1]);
+      if (hour == null || minute == null) {
+        return plan.scheduledTime;
+      }
+
+      final start = DateTime(2000, 1, 1, hour, minute);
+      final end = start.add(Duration(minutes: plan.durationMinutes));
+      final endHour = end.hour.toString().padLeft(2, '0');
+      final endMinute = end.minute.toString().padLeft(2, '0');
+      return '${plan.scheduledTime.substring(0, 5)} - $endHour:$endMinute';
+    } catch (_) {
+      return plan.scheduledTime;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (plans.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 32, 16, 120),
+        children: const [
+          Column(
+            children: [
+              Icon(Icons.sports_tennis, color: AppColors.muted, size: 40),
+              SizedBox(height: 12),
+              Text(
+                'No hay partidos recientes pendientes de resultado.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.muted),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      itemCount: plans.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final plan = plans[index];
+        final venueName = plan.venue?.name ?? 'Centro deportivo';
+        final date = formatDate(plan.scheduledDate);
+        final timeRange = _timeRange(plan);
+
+        return InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () async {
+            await showMatchResultDialog(context, plan: plan);
+            await onRefresh();
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface2,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.emoji_events_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        venueName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$date · $timeRange',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.muted,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CommunityCollapsedStepCard extends StatelessWidget {
+  final Color borderColor;
+  final String title;
+  final String statusLabel;
+  final String summary;
+
+  const _CommunityCollapsedStepCard({
+    required this.borderColor,
+    required this.title,
+    required this.statusLabel,
+    required this.summary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: borderColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.check_circle_outline,
+              color: borderColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  statusLabel,
+                  style: TextStyle(
+                    color: borderColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  summary,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

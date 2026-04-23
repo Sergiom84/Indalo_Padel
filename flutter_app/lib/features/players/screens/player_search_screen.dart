@@ -6,8 +6,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
 import '../../../shared/widgets/loading_spinner.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/padel_badge.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../models/player_model.dart';
 import '../providers/player_provider.dart';
 
@@ -221,6 +224,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
 
   @override
   Widget build(BuildContext context) {
+    final alerts = ref.watch(appAlertsProvider);
+
     ref.listen<int>(playerNetworkRefreshProvider, (previous, next) {
       if (previous != next) {
         unawaited(_refreshAll());
@@ -243,11 +248,16 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
           indicatorColor: AppColors.primary,
           labelColor: Colors.white,
           unselectedLabelColor: AppColors.muted,
-          tabs: const [
-            Tab(text: 'Mi red'),
-            Tab(text: 'Invitaciones'),
-            Tab(text: 'Mis peticiones'),
-            Tab(text: 'Descubrir'),
+          tabs: [
+            const Tab(text: 'Mi red'),
+            Tab(
+              child: NotificationLabel(
+                label: 'Invitaciones',
+                showDot: alerts.hasPlayersBadge,
+              ),
+            ),
+            const Tab(text: 'Mis peticiones'),
+            const Tab(text: 'Descubrir'),
           ],
         ),
       ),
@@ -304,13 +314,6 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                 child: _PlayerConnectionCard(
                   player: player,
                   onTap: () => context.push('/players/${player.userId}'),
-                  footer: const Align(
-                    alignment: Alignment.centerLeft,
-                    child: PadelBadge(
-                      label: 'Compañero confirmado',
-                      variant: PadelBadgeVariant.success,
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -471,6 +474,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
 
   Widget _buildDiscoverTab() {
     final loading = _loadingDiscover && _players.isEmpty;
+    final discoverPlayers = _discoverPlayers;
 
     return Column(
       children: [
@@ -591,7 +595,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                   color: AppColors.primary,
                   backgroundColor: AppColors.surface,
                   onRefresh: _search,
-                  child: _players.isEmpty
+                  child: discoverPlayers.isEmpty
                       ? ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(24, 120, 24, 120),
@@ -606,11 +610,11 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                       : ListView.separated(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                          itemCount: _players.length,
+                          itemCount: discoverPlayers.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(height: 10),
                           itemBuilder: (context, index) {
-                            final player = _players[index];
+                            final player = discoverPlayers[index];
                             return _PlayerConnectionCard(
                               player: player,
                               onTap: () =>
@@ -677,57 +681,18 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
     final minute = local.minute.toString().padLeft(2, '0');
     return '$prefix el $day/$month a las $hour:$minute';
   }
-}
 
-class _NetworkSection extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final List<Widget> children;
-  final String emptyMessage;
+  List<PlayerModel> get _discoverPlayers {
+    final companionIds =
+        _network.companions.map((player) => player.userId).toSet();
 
-  const _NetworkSection({
-    required this.title,
-    required this.subtitle,
-    required this.children,
-    required this.emptyMessage,
-  });
+    return _players.where((player) {
+      if (companionIds.contains(player.userId)) {
+        return false;
+      }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
-          if (children.isEmpty)
-            _EmptyPlayersState(
-              icon: Icons.inbox_outlined,
-              message: emptyMessage,
-            )
-          else
-            ...children,
-        ],
-      ),
-    );
+      return player.connectionStatus != 'accepted';
+    }).toList(growable: false);
   }
 }
 
@@ -868,25 +833,13 @@ class _PlayerAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 46,
-      height: 46,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: Center(
-        child: Text(
-          player.displayName.isNotEmpty
-              ? player.displayName[0].toUpperCase()
-              : '?',
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-          ),
-        ),
-      ),
+    return UserAvatar(
+      displayName: player.displayName,
+      avatarUrl: player.avatarUrl,
+      size: 46,
+      fontSize: 18,
+      backgroundColor: AppColors.surface,
+      borderColor: AppColors.border,
     );
   }
 }

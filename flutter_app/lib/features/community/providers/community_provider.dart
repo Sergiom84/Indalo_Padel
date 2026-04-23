@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
 import '../models/community_model.dart';
 import '../models/match_result_model.dart';
 
@@ -38,6 +39,7 @@ class CommunityActions {
       'force_send': forceSend,
     });
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
   }
 
   Future<void> updatePlan({
@@ -56,6 +58,7 @@ class CommunityActions {
       'force_send': forceSend,
     });
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
   }
 
   Future<void> respondToPlan({
@@ -68,6 +71,7 @@ class CommunityActions {
       'updated_at': updatedAt,
     });
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
   }
 
   Future<void> proposeTime({
@@ -82,6 +86,7 @@ class CommunityActions {
       'updated_at': updatedAt,
     });
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
   }
 
   Future<String?> updateReservationStatus({
@@ -99,6 +104,7 @@ class CommunityActions {
       },
     );
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
     if (response is Map && response['calendar_sync_error'] != null) {
       return response['calendar_sync_error'].toString();
     }
@@ -113,6 +119,7 @@ class CommunityActions {
       'updated_at': updatedAt,
     });
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
   }
 
   Future<CommunityConflictPreviewModel> previewConflicts({
@@ -163,6 +170,7 @@ class CommunityActions {
         ? response
         : Map<String, dynamic>.from(response as Map);
     _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
     return MatchResultModel.fromPayload(planId: planId, payload: json);
   }
 
@@ -172,6 +180,7 @@ class CommunityActions {
   }) async {
     await _api
         .post('/padel/community/notifications/$notificationId/read', data: {});
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
     if (refresh) {
       _ref.invalidate(communityDashboardProvider);
     }

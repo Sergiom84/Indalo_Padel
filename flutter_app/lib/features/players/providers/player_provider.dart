@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
 import '../models/player_model.dart';
 
 final playerNetworkRefreshProvider = StateProvider<int>((ref) => 0);
@@ -8,6 +9,7 @@ void notifyPlayerNetworkChanged(WidgetRef ref) {
   ref.read(playerNetworkRefreshProvider.notifier).state++;
   ref.invalidate(networkProvider);
   ref.invalidate(favoritesProvider);
+  ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
 }
 
 /// Provider para obtener el perfil del jugador actual.

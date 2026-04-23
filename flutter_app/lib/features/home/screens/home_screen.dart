@@ -101,32 +101,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           .whereType<Map>()
           .map((p) => Map<String, dynamic>.from(p))
           .where((p) {
-            if (p['reservation_state'] != 'confirmed') return false;
-            final dateStr = p['scheduled_date']?.toString() ?? '';
-            if (dateStr.isEmpty) return false;
-            try {
-              return DateTime.parse(dateStr).isAfter(today.subtract(const Duration(days: 1)));
-            } catch (_) {
-              return false;
-            }
-          })
-          .map((p) {
-            final venue = p['venue'] is Map ? Map<String, dynamic>.from(p['venue'] as Map) : <String, dynamic>{};
-            final time = (p['scheduled_time']?.toString() ?? '').substring(0, 5);
-            return <String, dynamic>{
-              '_type': 'community',
-              'id': p['id'],
-              'venue_name': venue['name']?.toString() ?? 'Convocatoria',
-              'booking_date': p['scheduled_date']?.toString() ?? '',
-              'start_time': time,
-              'status': 'confirmada',
-            };
-          })
-          .toList();
+        if (p['reservation_state'] != 'confirmed') return false;
+        final dateStr = p['scheduled_date']?.toString() ?? '';
+        if (dateStr.isEmpty) return false;
+        try {
+          return DateTime.parse(dateStr)
+              .isAfter(today.subtract(const Duration(days: 1)));
+        } catch (_) {
+          return false;
+        }
+      }).map((p) {
+        final venue = p['venue'] is Map
+            ? Map<String, dynamic>.from(p['venue'] as Map)
+            : <String, dynamic>{};
+        final time = (p['scheduled_time']?.toString() ?? '').substring(0, 5);
+        return <String, dynamic>{
+          '_type': 'community',
+          'id': p['id'],
+          'venue_name': venue['name']?.toString() ?? 'Convocatoria',
+          'booking_date': p['scheduled_date']?.toString() ?? '',
+          'start_time': time,
+          'status': 'confirmada',
+        };
+      }).toList();
       setState(() => _confirmedCommunityPlans = confirmed);
     });
 
-    await Future.wait([venuesFuture, bookingsFuture, matchesFuture, communityFuture]);
+    await Future.wait(
+        [venuesFuture, bookingsFuture, matchesFuture, communityFuture]);
   }
 
   List<dynamic> _asList(dynamic value) {
@@ -348,42 +350,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
             ),
             const SizedBox(height: 18),
-            _HomeSection(
+            const _HomeSection(
               title: 'Clubes destacados',
-              actionLabel: 'Abrir clubes',
-              onAction: () => context.go('/venues'),
-              child: _loadingVenues && _venues.isEmpty
-                  ? const LoadingSpinner()
-                  : _venues.isEmpty
-                      ? const _EmptyState(
-                          icon: Icons.sports_tennis_outlined,
-                          message: 'Aún no hay clubes listados.',
-                        )
-                      : Column(
-                          children: _venues.take(3).map((venue) {
-                            return _VenuePreviewCard(
-                              venue: venue as Map<String, dynamic>,
-                            );
-                          }).toList(),
-                        ),
-            ),
-            const SizedBox(height: 18),
-            _HomeSection(
-              title: 'Partidos abiertos',
-              actionLabel: 'Ir a partidos',
-              onAction: () => context.go('/matches'),
-              child: _loadingMatches && openMatches.isEmpty
-                  ? const LoadingSpinner()
-                  : openMatches.isEmpty
-                      ? const _EmptyState(
-                          icon: Icons.emoji_events_outlined,
-                          message: 'No hay partidos abiertos ahora mismo.',
-                        )
-                      : Column(
-                          children: openMatches
-                              .map((match) => _MatchPreviewCard(match: match))
-                              .toList(),
-                        ),
+              actionLabel: 'Próximamente',
+              child: _EmptyState(
+                icon: Icons.sports_tennis_outlined,
+                message: 'Clubes disponible próximamente.',
+              ),
             ),
             if (loadingSummary)
               const Padding(
@@ -703,13 +676,13 @@ class _MetricTile extends StatelessWidget {
 class _HomeSection extends StatelessWidget {
   final String title;
   final String actionLabel;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
   final Widget child;
 
   const _HomeSection({
     required this.title,
     required this.actionLabel,
-    required this.onAction,
+    this.onAction,
     required this.child,
   });
 
@@ -822,132 +795,6 @@ class _BookingPreviewCard extends StatelessWidget {
       default:
         return PadelBadgeVariant.neutral;
     }
-  }
-}
-
-class _VenuePreviewCard extends StatelessWidget {
-  final Map<String, dynamic> venue;
-
-  const _VenuePreviewCard({required this.venue});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => context.push('/venues/${venue['id']}'),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface2,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.sports_tennis, color: AppColors.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    venue['name']?.toString() ??
-                        venue['nombre']?.toString() ??
-                        'Club',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    venue['location']?.toString() ??
-                        venue['ubicacion']?.toString() ??
-                        'Sin ubicación',
-                    style:
-                        const TextStyle(color: AppColors.muted, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            PadelBadge(label: '${venue['court_count'] ?? 0} pistas'),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MatchPreviewCard extends StatelessWidget {
-  final dynamic match;
-
-  const _MatchPreviewCard({required this.match});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => context.push('/matches/${match['id']}'),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface2,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.emoji_events, color: AppColors.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    match['venue_name']?.toString() ?? 'Partido abierto',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${match['match_date'] ?? match['fecha'] ?? ''} · ${match['start_time'] ?? match['hora'] ?? ''}',
-                    style:
-                        const TextStyle(color: AppColors.muted, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              '${match['player_count'] ?? 0}/4',
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
