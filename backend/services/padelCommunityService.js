@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
 import { pool } from '../db.js';
+import { sendPushToUsers } from './pushNotificationService.js';
 import {
   APP_TIME_ZONE,
   DEFAULT_DURATION_MINUTES,
@@ -491,6 +492,14 @@ async function createNotifications(client, {
       [planId, recipientId, type, title, message, JSON.stringify(metadata)],
     );
   }
+
+  // Push notification (fire-and-forget, no interrumpe el flujo principal)
+  sendPushToUsers({
+    userIds: recipients,
+    title,
+    body: message,
+    data: { planId: String(planId), type },
+  }).catch(() => {});
 }
 
 async function updateInviteState(client, planId, nextState, extraUpdates = {}) {

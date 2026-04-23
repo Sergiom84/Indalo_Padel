@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/storage/secure_storage.dart';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await SecureStorage.saveToken(token);
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
+      // Registrar token FCM tras autenticación exitosa (fire-and-forget)
+      NotificationService.instance.registerToken(_api).catchError((_) {});
     } catch (e) {
       state =
           state.copyWith(loading: false, error: e.toString(), clearUser: false);
@@ -176,6 +179,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // Eliminar token FCM antes de borrar credenciales
+    await NotificationService.instance.unregisterToken(_api).catchError((_) {});
     await SecureStorage.clearAll();
     state = const AuthState();
   }

@@ -9,6 +9,7 @@ import padelBookingsRoutes from './routes/padelBookings.js';
 import padelMatchesRoutes from './routes/padelMatches.js';
 import padelCommunityRoutes from './routes/padelCommunity.js';
 import padelPlayersRoutes from './routes/padelPlayers.js';
+import padelFcmTokensRoutes from './routes/padelFcmTokens.js';
 import { startCalendarSyncJob } from './services/padelCalendarSync.js';
 import { startCommunityLifecycleJob } from './services/padelCommunityLifecycle.js';
 import { isTransactionalEmailConfigured } from './services/authEmailService.js';
@@ -97,6 +98,7 @@ app.use('/api/padel/bookings', padelBookingsRoutes);
 app.use('/api/padel/matches', padelMatchesRoutes);
 app.use('/api/padel/community', padelCommunityRoutes);
 app.use('/api/padel/players', padelPlayersRoutes);
+app.use('/api/padel/notifications', padelFcmTokensRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

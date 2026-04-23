@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "83080451541",
+    "project_id": "indalo-padel",
+    "storage_bucket": "indalo-padel.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:83080451541:android:d599901d1ec2935768995c",
+        "android_client_info": {
+          "package_name": "com.indalopadel.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpk7X9OUOSUbfTUiZ99vKHWDxToIFnybs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
