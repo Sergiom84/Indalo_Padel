@@ -1,40 +1,68 @@
+import crypto from 'crypto';
 import { pool } from '../db.js';
 
-let firebaseAdmin = null;
+// Token OAuth2 cacheado para reutilizar durante su vida útil
+let cachedToken = null;
+let tokenExpiresAt = 0;
 
-async function getAdmin() {
-  if (firebaseAdmin) return firebaseAdmin;
-
+function getServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
-    console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_JSON no configurado — push notifications desactivadas');
-    return null;
-  }
-
+  if (!raw) return null;
   try {
-    // Import dinámico para no fallar el arranque si el paquete no está instalado
-    const admin = (await import('firebase-admin')).default;
-    const serviceAccount = JSON.parse(raw);
-
-    if (!admin.apps.length) {
-      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    }
-
-    firebaseAdmin = admin;
-    console.log('🔔 Firebase Admin inicializado');
-    return admin;
-  } catch (err) {
-    console.error('❌ Error inicializando Firebase Admin:', err.message);
+    return JSON.parse(raw);
+  } catch {
+    console.error('❌ FIREBASE_SERVICE_ACCOUNT_JSON no es JSON válido');
     return null;
   }
 }
 
-// Inicializa de forma eager si la variable está disponible
-(async () => {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    await getAdmin();
+function buildJwt(serviceAccount) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  })).toString('base64url');
+
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(`${header}.${payload}`);
+  const signature = sign.sign(serviceAccount.private_key, 'base64url');
+
+  return `${header}.${payload}.${signature}`;
+}
+
+async function getAccessToken() {
+  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
+
+  const sa = getServiceAccount();
+  if (!sa) return null;
+
+  const jwt = buildJwt(sa);
+  const body = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion: jwt,
+  });
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Error obteniendo token OAuth2: ${err}`);
   }
-})();
+
+  const json = await res.json();
+  cachedToken = json.access_token;
+  tokenExpiresAt = Date.now() + (json.expires_in - 60) * 1000;
+  console.log('🔔 Firebase token OAuth2 obtenido');
+  return cachedToken;
+}
 
 /**
  * Registra o actualiza el token FCM de un dispositivo.
@@ -62,62 +90,77 @@ export async function deleteFcmToken({ userId, token }) {
 }
 
 /**
- * Envía una push notification a todos los dispositivos activos de los usuarios indicados.
- * Falla de forma silenciosa para no interrumpir el flujo principal.
+ * Envía push a todos los dispositivos activos de los usuarios indicados.
+ * Fire-and-forget: no interrumpe el flujo principal si falla.
  */
 export async function sendPushToUsers({ userIds, title, body, data = {} }) {
   if (!userIds?.length) return;
 
-  const admin = await getAdmin();
-  if (!admin) return;
+  const sa = getServiceAccount();
+  if (!sa) return;
 
+  const { rows } = await pool.query(
+    'SELECT token FROM app.padel_fcm_tokens WHERE user_id = ANY($1)',
+    [userIds],
+  );
+  if (!rows.length) return;
+
+  let accessToken;
   try {
-    const { rows } = await pool.query(
-      'SELECT token FROM app.padel_fcm_tokens WHERE user_id = ANY($1)',
-      [userIds],
-    );
+    accessToken = await getAccessToken();
+  } catch (err) {
+    console.error('❌ Push omitido, no se pudo autenticar con Firebase:', err.message);
+    return;
+  }
 
-    if (!rows.length) return;
+  const projectId = sa.project_id;
+  const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+  const invalidTokens = [];
+  let ok = 0;
 
-    const messages = rows.map(({ token }) => ({
-      token,
-      notification: { title, body },
-      data: Object.fromEntries(
-        Object.entries(data).map(([k, v]) => [k, String(v)]),
-      ),
-      android: {
-        priority: 'high',
-        notification: { channelId: 'indalo_padel_default' },
-      },
-    }));
+  await Promise.all(rows.map(async ({ token }) => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: {
+            token,
+            notification: { title, body },
+            data: Object.fromEntries(
+              Object.entries(data).map(([k, v]) => [k, String(v)]),
+            ),
+            android: {
+              priority: 'high',
+              notification: { channel_id: 'indalo_padel_default' },
+            },
+          },
+        }),
+      });
 
-    const response = await admin.messaging().sendEach(messages);
-
-    // Limpiar tokens inválidos de la BD
-    const invalidTokens = [];
-    response.responses.forEach((res, i) => {
-      if (!res.success) {
-        const code = res.error?.code;
-        if (
-          code === 'messaging/registration-token-not-registered' ||
-          code === 'messaging/invalid-registration-token'
-        ) {
-          invalidTokens.push(rows[i].token);
+      if (res.ok) {
+        ok++;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const status = err?.error?.status;
+        if (status === 'UNREGISTERED' || status === 'INVALID_ARGUMENT') {
+          invalidTokens.push(token);
         }
       }
-    });
-
-    if (invalidTokens.length) {
-      await pool.query(
-        'DELETE FROM app.padel_fcm_tokens WHERE token = ANY($1)',
-        [invalidTokens],
-      );
+    } catch {
+      // error de red en un token concreto, ignorar
     }
+  }));
 
-    console.log(
-      `🔔 Push enviado: ${response.successCount} ok, ${response.failureCount} fallidos`,
-    );
-  } catch (err) {
-    console.error('❌ Error enviando push notifications (no bloqueante):', err.message);
+  if (invalidTokens.length) {
+    await pool.query(
+      'DELETE FROM app.padel_fcm_tokens WHERE token = ANY($1)',
+      [invalidTokens],
+    ).catch(() => {});
   }
+
+  console.log(`🔔 Push: ${ok} enviados, ${rows.length - ok} fallidos`);
 }
