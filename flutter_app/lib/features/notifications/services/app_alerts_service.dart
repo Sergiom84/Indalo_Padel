@@ -13,7 +13,6 @@ class AppAlertsService {
   static final AppAlertsService instance = AppAlertsService._();
 
   static const _storagePrefix = 'padel_notified_alerts_';
-  static const _resultSubmittedPrefix = 'padel_result_submitted_';
 
   final ApiClient _api = ApiClient();
 
@@ -23,28 +22,38 @@ class AppAlertsService {
 
     PlayerNetworkSnapshot network = const PlayerNetworkSnapshot();
     CommunityDashboardModel community = const CommunityDashboardModel();
+    _CommunityBootstrapSnapshot? bootstrap;
 
-    try {
-      network = await _fetchNetwork();
-    } catch (error) {
-      networkError = error;
-    }
-
-    try {
-      community = await _fetchCommunity();
-    } catch (error) {
-      communityError = error;
-    }
+    await Future.wait<void>([
+      () async {
+        try {
+          network = await _fetchNetwork();
+        } catch (error) {
+          networkError = error;
+        }
+      }(),
+      () async {
+        try {
+          community = await _fetchCommunity();
+        } catch (error) {
+          communityError = error;
+        }
+      }(),
+      () async {
+        try {
+          bootstrap = await _fetchCommunityBootstrap();
+        } catch (_) {}
+      }(),
+    ]);
 
     if (networkError != null && communityError != null) {
-      throw networkError;
+      throw networkError!;
     }
 
-    final submittedIds = await _loadSubmittedPlanIds();
     final state = _buildState(
       network: network,
       community: community,
-      submittedResultPlanIds: submittedIds,
+      bootstrap: bootstrap,
     );
     if (notifyOnNew) {
       await _notifyNewAlerts(state);
@@ -52,22 +61,11 @@ class AppAlertsService {
     return state;
   }
 
-  Future<void> markResultSubmitted(int planId) async {
-    final key = await _resultStorageKey();
-    if (key == null) return;
-    final existing = await _loadSubmittedPlanIds();
-    await SecureStorage.writeValue(
-      key,
-      jsonEncode([...existing, planId]),
-    );
-  }
-
   Future<void> clearStoredKeys() async {
     final key = await _storageKey();
-    if (key == null) {
-      return;
+    if (key != null) {
+      await SecureStorage.deleteValue(key);
     }
-    await SecureStorage.deleteValue(key);
   }
 
   Future<PlayerNetworkSnapshot> _fetchNetwork() async {
@@ -88,12 +86,20 @@ class AppAlertsService {
     );
   }
 
+  Future<_CommunityBootstrapSnapshot> _fetchCommunityBootstrap() async {
+    final data = await _api.get('/padel/community/bootstrap');
+    final json = data is Map<String, dynamic>
+        ? data
+        : Map<String, dynamic>.from(data as Map);
+    return _CommunityBootstrapSnapshot.fromJson(json);
+  }
+
   AppAlertsState _buildState({
     required PlayerNetworkSnapshot network,
     required CommunityDashboardModel community,
-    Set<int> submittedResultPlanIds = const {},
+    required _CommunityBootstrapSnapshot? bootstrap,
   }) {
-    final planById = <int, CommunityPlanModel>{
+    final allPlans = <int, CommunityPlanModel>{
       for (final plan in [...community.activePlans, ...community.historyPlans])
         plan.id: plan,
     };
@@ -104,13 +110,13 @@ class AppAlertsService {
           .map(_buildCommunityInvitationAlert),
       ...community.notifications
           .where((notification) =>
-              !(planById[notification.planId]?.isOrganizer ?? true))
+              !(allPlans[notification.planId]?.isOrganizer ?? true))
           .map(_buildCommunityNotificationAlert),
     ];
 
     final communityPlannerAlerts = community.notifications
         .where((notification) =>
-            planById[notification.planId]?.isOrganizer ?? true)
+            allPlans[notification.planId]?.isOrganizer ?? true)
         .map(_buildCommunityNotificationAlert)
         .toList(growable: false);
 
@@ -118,12 +124,23 @@ class AppAlertsService {
         .map(_buildPlayerInvitationAlert)
         .toList(growable: false);
 
-    final pendingResultPlans = community.historyPlans.where((plan) {
-      if (!plan.reservationConfirmed) return false;
-      if (submittedResultPlanIds.contains(plan.id)) return false;
-      final participant = plan.currentUserParticipant;
-      return participant != null && participant.responseState == 'accepted';
-    }).toList(growable: false);
+    final pendingResultPlanIdSet = bootstrap?.hasPendingResultPlanIds == true
+        ? bootstrap!.pendingResultPlanIds.toSet()
+        : null;
+
+    final pendingResultPlans = (pendingResultPlanIdSet != null
+            ? pendingResultPlanIdSet
+                .map((planId) => allPlans[planId])
+                .whereType<CommunityPlanModel>()
+            : _fallbackPendingResultPlans(allPlans.values))
+        .toList(growable: false)
+      ..sort((left, right) {
+        final leftEnd =
+            left.endDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final rightEnd =
+            right.endDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return rightEnd.compareTo(leftEnd);
+      });
 
     return AppAlertsState(
       communityPlannerAlerts: communityPlannerAlerts,
@@ -131,6 +148,21 @@ class AppAlertsService {
       playerInvitationAlerts: playerInvitationAlerts,
       pendingResultPlans: pendingResultPlans,
     );
+  }
+
+  Iterable<CommunityPlanModel> _fallbackPendingResultPlans(
+    Iterable<CommunityPlanModel> plans,
+  ) {
+    final now = DateTime.now();
+
+    return plans.where((plan) {
+      if (!plan.needsResultNotification) return false;
+      final participant = plan.currentUserParticipant;
+      if (participant == null || participant.responseState != 'accepted') {
+        return false;
+      }
+      return plan.canCaptureResult(reference: now);
+    });
   }
 
   bool _planNeedsAttention(CommunityPlanModel plan) {
@@ -265,30 +297,45 @@ class AppAlertsService {
       return null;
     }
   }
+}
 
-  Future<String?> _resultStorageKey() async {
-    try {
-      final rawUser = await SecureStorage.getUser();
-      if (rawUser == null || rawUser.trim().isEmpty) return null;
-      final decoded = jsonDecode(rawUser);
-      if (decoded is! Map || decoded['id'] == null) return null;
-      return '$_resultSubmittedPrefix${decoded['id']}';
-    } catch (_) {
-      return null;
-    }
+class _CommunityBootstrapSnapshot {
+  final bool hasPendingResultPlanIds;
+  final List<int> pendingResultPlanIds;
+
+  const _CommunityBootstrapSnapshot({
+    this.hasPendingResultPlanIds = false,
+    this.pendingResultPlanIds = const [],
+  });
+
+  factory _CommunityBootstrapSnapshot.fromJson(Map<String, dynamic> json) {
+    final rawPlanIds = json['pending_result_plan_ids'];
+    final pendingResultPlanIds = rawPlanIds is List
+        ? rawPlanIds
+            .map(_asNullableInt)
+            .whereType<int>()
+            .toList(growable: false)
+        : const <int>[];
+
+    return _CommunityBootstrapSnapshot(
+      hasPendingResultPlanIds: json.containsKey('pending_result_plan_ids'),
+      pendingResultPlanIds: pendingResultPlanIds,
+    );
+  }
+}
+
+int? _asNullableInt(dynamic value) {
+  if (value is int) {
+    return value;
   }
 
-  Future<Set<int>> _loadSubmittedPlanIds() async {
-    final key = await _resultStorageKey();
-    if (key == null) return const {};
-    try {
-      final raw = await SecureStorage.readValue(key);
-      if (raw == null || raw.trim().isEmpty) return const {};
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const {};
-      return decoded.whereType<int>().toSet();
-    } catch (_) {
-      return const {};
-    }
+  if (value is num) {
+    return value.toInt();
   }
+
+  if (value is String) {
+    return int.tryParse(value);
+  }
+
+  return null;
 }

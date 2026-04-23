@@ -88,6 +88,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _init();
   }
 
+  void _postAuthBootstrap() {
+    NotificationService.instance.initialize().catchError((_) {});
+    NotificationService.instance.requestPermissionsIfNeeded().catchError((_) {});
+    NotificationService.instance.registerToken(_api).catchError((_) {});
+  }
+
   Future<void> _init() async {
     final token = await SecureStorage.getToken();
     if (token == null || token.isEmpty) {
@@ -103,6 +109,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           jsonDecode(cachedJson) as Map<String, dynamic>,
         );
         state = AuthState(user: cached);
+        _postAuthBootstrap();
       } catch (_) {}
     }
 
@@ -112,6 +119,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
+      _postAuthBootstrap();
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 401 || status == 403) {
@@ -137,8 +145,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await SecureStorage.saveToken(token);
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
-      // Registrar token FCM tras autenticación exitosa (fire-and-forget)
-      NotificationService.instance.registerToken(_api).catchError((_) {});
+      _postAuthBootstrap();
     } catch (e) {
       state =
           state.copyWith(loading: false, error: e.toString(), clearUser: false);

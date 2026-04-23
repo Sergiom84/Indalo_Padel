@@ -7,6 +7,10 @@ import '../../features/auth/screens/register_screen.dart';
 import '../../features/bookings/screens/booking_confirmation_screen.dart';
 import '../../features/bookings/screens/booking_form_screen.dart';
 import '../../features/bookings/screens/my_bookings_screen.dart';
+import '../../features/chat/models/chat_models.dart';
+import '../../features/chat/screens/chat_conversation_resolver_screen.dart';
+import '../../features/chat/screens/chat_conversations_screen.dart';
+import '../../features/chat/screens/chat_thread_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/matches/screens/match_create_screen.dart';
@@ -172,6 +176,52 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/players',
                 builder: (context, state) => const PlayerSearchScreen(),
                 routes: [
+                  GoRoute(
+                    path: 'chat',
+                    builder: (context, state) =>
+                        const ChatConversationsScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'direct/:userId',
+                        builder: (context, state) {
+                          final userId = int.parse(
+                            state.pathParameters['userId']!,
+                          );
+                          return ChatConversationResolverScreen(
+                            mode: ChatConversationResolverMode.direct,
+                            targetId: userId,
+                          );
+                        },
+                      ),
+                      GoRoute(
+                        path: 'event/:planId',
+                        builder: (context, state) {
+                          final planId = int.parse(
+                            state.pathParameters['planId']!,
+                          );
+                          return ChatConversationResolverScreen(
+                            mode: ChatConversationResolverMode.event,
+                            targetId: planId,
+                          );
+                        },
+                      ),
+                      GoRoute(
+                        path: ':conversationId',
+                        builder: (context, state) {
+                          final conversationId = int.parse(
+                            state.pathParameters['conversationId']!,
+                          );
+                          final extra = state.extra;
+                          final initialConversation =
+                              extra is ChatConversationModel ? extra : null;
+                          return ChatThreadScreen(
+                            conversationId: conversationId,
+                            initialConversation: initialConversation,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                   GoRoute(
                     path: 'favorites',
                     builder: (context, state) => const FavoritesListScreen(),

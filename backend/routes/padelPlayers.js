@@ -4,6 +4,12 @@ import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
+  DEFAULT_DURATION_MINUTES,
+  calculateEndTime,
+  normalizeDateValue,
+  nowInAppZone,
+} from '../services/calendarUtils.js';
+import {
   deleteProfileSchema,
   playerSearchQuerySchema,
   updateProfileSchema,
@@ -73,6 +79,136 @@ function buildPlayerRow(row) {
 
 function buildDeletedEmail(userId) {
   return `deleted+${userId}+${Date.now()}@deleted.indalo.local`;
+}
+
+function parseOptionalInt(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function hasCommunityPlanFinished(plan, referenceNow = nowInAppZone()) {
+  const endMoment = calculateEndTime(
+    normalizeDateValue(plan.scheduled_date),
+    plan.scheduled_time,
+    Number.parseInt(plan.duration_minutes, 10) || DEFAULT_DURATION_MINUTES,
+  );
+
+  return endMoment.plus({ minutes: 1 }).toMillis() <= referenceNow.toMillis();
+}
+
+function hasLegacyMatchFinished(match, referenceNow = nowInAppZone()) {
+  if (match.status === 'finalizado') {
+    return true;
+  }
+
+  if (!match.match_date || !match.start_time) {
+    return false;
+  }
+
+  const endMoment = calculateEndTime(
+    normalizeDateValue(match.match_date),
+    match.start_time,
+    DEFAULT_DURATION_MINUTES,
+  );
+
+  return endMoment.toMillis() <= referenceNow.toMillis();
+}
+
+async function resolveCommunityPlanForRating(client, {
+  raterId,
+  ratedId,
+  planId = null,
+  requireUnrated = false,
+}) {
+  const result = await client.query(
+    `
+      SELECT
+        cp.id,
+        cp.scheduled_date,
+        cp.scheduled_time,
+        cp.duration_minutes,
+        cp.invite_state,
+        cp.reservation_state,
+        mr.status AS result_status,
+        EXISTS (
+          SELECT 1
+          FROM app.padel_match_result_submissions submissions
+          WHERE submissions.plan_id = cp.id
+            AND submissions.user_id = $1
+        ) AS rater_submitted_result,
+        EXISTS (
+          SELECT 1
+          FROM app.padel_player_ratings pr
+          WHERE pr.rater_id = $1
+            AND pr.rated_id = $2
+            AND pr.community_plan_id = cp.id
+        ) AS already_rated
+      FROM app.padel_community_plans cp
+      JOIN app.padel_community_plan_players rater_membership
+        ON rater_membership.plan_id = cp.id
+       AND rater_membership.user_id = $1
+       AND rater_membership.response_state = 'accepted'
+      JOIN app.padel_community_plan_players rated_membership
+        ON rated_membership.plan_id = cp.id
+       AND rated_membership.user_id = $2
+       AND rated_membership.response_state = 'accepted'
+      LEFT JOIN app.padel_match_results mr ON mr.plan_id = cp.id
+      WHERE cp.reservation_state = 'confirmed'
+        AND cp.invite_state NOT IN ('cancelled', 'expired')
+        AND ($3::int IS NULL OR cp.id = $3)
+      ORDER BY
+        cp.scheduled_date DESC,
+        cp.scheduled_time DESC,
+        cp.id DESC
+    `,
+    [raterId, ratedId, planId],
+  );
+
+  if (!result.rows.length) {
+    return { plan: null, error: 'no_shared_plan' };
+  }
+
+  const finishedPlans = result.rows.filter((row) => hasCommunityPlanFinished(row));
+  if (!finishedPlans.length) {
+    return { plan: null, error: 'plan_not_finished' };
+  }
+
+  const resolvedPlans = finishedPlans.filter(
+    (row) => row.result_status === 'consensuado' || row.rater_submitted_result,
+  );
+  if (!resolvedPlans.length) {
+    return { plan: null, error: 'result_missing' };
+  }
+
+  const candidatePlans = requireUnrated
+    ? resolvedPlans.filter((row) => !row.already_rated)
+    : resolvedPlans;
+
+  if (!candidatePlans.length) {
+    return { plan: null, error: 'already_rated' };
+  }
+
+  return { plan: candidatePlans[0], error: null };
+}
+
+async function loadLegacyMatchForRating(client, { raterId, ratedId, matchId }) {
+  const result = await client.query(
+    `
+      SELECT m.id, m.status, m.match_date, m.start_time
+      FROM app.padel_matches m
+      JOIN app.padel_match_players rater_player
+        ON rater_player.match_id = m.id
+       AND rater_player.user_id = $1
+      JOIN app.padel_match_players rated_player
+        ON rated_player.match_id = m.id
+       AND rated_player.user_id = $2
+      WHERE m.id = $3
+      LIMIT 1
+    `,
+    [raterId, ratedId, matchId],
+  );
+
+  return result.rows[0] || null;
 }
 
 // GET /api/padel/players/profile - Mi perfil
@@ -720,20 +856,35 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // POST /api/padel/players/:id/rate - Valorar jugador
 router.post('/:id/rate', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { rating, comment, match_id } = req.body;
+    const {
+      rating,
+      comment,
+      match_id,
+      plan_id,
+      community_plan_id,
+    } = req.body;
     const raterId = req.user.userId;
-    const ratedId = parseInt(req.params.id);
+    const ratedId = parseInt(req.params.id, 10);
+    const matchId = parseOptionalInt(match_id);
+    const planId = parseOptionalInt(plan_id ?? community_plan_id);
 
     if (raterId === ratedId) {
       return res.status(400).json({ error: 'No puedes valorarte a ti mismo' });
+    }
+
+    if (planId !== null && matchId !== null) {
+      return res.status(400).json({
+        error: 'Indica solo un contexto de valoración: plan_id o match_id.',
+      });
     }
 
     if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ error: 'La valoración debe ser entre 1 y 5' });
     }
 
-    const ratedExists = await pool.query(
+    const ratedExists = await client.query(
       'SELECT id FROM app.users WHERE id = $1 AND deleted_at IS NULL',
       [ratedId]
     );
@@ -741,19 +892,129 @@ router.post('/:id/rate', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Jugador no encontrado' });
     }
 
-    const result = await pool.query(
+    const trimmedComment =
+      typeof comment === 'string' && comment.trim().length > 0
+        ? comment.trim()
+        : null;
+
+    if (planId !== null || matchId === null) {
+      const { plan, error } = await resolveCommunityPlanForRating(client, {
+        raterId,
+        ratedId,
+        planId,
+        requireUnrated: planId === null && matchId === null,
+      });
+
+      if (plan) {
+        const existingRating = await client.query(
+          `
+            SELECT id
+            FROM app.padel_player_ratings
+            WHERE rater_id = $1
+              AND rated_id = $2
+              AND community_plan_id = $3
+            LIMIT 1
+          `,
+          [raterId, ratedId, plan.id],
+        );
+
+        const ratingResult = existingRating.rows.length > 0
+          ? await client.query(
+            `
+              UPDATE app.padel_player_ratings
+              SET rating = $2,
+                  comment = $3
+              WHERE id = $1
+              RETURNING *
+            `,
+            [existingRating.rows[0].id, rating, trimmedComment],
+          )
+          : await client.query(
+            `
+              INSERT INTO app.padel_player_ratings (
+                rater_id,
+                rated_id,
+                community_plan_id,
+                rating,
+                comment
+              )
+              VALUES ($1, $2, $3, $4, $5)
+              RETURNING *
+            `,
+            [raterId, ratedId, plan.id, rating, trimmedComment],
+          );
+
+        return res.json({ rating: ratingResult.rows[0] });
+      }
+
+      if (planId !== null || matchId === null) {
+        switch (error) {
+          case 'plan_not_finished':
+            return res.status(400).json({
+              error: 'Solo puedes valorar este plan cuando haya terminado.',
+            });
+          case 'result_not_resolved':
+          case 'result_missing':
+            return res.status(400).json({
+              error: 'Antes de valorar debes haber enviado el resultado del partido o esperar a que quede consensuado.',
+            });
+          case 'already_rated':
+            return res.status(409).json({
+              error: 'Ya has valorado a este jugador en tus planes cerrados. Indica plan_id para editar una valoración concreta.',
+            });
+          case 'no_shared_plan':
+          default:
+            if (planId !== null) {
+              return res.status(403).json({
+                error: 'Solo puedes valorar a jugadores de un plan confirmado en el que ambos hayáis jugado.',
+              });
+            }
+            return res.status(400).json({
+              error: 'Solo puedes valorar a jugadores con los que hayas jugado un plan confirmado y con resultado cerrado.',
+            });
+        }
+      }
+    }
+
+    if (matchId === null) {
+      return res.status(400).json({
+        error: 'Debes indicar plan_id o match_id para registrar la valoración.',
+      });
+    }
+
+    const match = await loadLegacyMatchForRating(client, {
+      raterId,
+      ratedId,
+      matchId,
+    });
+
+    if (!match) {
+      return res.status(403).json({
+        error: 'Solo puedes valorar jugadores que hayan compartido partido contigo.',
+      });
+    }
+
+    if (!hasLegacyMatchFinished(match)) {
+      return res.status(400).json({
+        error: 'Solo puedes valorar este partido cuando haya terminado.',
+      });
+    }
+
+    const result = await client.query(
       `INSERT INTO app.padel_player_ratings (rater_id, rated_id, match_id, rating, comment)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (rater_id, rated_id, match_id)
        DO UPDATE SET rating = $4, comment = $5
        RETURNING *`,
-      [raterId, ratedId, match_id || null, rating, comment]
+      [raterId, ratedId, matchId, rating, trimmedComment]
     );
 
     res.json({ rating: result.rows[0] });
   } catch (error) {
     console.error('Error valorando jugador:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    client.release();
   }
 });
 

@@ -26,6 +26,7 @@ class LocalNotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  bool _permissionsRequested = false;
 
   Future<void> ensureInitialized() async {
     if (_initialized || kIsWeb) {
@@ -60,11 +61,12 @@ class LocalNotificationService {
   }
 
   Future<void> requestPermissions() async {
-    if (kIsWeb) {
+    if (kIsWeb || _permissionsRequested) {
       return;
     }
 
     await ensureInitialized();
+    _permissionsRequested = true;
 
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();

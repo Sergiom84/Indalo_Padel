@@ -1,4 +1,5 @@
 import express from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 
 import './loadEnv.js';
@@ -6,15 +7,19 @@ import { hasDatabaseConnection, pool } from './db.js';
 import padelAuthRoutes from './routes/padelAuth.js';
 import padelVenuesRoutes from './routes/padelVenues.js';
 import padelBookingsRoutes from './routes/padelBookings.js';
+import padelDashboardRoutes from './routes/padelDashboard.js';
 import padelMatchesRoutes from './routes/padelMatches.js';
 import padelCommunityRoutes from './routes/padelCommunity.js';
+import padelChatRoutes from './routes/padelChat.js';
 import padelPlayersRoutes from './routes/padelPlayers.js';
 import padelFcmTokensRoutes from './routes/padelFcmTokens.js';
 import { startCalendarSyncJob } from './services/padelCalendarSync.js';
+import { attachPadelChatSocket } from './services/padelChatSocket.js';
 import { startCommunityLifecycleJob } from './services/padelCommunityLifecycle.js';
 import { isTransactionalEmailConfigured } from './services/authEmailService.js';
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3011;
 const requireEmailVerification =
   process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
@@ -95,8 +100,10 @@ app.use((req, res, next) => {
 app.use('/api/padel/auth', padelAuthRoutes);
 app.use('/api/padel/venues', padelVenuesRoutes);
 app.use('/api/padel/bookings', padelBookingsRoutes);
+app.use('/api/padel/dashboard', padelDashboardRoutes);
 app.use('/api/padel/matches', padelMatchesRoutes);
 app.use('/api/padel/community', padelCommunityRoutes);
+app.use('/api/padel/chat', padelChatRoutes);
 app.use('/api/padel/players', padelPlayersRoutes);
 app.use('/api/padel/notifications', padelFcmTokensRoutes);
 
@@ -137,7 +144,9 @@ app.use((err, req, res, _next) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+attachPadelChatSocket(httpServer, { isAllowedOrigin });
+
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Indalo Padel API en http://0.0.0.0:${PORT}`);
   console.log(`📊 Health: http://0.0.0.0:${PORT}/api/health`);
   console.log(

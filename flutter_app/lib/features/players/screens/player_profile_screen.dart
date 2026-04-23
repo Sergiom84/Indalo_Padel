@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/api/api_client.dart';
@@ -141,6 +142,8 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
           displayName: _editNameCtrl.text.trim(),
           email: _player!.email,
           level: _player!.level,
+          mainLevel: _player!.mainLevel,
+          subLevel: _player!.subLevel,
           courtPreferences: _editCourtPreferences,
           dominantHands: _editDominantHands,
           availabilityPreferences: _editAvailabilityPreferences,
@@ -271,6 +274,14 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
     }
   }
 
+  void _openDirectChat() {
+    final player = _player;
+    if (player == null) {
+      return;
+    }
+    context.push('/players/chat/direct/${player.userId}');
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<int>(playerNetworkRefreshProvider, (previous, next) {
@@ -350,7 +361,11 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                LevelBadge(level: player.level),
+                                LevelBadge(
+                                  level: player.level,
+                                  mainLevel: player.mainLevel,
+                                  subLevel: player.subLevel,
+                                ),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -441,6 +456,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
                       onRequest: _sendPlayRequest,
                       onAccept: () => _respondToPlayRequest('accepted'),
                       onReject: () => _respondToPlayRequest('rejected'),
+                      onOpenChat: _openDirectChat,
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -614,10 +630,10 @@ class _PreferenceSectionData {
 
   static List<_PreferenceSectionData> fromPlayer(PlayerModel player) {
     final valuesByField = <String, List<String>>{
-      'court_preferences': player.courtPreferences,
-      'dominant_hands': player.dominantHands,
-      'availability_preferences': player.availabilityPreferences,
-      'match_preferences': player.matchPreferences,
+      'court_preferences': player.preferences.courtPreferences,
+      'dominant_hands': player.preferences.dominantHands,
+      'availability_preferences': player.preferences.availabilityPreferences,
+      'match_preferences': player.preferences.matchPreferences,
     };
 
     return PlayerPreferenceCatalog.sections
@@ -662,9 +678,9 @@ class _PlayerInfoSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Preferencias de juego',
-          style: TextStyle(
+        Text(
+          title,
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.w700,
@@ -775,6 +791,7 @@ class _ConnectionActionPanel extends StatelessWidget {
   final VoidCallback onRequest;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  final VoidCallback onOpenChat;
 
   const _ConnectionActionPanel({
     required this.player,
@@ -782,6 +799,7 @@ class _ConnectionActionPanel extends StatelessWidget {
     required this.onRequest,
     required this.onAccept,
     required this.onReject,
+    required this.onOpenChat,
   });
 
   @override
@@ -797,17 +815,31 @@ class _ConnectionActionPanel extends StatelessWidget {
             border:
                 Border.all(color: AppColors.success.withValues(alpha: 0.25)),
           ),
-          child: const Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.people_alt_outlined, color: AppColors.success),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Ya forma parte de tu red',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+              const Row(
+                children: [
+                  Icon(Icons.people_alt_outlined, color: AppColors.success),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Ya forma parte de tu red',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onOpenChat,
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Abrir chat privado'),
                 ),
               ),
             ],
@@ -1063,6 +1095,14 @@ class _EditProfileSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final availabilityDayValues = PlayerPreferenceCatalog.availabilityDayValues(
+      availabilityPreferences,
+    );
+    final availabilityTimeValues =
+        PlayerPreferenceCatalog.availabilityTimeValues(
+      availabilityPreferences,
+    );
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -1154,10 +1194,27 @@ class _EditProfileSheet extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             PreferenceCheckboxGroup(
-              title: 'Disponibilidad horaria',
-              options: PlayerPreferenceCatalog.availabilityPreferences,
-              selectedValues: availabilityPreferences,
-              onChanged: onAvailabilityPreferencesChanged,
+              title: 'Horario de preferencia · Días',
+              options: PlayerPreferenceCatalog.availabilityDayPreferences,
+              selectedValues: availabilityDayValues,
+              onChanged: (values) => onAvailabilityPreferencesChanged(
+                PlayerPreferenceCatalog.mergeAvailabilityValues(
+                  dayValues: values,
+                  timeValues: availabilityTimeValues,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            PreferenceCheckboxGroup(
+              title: 'Horario de preferencia · Franja',
+              options: PlayerPreferenceCatalog.availabilityTimePreferences,
+              selectedValues: availabilityTimeValues,
+              onChanged: (values) => onAvailabilityPreferencesChanged(
+                PlayerPreferenceCatalog.mergeAvailabilityValues(
+                  dayValues: availabilityDayValues,
+                  timeValues: values,
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             PreferenceCheckboxGroup(
@@ -1236,6 +1293,12 @@ class _RatePlayerSheet extends StatelessWidget {
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 18)),
+          const SizedBox(height: 8),
+          const Text(
+            'La valoración se guarda por partido compartido y solo una vez por encuentro.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
           const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,

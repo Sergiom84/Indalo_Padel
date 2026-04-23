@@ -4,6 +4,9 @@ const courtPreferenceValues = ['drive', 'reves', 'ambos'];
 const dominantHandValues = ['diestro', 'zurdo', 'ambidiestro'];
 const genderValues = ['masculino', 'femenino', 'otro', 'prefiero_no_decirlo'];
 const availabilityPreferenceValues = [
+  'laborables',
+  'fin_de_semana',
+  'cualquiera',
   'mananas',
   'mediodias',
   'tardes_noches',

@@ -32,8 +32,7 @@ class AppAlertsController extends StateNotifier<AppAlertsState> {
       return;
     }
 
-    await LocalNotificationService.instance.ensureInitialized();
-    await LocalNotificationService.instance.requestPermissions();
+    unawaited(LocalNotificationService.instance.ensureInitialized());
     await refresh();
     _startPolling();
   }
@@ -44,12 +43,16 @@ class AppAlertsController extends StateNotifier<AppAlertsState> {
     }
 
     _refreshing = true;
+    final previousState = state;
+    state = state.copyWith(loading: true);
     try {
-      state = await AppAlertsService.instance.refresh(
+      state = (await AppAlertsService.instance.refresh(
         notifyOnNew: notifyOnNew,
-      );
+      ))
+          .copyWith(loading: false);
     } catch (_) {
       // Conservamos el estado previo para no apagar las bolitas por un error de red.
+      state = previousState.copyWith(loading: false);
     } finally {
       _refreshing = false;
     }
@@ -57,7 +60,7 @@ class AppAlertsController extends StateNotifier<AppAlertsState> {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _pollTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       unawaited(refresh());
     });
   }

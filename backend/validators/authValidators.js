@@ -3,6 +3,9 @@ import { z } from 'zod';
 const courtPreferenceValues = ['drive', 'reves', 'ambos'];
 const dominantHandValues = ['diestro', 'zurdo', 'ambidiestro'];
 const availabilityPreferenceValues = [
+  'laborables',
+  'fin_de_semana',
+  'cualquiera',
   'mananas',
   'mediodias',
   'tardes_noches',

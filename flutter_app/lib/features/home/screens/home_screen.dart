@@ -37,7 +37,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _fetchData() async {
     final api = ref.read(apiClientProvider);
-    ref.invalidate(networkProvider);
     if (mounted) {
       setState(() {
         _loadingVenues = true;
@@ -46,89 +45,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       });
     }
 
-    final venuesFuture = api
-        .get('/padel/venues?limit=3')
-        .catchError((_) => {'venues': []})
-        .then((result) {
+    try {
+      final result = await api.get('/padel/dashboard');
+      final json = _asMap(result);
+
       if (!mounted) {
         return;
       }
+
+      final bookings = _asMap(json?['bookings']) ??
+          const {
+            'upcoming': [],
+            'past': [],
+          };
+      final community = _asMap(json?['community']);
+
       setState(() {
-        _venues = _asList(result is Map ? result['venues'] : result);
+        _venues = _asList(json?['venues']);
+        _bookings = bookings;
+        _matches = _asList(json?['matches']);
+        _confirmedCommunityPlans = community == null
+            ? const []
+            : _buildCommunityBookingsFromDashboard(community);
         _loadingVenues = false;
-      });
-    });
-
-    final bookingsFuture = api
-        .get('/padel/bookings/my')
-        .catchError((_) => {'upcoming': [], 'past': []})
-        .then((result) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _bookings = result is Map<String, dynamic>
-            ? result
-            : {'upcoming': [], 'past': []};
         _loadingBookings = false;
-      });
-    });
-
-    final matchesFuture = api
-        .get('/padel/matches?limit=12')
-        .catchError((_) => {'matches': []})
-        .then((result) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _matches = _asList(result is Map ? result['matches'] : result);
         _loadingMatches = false;
       });
-    });
-
-    final communityFuture = api
-        .get('/padel/community')
-        .catchError((_) => <String, dynamic>{})
-        .then((result) {
-      if (!mounted) return;
-      final allPlans = [
-        ..._asList(result is Map ? result['plans'] : null),
-        ..._asList(result is Map ? result['history_plans'] : null),
-      ];
-      final today = DateTime.now();
-      final confirmed = allPlans
-          .whereType<Map>()
-          .map((p) => Map<String, dynamic>.from(p))
-          .where((p) {
-        if (p['reservation_state'] != 'confirmed') return false;
-        final dateStr = p['scheduled_date']?.toString() ?? '';
-        if (dateStr.isEmpty) return false;
-        try {
-          return DateTime.parse(dateStr)
-              .isAfter(today.subtract(const Duration(days: 1)));
-        } catch (_) {
-          return false;
-        }
-      }).map((p) {
-        final venue = p['venue'] is Map
-            ? Map<String, dynamic>.from(p['venue'] as Map)
-            : <String, dynamic>{};
-        final time = (p['scheduled_time']?.toString() ?? '').substring(0, 5);
-        return <String, dynamic>{
-          '_type': 'community',
-          'id': p['id'],
-          'venue_name': venue['name']?.toString() ?? 'Convocatoria',
-          'booking_date': p['scheduled_date']?.toString() ?? '',
-          'start_time': time,
-          'status': 'confirmada',
-        };
-      }).toList();
-      setState(() => _confirmedCommunityPlans = confirmed);
-    });
-
-    await Future.wait(
-        [venuesFuture, bookingsFuture, matchesFuture, communityFuture]);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadingVenues = false;
+        _loadingBookings = false;
+        _loadingMatches = false;
+      });
+    }
   }
 
   List<dynamic> _asList(dynamic value) {
@@ -136,6 +88,157 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return value;
     }
     return [];
+  }
+
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+
+    return null;
+  }
+
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is! List) {
+      return const [];
+    }
+
+    return value
+        .map(_asMap)
+        .whereType<Map<String, dynamic>>()
+        .toList(growable: false);
+  }
+
+  List<Map<String, dynamic>> _buildCommunityBookingsFromDashboard(
+    dynamic payload,
+  ) {
+    final json = _asMap(payload);
+    if (json == null) {
+      return const [];
+    }
+
+    final plans = [
+      ..._asMapList(json['active_plans']),
+      ..._asMapList(json['history_plans']),
+    ];
+
+    return _buildCommunityBookingsFromPlans(plans);
+  }
+
+  List<Map<String, dynamic>> _buildCommunityBookingsFromPlans(
+    List<Map<String, dynamic>> plans,
+  ) {
+    return plans.where(_isUpcomingConfirmedCommunityPlan).map((plan) {
+      final venue = _asMap(plan['venue']);
+      final startTime = plan['scheduled_time']?.toString() ?? '';
+      return <String, dynamic>{
+        '_type': 'community',
+        'id': plan['id'],
+        'venue_name': venue?['name']?.toString() ?? 'Convocatoria',
+        'booking_date': plan['scheduled_date']?.toString() ?? '',
+        'start_time':
+            startTime.length >= 5 ? startTime.substring(0, 5) : startTime,
+        'status': 'confirmada',
+      };
+    }).toList(growable: false);
+  }
+
+  bool _isUpcomingConfirmedCommunityPlan(Map<String, dynamic> plan) {
+    if (plan['reservation_state']?.toString() != 'confirmed') {
+      return false;
+    }
+
+    final hasBackendFlags =
+        plan.containsKey('is_upcoming') || plan.containsKey('is_finished');
+    if (hasBackendFlags) {
+      return _asBool(plan['is_upcoming']) && !_asBool(plan['is_finished']);
+    }
+
+    return !_hasPlanEnded(plan);
+  }
+
+  bool _hasPlanEnded(Map<String, dynamic> plan) {
+    final scheduledDate = plan['scheduled_date']?.toString();
+    final scheduledTime = plan['scheduled_time']?.toString();
+    if (scheduledDate == null ||
+        scheduledDate.isEmpty ||
+        scheduledTime == null ||
+        scheduledTime.isEmpty) {
+      return false;
+    }
+
+    final date = DateTime.tryParse(scheduledDate);
+    if (date == null) {
+      return false;
+    }
+
+    final timeParts = scheduledTime.split(':');
+    if (timeParts.length < 2) {
+      return false;
+    }
+
+    final hour = int.tryParse(timeParts[0]);
+    final minute = int.tryParse(timeParts[1]);
+    final second = timeParts.length > 2 ? int.tryParse(timeParts[2]) ?? 0 : 0;
+    if (hour == null || minute == null) {
+      return false;
+    }
+
+    final durationMinutes = _asInt(plan['duration_minutes']) ?? 90;
+    final start = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      hour,
+      minute,
+      second,
+    );
+
+    return !start
+        .add(Duration(minutes: durationMinutes))
+        .isAfter(DateTime.now());
+  }
+
+  bool _asBool(dynamic value) {
+    if (value is bool) {
+      return value;
+    }
+
+    if (value is num) {
+      return value != 0;
+    }
+
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1') {
+        return true;
+      }
+      if (normalized == 'false' || normalized == '0') {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  int? _asInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+
+    if (value is num) {
+      return value.toInt();
+    }
+
+    if (value is String) {
+      return int.tryParse(value);
+    }
+
+    return null;
   }
 
   List<dynamic> get _openMatches {

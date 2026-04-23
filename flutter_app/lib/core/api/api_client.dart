@@ -11,6 +11,11 @@ String? resolveBaseUrl() {
     return _normalizeBaseUrl(_configuredBaseUrl);
   }
 
+  final localWebBaseUrl = _resolveLocalWebBaseUrl();
+  if (localWebBaseUrl != null) {
+    return localWebBaseUrl;
+  }
+
   if (kReleaseMode) {
     // Sin --dart-define=API_BASE_URL explícito, fallback a la URL de producción.
     // Permite flutter run --release / flutter run -d Chrome --release sin flags extra.
@@ -30,6 +35,33 @@ String? resolveBaseUrl() {
   }
 
   return 'http://localhost:$_defaultApiPort/api';
+}
+
+String? _resolveLocalWebBaseUrl() {
+  if (!kIsWeb) {
+    return null;
+  }
+
+  final host = Uri.base.host;
+  if (!_isLocalWebHost(host)) {
+    return null;
+  }
+
+  final scheme = Uri.base.scheme.isNotEmpty ? Uri.base.scheme : 'http';
+  return '$scheme://$host:$_defaultApiPort/api';
+}
+
+bool _isLocalWebHost(String host) {
+  if (host.isEmpty) {
+    return false;
+  }
+
+  final normalized = host.trim().toLowerCase();
+  if (normalized == 'localhost' || normalized == '127.0.0.1') {
+    return true;
+  }
+
+  return normalized == '::1';
 }
 
 String _normalizeBaseUrl(String baseUrl) {

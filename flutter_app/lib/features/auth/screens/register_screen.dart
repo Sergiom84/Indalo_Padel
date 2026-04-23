@@ -136,6 +136,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final availabilityDayValues = PlayerPreferenceCatalog.availabilityDayValues(
+      _availabilityPreferences,
+    );
+    final availabilityTimeValues =
+        PlayerPreferenceCatalog.availabilityTimeValues(
+      _availabilityPreferences,
+    );
+
     return Scaffold(
       backgroundColor: AppColors.dark,
       body: SafeArea(
@@ -264,11 +272,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               const SizedBox(height: 16),
 
               PreferenceCheckboxGroup(
-                title: 'Disponibilidad horaria',
-                options: PlayerPreferenceCatalog.availabilityPreferences,
-                selectedValues: _availabilityPreferences,
-                onChanged: (values) =>
-                    setState(() => _availabilityPreferences = values),
+                title: 'Horario de preferencia · Días',
+                options: PlayerPreferenceCatalog.availabilityDayPreferences,
+                selectedValues: availabilityDayValues,
+                onChanged: (values) => setState(
+                  () => _availabilityPreferences =
+                      PlayerPreferenceCatalog.mergeAvailabilityValues(
+                    dayValues: values,
+                    timeValues: availabilityTimeValues,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              PreferenceCheckboxGroup(
+                title: 'Horario de preferencia · Franja',
+                options: PlayerPreferenceCatalog.availabilityTimePreferences,
+                selectedValues: availabilityTimeValues,
+                onChanged: (values) => setState(
+                  () => _availabilityPreferences =
+                      PlayerPreferenceCatalog.mergeAvailabilityValues(
+                    dayValues: availabilityDayValues,
+                    timeValues: values,
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
 

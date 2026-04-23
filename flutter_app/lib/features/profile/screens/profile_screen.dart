@@ -116,6 +116,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _openPreferencesSheet() async {
     final profile = _profile ?? <String, dynamic>{};
+    final preferences = PlayerPreferencesModel.fromJson(profile);
     await showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
@@ -124,14 +125,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return _PreferencesSheet(
-          initialCourt:
-              PlayerPreferenceCatalog.parseValues(profile['court_preferences']),
-          initialHands:
-              PlayerPreferenceCatalog.parseValues(profile['dominant_hands']),
-          initialAvailability: PlayerPreferenceCatalog.parseValues(
-              profile['availability_preferences']),
-          initialMatch:
-              PlayerPreferenceCatalog.parseValues(profile['match_preferences']),
+          initialCourt: preferences.courtPreferences,
+          initialHands: preferences.dominantHands,
+          initialAvailability: preferences.availabilityPreferences,
+          initialMatch: preferences.matchPreferences,
           onSave: (payload) => _updateProfile(payload),
         );
       },
@@ -170,6 +167,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final authUser = ref.watch(authProvider).user;
     final profile = _profile ?? <String, dynamic>{};
+    final preferences = PlayerPreferencesModel.fromJson(profile);
     final displayName = (profile['display_name'] ??
             profile['nombre'] ??
             authUser?.nombre ??
@@ -268,7 +266,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Expanded(
                                 child: _ProfileMetric(
                                   label: 'Nivel',
-                                  value: '${profile['numeric_level'] ?? 0}',
+                                  value: preferences.level.label(
+                                    fallbackNumericLevel:
+                                        _asInt(profile['numeric_level']),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -400,6 +401,12 @@ class _PreferencesSheetState extends State<_PreferencesSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final availabilityDayValues = PlayerPreferenceCatalog.availabilityDayValues(
+      _availability,
+    );
+    final availabilityTimeValues =
+        PlayerPreferenceCatalog.availabilityTimeValues(_availability);
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -453,11 +460,31 @@ class _PreferencesSheetState extends State<_PreferencesSheet> {
             ),
             const SizedBox(height: 14),
             PreferenceCheckboxGroup(
-              title: 'Disponibilidad horaria',
-              options: PlayerPreferenceCatalog.availabilityPreferences,
-              selectedValues: _availability,
+              title: 'Horario de preferencia · Días',
+              options: PlayerPreferenceCatalog.availabilityDayPreferences,
+              selectedValues: availabilityDayValues,
               enabled: !_saving,
-              onChanged: (v) => setState(() => _availability = v),
+              onChanged: (v) => setState(
+                () => _availability = PlayerPreferenceCatalog
+                    .mergeAvailabilityValues(
+                  dayValues: v,
+                  timeValues: availabilityTimeValues,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            PreferenceCheckboxGroup(
+              title: 'Horario de preferencia · Franja',
+              options: PlayerPreferenceCatalog.availabilityTimePreferences,
+              selectedValues: availabilityTimeValues,
+              enabled: !_saving,
+              onChanged: (v) => setState(
+                () => _availability = PlayerPreferenceCatalog
+                    .mergeAvailabilityValues(
+                  dayValues: availabilityDayValues,
+                  timeValues: v,
+                ),
+              ),
             ),
             const SizedBox(height: 14),
             PreferenceCheckboxGroup(
@@ -831,6 +858,9 @@ class _ProfileMetric extends StatelessWidget {
         children: [
           Text(
             value,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -904,4 +934,17 @@ class _ProfileActionTile extends StatelessWidget {
       ),
     );
   }
+}
+
+int? _asInt(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value);
+  }
+  return null;
 }

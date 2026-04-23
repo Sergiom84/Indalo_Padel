@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../utils/player_preferences.dart';
 
 enum PadelBadgeVariant { success, warning, danger, info, neutral, outline }
 
@@ -73,11 +74,26 @@ class PadelBadge extends StatelessWidget {
 
 class LevelBadge extends StatelessWidget {
   final dynamic level;
-  const LevelBadge({super.key, required this.level});
+  final String? mainLevel;
+  final String? subLevel;
+
+  const LevelBadge({
+    super.key,
+    required this.level,
+    this.mainLevel,
+    this.subLevel,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final lvl = (level is int ? level : int.tryParse(level?.toString() ?? '0')) ?? 0;
+    final lvl =
+        (level is int ? level : int.tryParse(level?.toString() ?? '0')) ?? 0;
+    final label = PlayerPreferenceCatalog.levelLabel(
+      mainLevel: mainLevel,
+      subLevel: subLevel,
+      numericLevel: lvl,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
@@ -86,7 +102,7 @@ class LevelBadge extends StatelessWidget {
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
       ),
       child: Text(
-        'Nv $lvl',
+        label,
         style: const TextStyle(
           color: AppColors.primary,
           fontSize: 11,

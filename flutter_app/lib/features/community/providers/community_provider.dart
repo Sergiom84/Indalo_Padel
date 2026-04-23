@@ -16,6 +16,28 @@ final communityDashboardProvider = FutureProvider<CommunityDashboardModel>((
   return CommunityDashboardModel.fromJson(json);
 });
 
+final communityClubOptionsProvider = FutureProvider<List<CommunityVenueModel>>((
+  ref,
+) async {
+  final api = ref.watch(apiClientProvider);
+  final data = await api.get('/padel/venues');
+  final list = data is Map<String, dynamic>
+      ? data['venues']
+      : (data as Map)['venues'];
+  if (list is! List) {
+    return const [];
+  }
+
+  return list
+      .whereType<Map>()
+      .map(
+        (item) => CommunityVenueModel.fromJson(
+          Map<String, dynamic>.from(item),
+        ),
+      )
+      .toList(growable: false);
+});
+
 final communityActionsProvider = Provider<CommunityActions>((ref) {
   return CommunityActions(ref.watch(apiClientProvider), ref);
 });
@@ -30,12 +52,22 @@ class CommunityActions {
     required String scheduledDate,
     required String scheduledTime,
     required List<int> participantUserIds,
+    String modality = 'amistoso',
+    int? capacity,
+    int? clubId,
+    String? postPadelPlan,
+    String? notes,
     bool forceSend = false,
   }) async {
     await _api.post('/padel/community', data: {
       'scheduled_date': scheduledDate,
       'scheduled_time': scheduledTime,
       'participant_user_ids': participantUserIds,
+      'modality': modality,
+      if (capacity != null) 'capacity': capacity,
+      if (clubId != null) 'club_id': clubId,
+      if (postPadelPlan != null) 'post_padel_plan': postPadelPlan,
+      if (notes != null) 'notes': notes,
       'force_send': forceSend,
     });
     _ref.invalidate(communityDashboardProvider);
@@ -47,6 +79,11 @@ class CommunityActions {
     required String scheduledDate,
     required String scheduledTime,
     required List<int> participantUserIds,
+    String? modality,
+    int? capacity,
+    int? clubId,
+    String? postPadelPlan,
+    String? notes,
     String? updatedAt,
     bool forceSend = false,
   }) async {
@@ -54,6 +91,11 @@ class CommunityActions {
       'scheduled_date': scheduledDate,
       'scheduled_time': scheduledTime,
       'participant_user_ids': participantUserIds,
+      if (modality != null) 'modality': modality,
+      if (capacity != null) 'capacity': capacity,
+      if (clubId != null) 'club_id': clubId,
+      if (postPadelPlan != null) 'post_padel_plan': postPadelPlan,
+      if (notes != null) 'notes': notes,
       'updated_at': updatedAt,
       'force_send': forceSend,
     });
@@ -127,6 +169,8 @@ class CommunityActions {
     required String scheduledDate,
     required String scheduledTime,
     required List<int> participantUserIds,
+    String? modality,
+    int? capacity,
   }) async {
     final response = await _api.post(
       '/padel/community/conflicts/preview',
@@ -135,6 +179,8 @@ class CommunityActions {
         'scheduled_date': scheduledDate,
         'scheduled_time': scheduledTime,
         'participant_user_ids': participantUserIds,
+        if (modality != null) 'modality': modality,
+        if (capacity != null) 'capacity': capacity,
       },
     );
 

@@ -14,6 +14,7 @@ import {
   cancelCommunityPlan,
   createCommunityPlan,
   getCommunityDashboard,
+  getCommunityDashboardBootstrap,
   getMatchResult,
   markCommunityNotificationRead,
   previewCommunityPlanConflicts,
@@ -36,6 +37,16 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/bootstrap', authenticateToken, async (req, res) => {
+  try {
+    const bootstrap = await getCommunityDashboardBootstrap(req.user.userId);
+    res.json(bootstrap);
+  } catch (error) {
+    console.error('Error obteniendo bootstrap de comunidad:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 router.post(
   '/conflicts/preview',
   authenticateToken,
@@ -48,6 +59,8 @@ router.post(
         scheduledDate: req.body.scheduled_date,
         scheduledTime: req.body.scheduled_time,
         participantUserIds: req.body.participant_user_ids,
+        modality: req.body.modality ?? 'amistoso',
+        capacity: req.body.capacity ?? null,
       });
       res.status(result.status).json(result.body);
     } catch (error) {
@@ -68,6 +81,11 @@ router.post(
         scheduledDate: req.body.scheduled_date,
         scheduledTime: req.body.scheduled_time,
         participantUserIds: req.body.participant_user_ids,
+        modality: req.body.modality ?? null,
+        capacity: req.body.capacity ?? null,
+        venueId: req.body.club_id ?? req.body.venue_id ?? null,
+        postPadelPlan: req.body.post_padel_plan ?? null,
+        notes: req.body.notes ?? null,
         forceSend: req.body.force_send ?? false,
       });
       res.status(result.status).json(result.body);
@@ -90,6 +108,11 @@ router.put(
         scheduledDate: req.body.scheduled_date,
         scheduledTime: req.body.scheduled_time,
         participantUserIds: req.body.participant_user_ids,
+        modality: req.body.modality ?? 'amistoso',
+        capacity: req.body.capacity ?? null,
+        venueId: req.body.club_id ?? req.body.venue_id ?? null,
+        postPadelPlan: req.body.post_padel_plan ?? null,
+        notes: req.body.notes ?? null,
         expectedUpdatedAt: req.body.updated_at ?? null,
         forceSend: req.body.force_send ?? false,
       });

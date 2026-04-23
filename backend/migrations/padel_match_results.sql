@@ -69,3 +69,64 @@ CREATE POLICY padel_match_results_server_only
   FOR ALL
   USING (FALSE)
   WITH CHECK (FALSE);
+
+ALTER TABLE app.padel_player_ratings
+  ADD COLUMN IF NOT EXISTS community_plan_id INTEGER
+    REFERENCES app.padel_community_plans(id) ON DELETE CASCADE;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'padel_community_notifications_type_check'
+  ) THEN
+    ALTER TABLE app.padel_community_notifications
+      DROP CONSTRAINT padel_community_notifications_type_check;
+  END IF;
+
+  ALTER TABLE app.padel_community_notifications
+    ADD CONSTRAINT padel_community_notifications_type_check
+    CHECK (
+      type IN (
+        'member_declined',
+        'reschedule_proposed',
+        'reservation_retry',
+        'reservation_confirmed',
+        'plan_cancelled',
+        'plan_expired',
+        'retry_timeout',
+        'conflict_warning',
+        'result_ready'
+      )
+    );
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'padel_player_ratings_context_check'
+  ) THEN
+    ALTER TABLE app.padel_player_ratings
+      ADD CONSTRAINT padel_player_ratings_context_check
+      CHECK (match_id IS NULL OR community_plan_id IS NULL);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_padel_ratings_community_plan
+  ON app.padel_player_ratings(community_plan_id);
+
+CREATE INDEX IF NOT EXISTS idx_padel_community_notifications_plan_user_type
+  ON app.padel_community_notifications(plan_id, user_id, type);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_padel_player_ratings_community_plan
+  ON app.padel_player_ratings(rater_id, rated_id, community_plan_id)
+  WHERE community_plan_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_padel_community_notifications_result_ready
+  ON app.padel_community_notifications(plan_id, user_id, type)
+  WHERE type = 'result_ready';

@@ -1,4 +1,5 @@
 import '../../players/models/player_model.dart';
+import 'match_result_model.dart';
 
 class CommunityDashboardModel {
   final CommunityVenueModel? venue;
@@ -111,6 +112,12 @@ class CommunityPlanModel {
   final int? reservationHandledBy;
   final String? reservationHandledByName;
   final String? reservationContactPhone;
+  final String modality;
+  final int capacity;
+  final int? clubId;
+  final int? venueId;
+  final String? postPadelPlan;
+  final String? notes;
   final String? googleEventId;
   final int? lastDeclinedBy;
   final String? lastDeclinedByName;
@@ -131,6 +138,12 @@ class CommunityPlanModel {
   final List<CommunityParticipantModel> participants;
   final bool isOrganizer;
   final String? myResponseState;
+  final bool? isUpcomingFlag;
+  final bool? isFinishedFlag;
+  final bool? canSubmitResultFlag;
+  final bool? needsResultNotificationFlag;
+  final MatchResultSubmissionModel? myResultSubmission;
+  final bool? needsRatingFlag;
 
   const CommunityPlanModel({
     required this.id,
@@ -144,6 +157,12 @@ class CommunityPlanModel {
     this.reservationHandledBy,
     this.reservationHandledByName,
     this.reservationContactPhone,
+    this.modality = 'amistoso',
+    this.capacity = 4,
+    this.clubId,
+    this.venueId,
+    this.postPadelPlan,
+    this.notes,
     this.googleEventId,
     this.lastDeclinedBy,
     this.lastDeclinedByName,
@@ -164,6 +183,12 @@ class CommunityPlanModel {
     this.participants = const [],
     this.isOrganizer = false,
     this.myResponseState,
+    this.isUpcomingFlag,
+    this.isFinishedFlag,
+    this.canSubmitResultFlag,
+    this.needsResultNotificationFlag,
+    this.myResultSubmission,
+    this.needsRatingFlag,
   });
 
   bool get isReady => inviteState == 'ready';
@@ -175,6 +200,18 @@ class CommunityPlanModel {
   bool get isExpired =>
       inviteState == 'expired' || reservationState == 'expired';
   bool get isTerminal => reservationConfirmed || isCancelled || isExpired;
+  bool get isUpcoming =>
+      isUpcomingFlag ?? (!isFinished && !isCancelled && !isExpired);
+  bool get isFinished => isFinishedFlag ?? hasEnded();
+  bool get canSubmitResult =>
+      canSubmitResultFlag ?? (reservationConfirmed && hasEnded());
+  bool get needsResultNotification =>
+      needsResultNotificationFlag ?? canSubmitResult;
+  bool get needsRating => needsRatingFlag ?? false;
+  DateTime? get startDateTime =>
+      _combineDateAndTime(scheduledDate, scheduledTime);
+  DateTime? get endDateTime =>
+      startDateTime?.add(Duration(minutes: durationMinutes));
 
   CommunityParticipantModel? get currentUserParticipant {
     for (final participant in participants) {
@@ -183,6 +220,37 @@ class CommunityPlanModel {
       }
     }
     return null;
+  }
+
+  bool hasEnded({DateTime? reference}) {
+    if (isFinishedFlag != null && reference == null) {
+      return isFinishedFlag!;
+    }
+    final end = endDateTime;
+    if (end == null) {
+      return false;
+    }
+
+    final now = reference ?? DateTime.now();
+    return !end.isAfter(now);
+  }
+
+  bool shouldAppearInHistory({DateTime? reference}) {
+    if (isUpcomingFlag != null && isFinishedFlag != null && reference == null) {
+      return !isUpcomingFlag! || isCancelled || isExpired;
+    }
+    if (!reservationConfirmed) {
+      return true;
+    }
+
+    return hasEnded(reference: reference);
+  }
+
+  bool canCaptureResult({DateTime? reference}) {
+    if (canSubmitResultFlag != null && reference == null) {
+      return canSubmitResultFlag!;
+    }
+    return reservationConfirmed && hasEnded(reference: reference);
   }
 
   factory CommunityPlanModel.fromJson(Map<String, dynamic> json) {
@@ -215,6 +283,12 @@ class CommunityPlanModel {
           _asNullableString(json['reservation_handled_by_name']),
       reservationContactPhone:
           _asNullableString(json['reservation_contact_phone']),
+      modality: _asNullableString(json['modality']) ?? 'amistoso',
+      capacity: _asInt(json['capacity'], fallback: 4),
+      clubId: _asNullableInt(json['club_id']),
+      venueId: _asNullableInt(json['venue_id']),
+      postPadelPlan: _asNullableString(json['post_padel_plan']),
+      notes: _asNullableString(json['notes']),
       googleEventId: _asNullableString(json['google_event_id']),
       lastDeclinedBy: _asNullableInt(json['last_declined_by']),
       lastDeclinedByName: _asNullableString(json['last_declined_by_name']),
@@ -243,6 +317,33 @@ class CommunityPlanModel {
       participants: parseParticipants(json['participants']),
       isOrganizer: _asBool(json['is_organizer']),
       myResponseState: _asNullableString(json['my_response_state']),
+      isUpcomingFlag: json.containsKey('is_upcoming')
+          ? _asBool(json['is_upcoming'])
+          : null,
+      isFinishedFlag: json.containsKey('is_finished')
+          ? _asBool(json['is_finished'])
+          : null,
+      canSubmitResultFlag: json.containsKey('can_submit_result')
+          ? _asBool(json['can_submit_result'])
+          : null,
+      needsResultNotificationFlag:
+          json.containsKey('needs_result_notification')
+              ? _asBool(json['needs_result_notification'])
+              : null,
+      myResultSubmission: json['my_result_submission'] is Map<String, dynamic>
+          ? MatchResultSubmissionModel.fromJson(
+              json['my_result_submission'] as Map<String, dynamic>,
+            )
+          : (json['my_result_submission'] is Map
+              ? MatchResultSubmissionModel.fromJson(
+                  Map<String, dynamic>.from(
+                    json['my_result_submission'] as Map,
+                  ),
+                )
+              : null),
+      needsRatingFlag: json.containsKey('needs_rating')
+          ? _asBool(json['needs_rating'])
+          : null,
     );
   }
 }
@@ -253,6 +354,8 @@ class CommunityParticipantModel {
   final String? nombre;
   final String? email;
   final int numericLevel;
+  final String? mainLevel;
+  final String? subLevel;
   final bool isAvailable;
   final String? avatarUrl;
   final String role;
@@ -267,6 +370,8 @@ class CommunityParticipantModel {
     this.nombre,
     this.email,
     this.numericLevel = 0,
+    this.mainLevel,
+    this.subLevel,
     this.isAvailable = true,
     this.avatarUrl,
     this.role = 'player',
@@ -284,6 +389,8 @@ class CommunityParticipantModel {
       nombre: _asNullableString(json['nombre']),
       email: _asNullableString(json['email']),
       numericLevel: _asInt(json['numeric_level']),
+      mainLevel: _asNullableString(json['main_level']),
+      subLevel: _asNullableString(json['sub_level']),
       isAvailable: _asBool(json['is_available'], fallback: true),
       avatarUrl: _asNullableString(json['avatar_url']),
       role: (json['role'] ?? 'player').toString(),
@@ -467,4 +574,39 @@ bool _asBool(dynamic value, {bool fallback = false}) {
     }
   }
   return fallback;
+}
+
+DateTime? _combineDateAndTime(String? dateValue, String? timeValue) {
+  if (dateValue == null ||
+      dateValue.isEmpty ||
+      timeValue == null ||
+      timeValue.isEmpty) {
+    return null;
+  }
+
+  try {
+    final date = DateTime.parse(dateValue);
+    final parts = timeValue.split(':');
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    final second = parts.length > 2 ? int.tryParse(parts[2]) ?? 0 : 0;
+    if (hour == null || minute == null) {
+      return null;
+    }
+
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+      hour,
+      minute,
+      second,
+    );
+  } catch (_) {
+    return null;
+  }
 }

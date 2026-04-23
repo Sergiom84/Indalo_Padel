@@ -48,6 +48,8 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
   bool _busy = false;
   String? _error;
 
+  bool get _hasExistingSubmission => widget.existingSubmission != null;
+
   @override
   void initState() {
     super.initState();
@@ -180,9 +182,13 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Resultado enviado. Esperando confirmación del resto.'),
-          duration: Duration(seconds: 3),
+        SnackBar(
+          content: Text(
+            _hasExistingSubmission
+                ? 'Resultado actualizado. Esperando confirmación del resto.'
+                : 'Resultado enviado. Esperando confirmación del resto.',
+          ),
+          duration: const Duration(seconds: 3),
         ),
       );
     } catch (e) {
@@ -238,6 +244,29 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
                   fontSize: 13,
                 ),
               ),
+              if (_hasExistingSubmission) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  child: const Text(
+                    'Hemos recuperado tu envío anterior para que puedas revisarlo o corregirlo.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               _StepIndicator(
                 current: _step,
@@ -288,7 +317,8 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: AppColors.dark),
                             )
-                          : const Text('Enviar'),
+                          : Text(
+                              _hasExistingSubmission ? 'Actualizar' : 'Enviar'),
                     ),
                 ],
               ),

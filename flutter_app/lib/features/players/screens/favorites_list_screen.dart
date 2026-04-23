@@ -131,7 +131,11 @@ class _FavoritesListScreenState extends ConsumerState<FavoritesListScreen> {
                                     const SizedBox(height: 4),
                                     Row(
                                       children: [
-                                        LevelBadge(level: fav.level),
+                                        LevelBadge(
+                                          level: fav.level,
+                                          mainLevel: fav.mainLevel,
+                                          subLevel: fav.subLevel,
+                                        ),
                                         if (fav.avgRating > 0) ...[
                                           const SizedBox(width: 8),
                                           const Icon(Icons.star, color: Colors.amber, size: 13),

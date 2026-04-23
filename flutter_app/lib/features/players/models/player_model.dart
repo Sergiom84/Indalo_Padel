@@ -1,8 +1,12 @@
+import '../../../shared/utils/player_preferences.dart';
+
 class PlayerModel {
   final int userId;
   final String displayName;
   final String? email;
   final int level;
+  final String? mainLevel;
+  final String? subLevel;
   final List<String> courtPreferences;
   final List<String> dominantHands;
   final List<String> availabilityPreferences;
@@ -29,6 +33,8 @@ class PlayerModel {
     required this.displayName,
     this.email,
     this.level = 0,
+    this.mainLevel,
+    this.subLevel,
     this.courtPreferences = const [],
     this.dominantHands = const [],
     this.availabilityPreferences = const [],
@@ -51,12 +57,36 @@ class PlayerModel {
     this.connectionRespondedAt,
   });
 
+  PlayerLevelModel get levelModel => PlayerLevelModel(
+        mainLevel: mainLevel,
+        subLevel: subLevel,
+      );
+
+  PlayerPreferencesModel get preferences => PlayerPreferencesModel(
+        level: levelModel,
+        courtPreferences: courtPreferences,
+        dominantHands: dominantHands,
+        availabilityPreferences: availabilityPreferences,
+        matchPreferences: matchPreferences,
+        gender: gender,
+        birthDate: birthDate,
+        phone: phone,
+      );
+
+  String get visibleLevelLabel => PlayerPreferenceCatalog.levelLabel(
+        mainLevel: mainLevel,
+        subLevel: subLevel,
+        numericLevel: level,
+      );
+
   factory PlayerModel.fromJson(Map<String, dynamic> json) {
     return PlayerModel(
       userId: _asInt(json['user_id'] ?? json['id']),
       displayName: (json['display_name'] ?? json['nombre'] ?? '') as String,
       email: json['email'] as String?,
       level: _asInt(json['level'] ?? json['numeric_level']),
+      mainLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['main_level']),
+      subLevel: PlayerPreferenceCatalog.normalizeLevelValue(json['sub_level']),
       courtPreferences: _asStringList(json['court_preferences']),
       dominantHands: _asStringList(json['dominant_hands']),
       availabilityPreferences: _asStringList(json['availability_preferences']),

@@ -15,28 +15,49 @@ class NotificationService {
   static final NotificationService instance = NotificationService._();
 
   final _messaging = FirebaseMessaging.instance;
+  bool _initialized = false;
+  bool _foregroundBound = false;
+  bool _permissionRequested = false;
+  bool _tokenRefreshBound = false;
 
-  /// Inicializa FCM: permisos, handlers y suscripción al canal por defecto.
-  Future<void> initialize() async {
-    // Registrar handler de background antes de cualquier otra cosa
+  /// Inicializa FCM sin forzar permisos en el camino crítico de arranque.
+  Future<void> initialize({bool requestPermissions = false}) async {
+    if (_initialized) {
+      if (requestPermissions) {
+        await requestPermissionsIfNeeded();
+      }
+      return;
+    }
+
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Solicitar permiso (Android 13+ y iOS)
-    await _messaging.requestPermission(
+    if (!_foregroundBound) {
+      FirebaseMessaging.onMessage.listen((message) {
+        debugPrint('📬 Push en foreground: ${message.notification?.title}');
+      });
+      _foregroundBound = true;
+    }
+
+    await _messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    // Handler cuando la app está en primer plano
-    FirebaseMessaging.onMessage.listen((message) {
-      debugPrint('📬 Push en foreground: ${message.notification?.title}');
-      // El paquete firebase_messaging muestra la notificación del sistema
-      // automáticamente en Android cuando el canal está configurado.
-    });
+    _initialized = true;
 
-    // Configurar presentación de notificaciones en iOS en foreground
-    await _messaging.setForegroundNotificationPresentationOptions(
+    if (requestPermissions) {
+      await requestPermissionsIfNeeded();
+    }
+  }
+
+  Future<void> requestPermissionsIfNeeded() async {
+    if (_permissionRequested) {
+      return;
+    }
+
+    _permissionRequested = true;
+    await _messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -55,12 +76,17 @@ class NotificationService {
 
   /// Registra el token en el backend y se suscribe a renovaciones.
   Future<void> registerToken(ApiClient api) async {
+    await initialize();
     final token = await getToken();
     if (token == null) return;
 
     await _sendTokenToBackend(api, token);
 
-    // Renovar token si Firebase lo rota
+    if (_tokenRefreshBound) {
+      return;
+    }
+
+    _tokenRefreshBound = true;
     _messaging.onTokenRefresh.listen((newToken) {
       _sendTokenToBackend(api, newToken);
     });

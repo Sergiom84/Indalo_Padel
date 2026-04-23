@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../notifications/providers/app_alerts_provider.dart';
@@ -25,11 +26,22 @@ class CommunityScreen extends ConsumerStatefulWidget {
 
 class _CommunityScreenState extends ConsumerState<CommunityScreen>
     with SingleTickerProviderStateMixin {
+  static const Map<String, String> _modalityLabels = {
+    'amistoso': 'Amistoso',
+    'competitivo': 'Competitivo',
+    'americana': 'Americana',
+  };
+
   late DateTime _draftDate;
   late TimeOfDay _draftTime;
+  String _draftModality = 'amistoso';
+  int? _draftClubId;
 
   final Set<int> _selectedParticipantIds = <int>{};
   final Set<int> _handledNotificationIds = <int>{};
+  final TextEditingController _postPadelPlanController =
+      TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
 
   late TabController _tabController;
   Timer? _pollTimer;
@@ -48,7 +60,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final suggested = _nextSuggestedDateTime();
     _draftDate = DateTime(suggested.year, suggested.month, suggested.day);
     _draftTime = TimeOfDay(hour: suggested.hour, minute: suggested.minute);
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _postPadelPlanController.addListener(_onDraftDetailsChanged);
+    _notesController.addListener(_onDraftDetailsChanged);
+    _pollTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (!mounted) {
         return;
       }
@@ -60,6 +74,12 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   void dispose() {
     _tabController.dispose();
     _pollTimer?.cancel();
+    _postPadelPlanController
+      ..removeListener(_onDraftDetailsChanged)
+      ..dispose();
+    _notesController
+      ..removeListener(_onDraftDetailsChanged)
+      ..dispose();
     super.dispose();
   }
 
@@ -86,6 +106,58 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 
   CommunityPlanModel? _effectivePlan(CommunityDashboardModel dashboard) {
     return _planById(dashboard, _selectedPlanId);
+  }
+
+  int get _draftCapacity => _draftModality == 'americana' ? 8 : 4;
+
+  int get _maxInvitedParticipants => _draftCapacity - 1;
+
+  void _onDraftDetailsChanged() {
+    _markDraftDirty();
+  }
+
+  int? _resolvedDraftClubId(CommunityDashboardModel dashboard) {
+    return _draftClubId ?? dashboard.venue?.id;
+  }
+
+  String? _optionalDraftText(TextEditingController controller) {
+    final value = controller.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  void _setDraftModality(String modality) {
+    if (_draftModality == modality) {
+      return;
+    }
+
+    final maxInvites = modality == 'americana' ? 7 : 3;
+    final removedCount = _selectedParticipantIds.length > maxInvites
+        ? _selectedParticipantIds.length - maxInvites
+        : 0;
+
+    setState(() {
+      _draftModality = modality;
+      if (_selectedParticipantIds.length > maxInvites) {
+        final allowedIds = _selectedParticipantIds.take(maxInvites).toList();
+        _selectedParticipantIds
+          ..clear()
+          ..addAll(allowedIds);
+      }
+      _markDraftDirty();
+    });
+
+    if (removedCount > 0) {
+      _showMessage(
+        'La modalidad ${_modalityLabels[modality] ?? modality} admite $maxInvites invitaciones. He ajustado la selección actual.',
+      );
+    }
+  }
+
+  void _setDraftClubId(int? clubId) {
+    setState(() {
+      _draftClubId = clubId;
+      _markDraftDirty();
+    });
   }
 
   void _maybeSyncDashboard(CommunityDashboardModel dashboard) {
@@ -262,6 +334,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return [
       plan.id,
       plan.updatedAt ?? '',
+      plan.modality,
+      plan.capacity,
+      plan.clubId ?? plan.venueId ?? '',
+      plan.postPadelPlan ?? '',
+      plan.notes ?? '',
       plan.inviteState,
       plan.reservationState,
       plan.lastDeclinedBy ?? '',
@@ -291,6 +368,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 
     _draftDate = parsedDate ?? _draftDate;
     _draftTime = parsedTime ?? _draftTime;
+    _draftModality =
+        _modalityLabels.containsKey(plan.modality) ? plan.modality : 'amistoso';
+    _draftClubId = plan.clubId ?? plan.venueId ?? plan.venue?.id;
+    _postPadelPlanController.text = plan.postPadelPlan ?? '';
+    _notesController.text = plan.notes ?? '';
     _selectedPlanId = plan.id;
     _reservationHandlerUserId =
         plan.reservationHandledBy ?? plan.participants.firstOrNull?.userId;
@@ -304,6 +386,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final suggested = _nextSuggestedDateTime();
     _draftDate = DateTime(suggested.year, suggested.month, suggested.day);
     _draftTime = TimeOfDay(hour: suggested.hour, minute: suggested.minute);
+    _draftModality = 'amistoso';
+    _draftClubId = null;
+    _postPadelPlanController.clear();
+    _notesController.clear();
     _selectedParticipantIds.clear();
     _reservationHandlerUserId = null;
     _selectedPlanId = null;
@@ -362,9 +448,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         return;
       }
 
-      if (_selectedParticipantIds.length >= 3) {
-        _showMessage('Puedes invitar como máximo a tres compañeros.',
-            isError: true);
+      if (_selectedParticipantIds.length >= _maxInvitedParticipants) {
+        _showMessage(
+          _draftModality == 'americana'
+              ? 'La modalidad Americana requiere 7 compañeros además de ti.'
+              : 'Puedes invitar como máximo a tres compañeros.',
+          isError: true,
+        );
         return;
       }
 
@@ -380,6 +470,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           scheduledDate: _formatApiDate(_draftDate),
           scheduledTime: _formatApiTime(_draftTime),
           participantUserIds: _selectedParticipantIds.toList(growable: false),
+          modality: _draftModality,
+          capacity: _draftCapacity,
         );
 
     if (!preview.hasConflicts || !mounted) {
@@ -455,9 +547,22 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       return;
     }
 
-    if (_selectedParticipantIds.length > 3) {
-      _showMessage('Puedes invitar como máximo a tres compañeros.',
-          isError: true);
+    if (_selectedParticipantIds.length > _maxInvitedParticipants) {
+      _showMessage(
+        _draftModality == 'americana'
+            ? 'La modalidad Americana admite 7 compañeros además de ti.'
+            : 'Puedes invitar como máximo a tres compañeros.',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_draftModality == 'americana' &&
+        _selectedParticipantIds.length != _maxInvitedParticipants) {
+      _showMessage(
+        'La modalidad Americana necesita 8 plazas completas: tú y 7 jugadores más.',
+        isError: true,
+      );
       return;
     }
 
@@ -510,6 +615,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           scheduledDate: _formatApiDate(_draftDate),
           scheduledTime: _formatApiTime(_draftTime),
           participantUserIds: _selectedParticipantIds.toList(growable: false),
+          modality: _draftModality,
+          capacity: _draftCapacity,
+          clubId: _resolvedDraftClubId(dashboard),
+          postPadelPlan: _optionalDraftText(_postPadelPlanController),
+          notes: _optionalDraftText(_notesController),
           updatedAt: selectedPlan.updatedAt,
           forceSend: true,
         );
@@ -522,6 +632,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           scheduledDate: _formatApiDate(_draftDate),
           scheduledTime: _formatApiTime(_draftTime),
           participantUserIds: _selectedParticipantIds.toList(growable: false),
+          modality: _draftModality,
+          capacity: _draftCapacity,
+          clubId: _resolvedDraftClubId(dashboard),
+          postPadelPlan: _optionalDraftText(_postPadelPlanController),
+          notes: _optionalDraftText(_notesController),
           forceSend: true,
         );
         if (!mounted) {
@@ -753,8 +868,14 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         .map((participant) => participant.displayName)
         .join(', ');
     final greeting = _greetingForTime(plan.scheduledTime);
-    final phoneText = (venue?.phone ?? '').trim();
-    final venueText = (venue?.name ?? 'Centro deportivo').trim();
+    final phoneText =
+        (plan.reservationContactPhone ?? venue?.phone ?? '').trim();
+    final venueParts = <String>[
+      (venue?.name ?? 'Centro deportivo').trim(),
+      (venue?.location ?? '').trim(),
+    ]..removeWhere((part) => part.isEmpty);
+    final venueText = venueParts.join(' · ');
+    final addressText = (venue?.address ?? '').trim();
 
     final buffer = StringBuffer()
       ..writeln(greeting)
@@ -768,6 +889,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       ..writeln()
       ..writeln()
       ..write('Gracias.');
+
+    if (addressText.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln()
+        ..write('Dirección: $addressText');
+    }
 
     if (phoneText.isNotEmpty) {
       buffer
@@ -809,8 +937,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         continue;
       }
 
-      final end = _planEndDateTime(plan);
-      if (end == null || !end.isBefore(now)) {
+      if (!plan.needsResultNotification) {
+        continue;
+      }
+
+      if (!plan.canCaptureResult(reference: now)) {
         continue;
       }
 
@@ -824,6 +955,46 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     });
 
     return result;
+  }
+
+  Future<MatchResultSubmissionModel?> _prepareExistingSubmission(
+    CommunityPlanModel plan,
+  ) async {
+    final currentUserId = plan.currentUserParticipant?.userId;
+    if (currentUserId == null) {
+      return null;
+    }
+
+    try {
+      final result = await ref.read(communityActionsProvider).fetchMatchResult(
+            plan.id,
+          );
+      final existingSubmission = result.submissionFor(currentUserId);
+
+      if (existingSubmission != null) {
+        if (mounted) {
+          ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
+        }
+      }
+
+      return existingSubmission;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _openResultDialog(CommunityPlanModel plan) async {
+    final existingSubmission = await _prepareExistingSubmission(plan);
+    if (!mounted) {
+      return;
+    }
+
+    await showMatchResultDialog(
+      context,
+      plan: plan,
+      existingSubmission: existingSubmission,
+    );
+    await _refreshDashboard();
   }
 
   static DateTime? _planEndDateTime(CommunityPlanModel plan) {
@@ -900,7 +1071,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           _maybeSyncDashboard(dashboard);
           final selectedPlan = _effectivePlan(dashboard);
           final reservationVenue = selectedPlan?.venue ?? dashboard.venue;
-          final finishedPlans = _finishedAcceptedPlans(dashboard);
+          final finishedPlans = alerts.loading
+              ? _finishedAcceptedPlans(dashboard)
+              : alerts.pendingResultPlans;
 
           return TabBarView(
             controller: _tabController,
@@ -1016,6 +1189,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           onDecline: () => _respondToPlan(plan, 'declined'),
           onDoubt: () => _respondToPlan(plan, 'doubt'),
           onSuggestTime: () => _proposeNewTime(plan),
+          onOpenChat: () => context.push('/players/chat/event/${plan.id}'),
           formatDate: _formatDisplayDate,
           formatTime: _formatDisplayTime,
         );
@@ -1026,7 +1200,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   Widget _buildPartidoTab(List<CommunityPlanModel> plans) {
     return _CommunityPartidoTab(
       plans: plans,
-      onRefresh: _refreshDashboard,
+      onOpenPlan: _openResultDialog,
       formatDate: _formatDisplayDate,
     );
   }
@@ -1206,20 +1380,108 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return 'La reserva ya no necesita más acciones.';
   }
 
+  String _calendarSyncLabel(String rawStatus) {
+    switch (rawStatus.trim().toLowerCase()) {
+      case 'synced':
+      case 'sincronizada':
+        return 'Calendar sincronizado';
+      case 'error':
+        return 'Calendar con incidencia';
+      default:
+        return 'Calendar pendiente';
+    }
+  }
+
+  PadelBadgeVariant _calendarSyncVariant(String rawStatus) {
+    switch (rawStatus.trim().toLowerCase()) {
+      case 'synced':
+      case 'sincronizada':
+        return PadelBadgeVariant.success;
+      case 'error':
+        return PadelBadgeVariant.danger;
+      default:
+        return PadelBadgeVariant.warning;
+    }
+  }
+
+  String? _formatHistoryTimestamp(String? rawValue) {
+    if (rawValue == null || rawValue.trim().isEmpty) {
+      return null;
+    }
+
+    final parsed = DateTime.tryParse(rawValue);
+    if (parsed == null) {
+      return rawValue;
+    }
+
+    final local = parsed.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$day/$month a las $hour:$minute';
+  }
+
   void _showHistoryPlanDialog(CommunityPlanModel plan) {
     final color = _statusColorForPlan(plan);
     final venueName = plan.venue?.name ?? 'Centro deportivo';
     final date = _formatDisplayDate(plan.scheduledDate);
     final time = _formatDisplayTime(plan.scheduledTime);
+    final contactPhone =
+        (plan.reservationContactPhone ?? plan.venue?.phone ?? '').trim();
+    final venueAddress = (plan.venue?.address ?? '').trim();
+    final venueLocation = (plan.venue?.location ?? '').trim();
+    final metadataBadges = <Widget>[
+      PadelBadge(
+        label: _modalityLabels[plan.modality] ?? plan.modality,
+        variant: PadelBadgeVariant.info,
+      ),
+      PadelBadge(
+        label: '${plan.capacity} plazas',
+        variant: PadelBadgeVariant.outline,
+      ),
+      if (venueLocation.isNotEmpty)
+        PadelBadge(
+          label: venueLocation,
+          variant: PadelBadgeVariant.info,
+        ),
+      if (plan.reservationHandledByName?.trim().isNotEmpty == true)
+        PadelBadge(
+          label: 'Reserva: ${plan.reservationHandledByName!.trim()}',
+          variant: PadelBadgeVariant.outline,
+        ),
+      PadelBadge(
+        label: _calendarSyncLabel(plan.calendarSyncStatus),
+        variant: _calendarSyncVariant(plan.calendarSyncStatus),
+      ),
+    ];
 
     String statusLabel;
     String statusDetail;
     if (plan.reservationConfirmed) {
       statusLabel = 'Reserva confirmada';
-      statusDetail = 'La pista quedó reservada con el club.';
+      final detailParts = <String>['La pista quedó reservada con el club.'];
+      if (plan.reservationHandledByName?.trim().isNotEmpty == true) {
+        detailParts.add(
+          'La gestionó ${plan.reservationHandledByName!.trim()}.',
+        );
+      }
+      final confirmedAt = _formatHistoryTimestamp(plan.reservationConfirmedAt);
+      if (confirmedAt != null) {
+        detailParts.add('Confirmada el $confirmedAt.');
+      }
+      statusDetail = detailParts.join(' ');
     } else if (plan.isCancelled) {
       statusLabel = 'Cancelada';
-      statusDetail = 'Esta convocatoria fue cancelada.';
+      final detailParts = <String>['Esta convocatoria fue cancelada.'];
+      if (plan.closedByName?.trim().isNotEmpty == true) {
+        detailParts.add('La cerró ${plan.closedByName!.trim()}.');
+      }
+      final closedAt = _formatHistoryTimestamp(plan.closedAt);
+      if (closedAt != null) {
+        detailParts.add('Quedó cerrada el $closedAt.');
+      }
+      statusDetail = detailParts.join(' ');
     } else {
       statusLabel = 'Expirada';
       statusDetail = 'La convocatoria expiró sin llegar a completarse.';
@@ -1318,9 +1580,45 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   ],
                 ),
               ),
+              if (metadataBadges.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: metadataBadges,
+                ),
+              ],
+              if ((plan.postPadelPlan ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _InlineNotice(
+                  title: 'Post pádel',
+                  message: plan.postPadelPlan!.trim(),
+                  color: AppColors.info,
+                ),
+              ],
+              if ((plan.notes ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                _InlineNotice(
+                  title: 'Observaciones',
+                  message: plan.notes!.trim(),
+                  color: AppColors.warning,
+                ),
+              ],
               // ── Jugadores / Resultado ────────────────────────────────
               if (plan.participants.isNotEmpty)
                 _HistoryPlanResultSection(plan: plan),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    context.push('/players/chat/event/${plan.id}');
+                  },
+                  icon: const Icon(Icons.forum_outlined),
+                  label: const Text('Abrir chat del partido'),
+                ),
+              ),
               const SizedBox(height: 20),
               // ── Contacto del club ─────────────────────────────────────
               const Divider(color: AppColors.border, height: 1),
@@ -1350,11 +1648,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                       children: [
                         Expanded(
                           child: Text(
-                            plan.venue?.phone?.isNotEmpty == true
-                                ? plan.venue!.phone!
+                            contactPhone.isNotEmpty
+                                ? contactPhone
                                 : 'Teléfono pendiente de configurar',
                             style: TextStyle(
-                              color: plan.venue?.phone?.isNotEmpty == true
+                              color: contactPhone.isNotEmpty
                                   ? Colors.white
                                   : AppColors.muted,
                               fontSize: 14,
@@ -1382,6 +1680,36 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                         ),
                       ],
                     ),
+                    if (venueAddress.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        venueAddress,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                    if (venueLocation.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        venueLocation,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    if (plan.closedReason?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Motivo de cierre: ${plan.closedReason!.trim()}',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Text(
                       _buildReservationTemplate(plan, plan.venue),
@@ -1418,7 +1746,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
   }
 
   Widget _buildHistorialTab(CommunityDashboardModel dashboard) {
-    if (dashboard.historyPlans.isEmpty) {
+    final historyPlans = dashboard.historyPlans
+        .where((plan) => plan.shouldAppearInHistory())
+        .toList(growable: false);
+
+    if (historyPlans.isEmpty) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1437,10 +1769,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-      itemCount: dashboard.historyPlans.length,
+      itemCount: historyPlans.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final plan = dashboard.historyPlans[index];
+        final plan = historyPlans[index];
         final color = _statusColorForPlan(plan);
         return InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -1512,12 +1844,27 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final borderColor = selectedPlan != null && selectedPlan.isOrganizer
         ? AppColors.success
         : AppColors.warning;
+    final clubOptionsAsync = ref.watch(communityClubOptionsProvider);
+    final clubOptions =
+        clubOptionsAsync.valueOrNull ?? const <CommunityVenueModel>[];
+    final preferredVenue = dashboard.venue;
+    final availableClubOptions = <CommunityVenueModel>[
+      if (selectedPlan?.venue != null) selectedPlan!.venue!,
+      if (preferredVenue != null) preferredVenue,
+      ...clubOptions.where((venue) => venue.id != preferredVenue?.id),
+    ];
+    final resolvedClubId = _resolvedDraftClubId(dashboard);
+    final selectedClubValue = availableClubOptions.any(
+      (venue) => venue.id == resolvedClubId,
+    )
+        ? resolvedClubId
+        : null;
 
     return _CommunityCard(
       borderColor: borderColor,
       title: '1. Convoca a tu red',
       subtitle: editable
-          ? 'Elige fecha, hora y hasta tres compañeros de Mi red.'
+          ? 'Elige fecha, hora, modalidad, club y completa la convocatoria con jugadores de Mi red.'
           : selectedPlan.isTerminal
               ? 'Esta convocatoria ya está cerrada. Puedes consultarla, pero no editarla.'
               : 'Esta convocatoria la ha lanzado otro jugador. Para crear la tuya, pulsa en "Nueva convocatoria".',
@@ -1563,6 +1910,159 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
             ],
           ),
           const SizedBox(height: 14),
+          const Text(
+            'Formato del partido',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              segments: _modalityLabels.entries
+                  .map(
+                    (entry) => ButtonSegment<String>(
+                      value: entry.key,
+                      label: Text(entry.value),
+                    ),
+                  )
+                  .toList(growable: false),
+              selected: <String>{_draftModality},
+              showSelectedIcon: false,
+              onSelectionChanged: editable
+                  ? (selection) {
+                      if (selection.isEmpty) {
+                        return;
+                      }
+                      _setDraftModality(selection.first);
+                    }
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface2,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(
+              _draftModality == 'americana'
+                  ? 'Americana reserva 8 plazas: tú y 7 jugadores más. El marcador específico se definirá en una fase posterior.'
+                  : 'Esta convocatoria reserva 4 plazas: tú y hasta 3 jugadores más.',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<int>(
+            key: ValueKey(selectedClubValue),
+            initialValue: selectedClubValue,
+            isExpanded: true,
+            dropdownColor: AppColors.surface,
+            decoration: InputDecoration(
+              labelText: 'Club',
+              hintText: 'Selecciona el club',
+              labelStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surface2,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+            items: availableClubOptions
+                .where((venue) => venue.id != null)
+                .map(
+                  (venue) => DropdownMenuItem<int>(
+                    value: venue.id!,
+                    child: Text(
+                      venue.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: editable ? _setDraftClubId : null,
+          ),
+          if (clubOptionsAsync.isLoading && availableClubOptions.isEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Cargando clubes disponibles...',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 14),
+          TextField(
+            controller: _postPadelPlanController,
+            enabled: editable,
+            maxLength: 80,
+            decoration: InputDecoration(
+              labelText: 'Post pádel',
+              hintText: 'Choripán, cañas, cena o plan después del partido',
+              labelStyle: const TextStyle(color: AppColors.muted),
+              counterStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surface2,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notesController,
+            enabled: editable,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 240,
+            decoration: InputDecoration(
+              labelText: 'Observaciones',
+              hintText: 'Añade detalles útiles para la invitación',
+              labelStyle: const TextStyle(color: AppColors.muted),
+              counterStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surface2,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
           Row(
             children: [
               const Text(
@@ -1575,7 +2075,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
               ),
               const Spacer(),
               Text(
-                '${_selectedParticipantIds.length}/3',
+                '${_selectedParticipantIds.length}/$_maxInvitedParticipants',
                 style: const TextStyle(
                   color: AppColors.muted,
                   fontWeight: FontWeight.w700,
@@ -1584,9 +2084,11 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Aparecen únicamente los jugadores de tu red que ya han aceptado jugar contigo.',
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
+          Text(
+            _draftModality == 'americana'
+                ? 'Aparecen únicamente los jugadores de tu red que ya han aceptado jugar contigo. En Americana necesitas completar 8 plazas.'
+                : 'Aparecen únicamente los jugadores de tu red que ya han aceptado jugar contigo.',
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 12),
           if (dashboard.companions.isEmpty)
@@ -1674,6 +2176,42 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              PadelBadge(
+                label: _modalityLabels[plan.modality] ?? plan.modality,
+                variant: PadelBadgeVariant.info,
+              ),
+              PadelBadge(
+                label: '${plan.capacity} plazas',
+                variant: PadelBadgeVariant.outline,
+              ),
+              if ((plan.venue?.name ?? '').trim().isNotEmpty)
+                PadelBadge(
+                  label: plan.venue!.name,
+                  variant: PadelBadgeVariant.outline,
+                ),
+            ],
+          ),
+          if ((plan.postPadelPlan ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InlineNotice(
+              title: 'Post pádel',
+              message: plan.postPadelPlan!.trim(),
+              color: AppColors.info,
+            ),
+          ],
+          if ((plan.notes ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InlineNotice(
+              title: 'Observaciones',
+              message: plan.notes!.trim(),
+              color: AppColors.warning,
+            ),
+          ],
           const SizedBox(height: 14),
           if (plan.hasDecline)
             _InlineNotice(
@@ -1712,6 +2250,15 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   'La fecha ya pasó y el sistema la ha cerrado automáticamente para que no quede en el aire.',
               color: AppColors.warning,
             ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/players/chat/event/${plan.id}'),
+              icon: const Icon(Icons.forum_outlined),
+              label: const Text('Abrir chat del partido'),
+            ),
+          ),
           const SizedBox(height: 8),
           Column(
             children: plan.participants
@@ -1881,11 +2428,30 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      venue?.phone?.trim().isNotEmpty == true
-                          ? 'Teléfono: ${venue!.phone}'
-                          : 'Sin teléfono configurado todavía.',
+                      plan.reservationContactPhone?.trim().isNotEmpty == true
+                          ? 'Teléfono de reserva: ${plan.reservationContactPhone}'
+                          : venue?.phone?.trim().isNotEmpty == true
+                              ? 'Teléfono: ${venue!.phone}'
+                              : 'Sin teléfono configurado todavía.',
                       style: const TextStyle(color: AppColors.muted),
                     ),
+                    if (venue?.address?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        venue!.address!.trim(),
+                        style: const TextStyle(color: AppColors.muted),
+                      ),
+                    ],
+                    if (venue?.location?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        venue!.location!.trim(),
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1911,6 +2477,26 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   'Esta convocatoria ya no admite intentos de reserva porque ha quedado cancelada o expirada.',
               color: AppColors.danger,
             ),
+          if (plan.reservationHandledByName?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Coordina la reserva: ${plan.reservationHandledByName!.trim()}',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          if (plan.reservationConfirmedAt?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Confirmada el ${_formatHistoryTimestamp(plan.reservationConfirmedAt)}',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+              ),
+            ),
+          ],
           if (participants.isNotEmpty) ...[
             const SizedBox(height: 6),
             DropdownButtonFormField<int>(
@@ -2177,12 +2763,12 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 
 class _CommunityPartidoTab extends StatelessWidget {
   final List<CommunityPlanModel> plans;
-  final Future<void> Function() onRefresh;
+  final Future<void> Function(CommunityPlanModel plan) onOpenPlan;
   final String Function(String) formatDate;
 
   const _CommunityPartidoTab({
     required this.plans,
-    required this.onRefresh,
+    required this.onOpenPlan,
     required this.formatDate,
   });
 
@@ -2247,10 +2833,7 @@ class _CommunityPartidoTab extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () async {
-            await showMatchResultDialog(context, plan: plan);
-            await onRefresh();
-          },
+          onTap: () async => onOpenPlan(plan),
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -2569,7 +3152,11 @@ class _ParticipantTile extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 6,
                       children: [
-                        PadelBadge(label: 'Nivel ${player.level}'),
+                        LevelBadge(
+                          level: player.level,
+                          mainLevel: player.mainLevel,
+                          subLevel: player.subLevel,
+                        ),
                         PadelBadge(
                           label: player.isAvailable
                               ? 'Disponible'
@@ -2777,9 +3364,10 @@ class _CommunityParticipantStatusTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Nivel ${participant.numericLevel}',
-                  style: const TextStyle(color: AppColors.muted),
+                LevelBadge(
+                  level: participant.numericLevel,
+                  mainLevel: participant.mainLevel,
+                  subLevel: participant.subLevel,
                 ),
               ],
             ),
@@ -2841,6 +3429,7 @@ class _InvitationCard extends StatelessWidget {
   final VoidCallback onDecline;
   final VoidCallback onDoubt;
   final VoidCallback onSuggestTime;
+  final VoidCallback onOpenChat;
   final String Function(String) formatDate;
   final String Function(String) formatTime;
 
@@ -2851,6 +3440,7 @@ class _InvitationCard extends StatelessWidget {
     required this.onDecline,
     required this.onDoubt,
     required this.onSuggestTime,
+    required this.onOpenChat,
     required this.formatDate,
     required this.formatTime,
   });
@@ -2884,6 +3474,9 @@ class _InvitationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final venueName = plan.venue?.name ?? 'Centro deportivo';
+    final venueLine = plan.venue?.location?.trim().isNotEmpty == true
+        ? '$venueName · ${plan.venue!.location!.trim()}'
+        : venueName;
     final date = formatDate(plan.scheduledDate);
     final time = formatTime(plan.scheduledTime);
     final responseColor = _responseColor(plan.myResponseState);
@@ -2939,12 +3532,45 @@ class _InvitationCard extends StatelessWidget {
                 const Icon(Icons.location_on_outlined,
                     color: AppColors.muted, size: 14),
                 const SizedBox(width: 6),
-                Text(
-                  venueName,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                Expanded(
+                  child: Text(
+                    venueLine,
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                PadelBadge(
+                  label: _CommunityScreenState._modalityLabels[plan.modality] ??
+                      plan.modality,
+                  variant: PadelBadgeVariant.info,
+                ),
+                PadelBadge(
+                  label: '${plan.capacity} plazas',
+                  variant: PadelBadgeVariant.outline,
+                ),
+              ],
+            ),
+            if ((plan.postPadelPlan ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Post pádel: ${plan.postPadelPlan!.trim()}',
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+            ],
+            if ((plan.notes ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                plan.notes!.trim(),
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: 12),
             // ── Estado actual ─────────────────────────────────────────
             Row(
@@ -3005,6 +3631,15 @@ class _InvitationCard extends StatelessWidget {
                   onPressed: busy ? null : onSuggestTime,
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onOpenChat,
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text('Abrir chat del partido'),
+              ),
             ),
           ],
         ),
@@ -3138,12 +3773,10 @@ class _PlainPlayersView extends StatelessWidget {
                   ),
                 ),
                 if (p.numericLevel > 0)
-                  Text(
-                    'Nv ${p.numericLevel}',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
+                  LevelBadge(
+                    level: p.numericLevel,
+                    mainLevel: p.mainLevel,
+                    subLevel: p.subLevel,
                   ),
               ],
             ),

@@ -21,10 +21,123 @@ import {
 
 const MAX_ACTIVE_PLANS = 3;
 const COMMUNITY_RECOVERY_BUFFER_MINUTES = 45;
+const RESULT_READY_GRACE_MINUTES = 1;
 const TERMINAL_INVITE_STATES = new Set(['cancelled', 'expired']);
 const TERMINAL_RESERVATION_STATES = new Set(['confirmed', 'cancelled', 'expired']);
 const SERIOUS_RESPONSE_STATES = new Set(['accepted']);
 const PENDING_RESPONSE_STATES = new Set(['pending', 'doubt']);
+const COMMUNITY_MODALITY_CAPACITY = {
+  amistoso: 4,
+  competitivo: 4,
+  americana: 8,
+};
+
+function normalizeCommunityModality(value) {
+  if (typeof value !== 'string') {
+    return 'amistoso';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return COMMUNITY_MODALITY_CAPACITY[normalized] ? normalized : 'amistoso';
+}
+
+function resolveCommunityCapacity(modality) {
+  return COMMUNITY_MODALITY_CAPACITY[normalizeCommunityModality(modality)] || 4;
+}
+
+function sanitizeOptionalText(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function getPlanScheduleContext(planLike) {
+  const scheduledDate = normalizeDateValue(planLike?.scheduled_date, APP_TIME_ZONE);
+  const scheduledTime = planLike?.scheduled_time
+    ? String(planLike.scheduled_time)
+    : null;
+  const durationMinutes =
+    Number.parseInt(planLike?.duration_minutes, 10) || DEFAULT_DURATION_MINUTES;
+
+  if (!scheduledDate || !scheduledTime) {
+    return {
+      scheduledDate,
+      scheduledTime,
+      durationMinutes,
+      startAt: null,
+      endAt: null,
+    };
+  }
+
+  const startAt = combineDateAndTime(scheduledDate, scheduledTime, APP_TIME_ZONE);
+  const endAt = startAt.plus({ minutes: durationMinutes });
+
+  return {
+    scheduledDate,
+    scheduledTime,
+    durationMinutes,
+    startAt,
+    endAt,
+  };
+}
+
+function isPlanCancelledOrExpired(planLike) {
+  return ['cancelled', 'expired'].includes(planLike?.invite_state)
+    || ['cancelled', 'expired'].includes(planLike?.reservation_state);
+}
+
+function isPlanFinishedBySchedule(planLike, referenceNow = nowInAppZone()) {
+  const { endAt } = getPlanScheduleContext(planLike);
+  if (!endAt) {
+    return false;
+  }
+
+  return endAt.plus({ minutes: RESULT_READY_GRACE_MINUTES }).toMillis()
+    <= referenceNow.toMillis();
+}
+
+function shouldPlanAppearInHistory(planLike, referenceNow = nowInAppZone()) {
+  return isPlanCancelledOrExpired(planLike)
+    || isPlanFinishedBySchedule(planLike, referenceNow);
+}
+
+function compareUpcomingPlans(left, right) {
+  const leftSchedule = getPlanScheduleContext(left);
+  const rightSchedule = getPlanScheduleContext(right);
+  const leftMillis = leftSchedule.startAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
+  const rightMillis = rightSchedule.startAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
+
+  if (leftMillis !== rightMillis) {
+    return leftMillis - rightMillis;
+  }
+
+  return Number(left.id || 0) - Number(right.id || 0);
+}
+
+function compareHistoryPlans(left, right) {
+  const leftSchedule = getPlanScheduleContext(left);
+  const rightSchedule = getPlanScheduleContext(right);
+  const leftMillis = leftSchedule.endAt?.toMillis() ?? 0;
+  const rightMillis = rightSchedule.endAt?.toMillis() ?? 0;
+
+  if (leftMillis !== rightMillis) {
+    return rightMillis - leftMillis;
+  }
+
+  return Number(right.id || 0) - Number(left.id || 0);
+}
+
+function planNeedsResponse(plan) {
+  if (plan.is_organizer || isPlanCancelledOrExpired(plan) || plan.is_finished) {
+    return false;
+  }
+
+  const response = String(plan.my_response_state || 'pending').toLowerCase();
+  return response === 'pending' || response === 'doubt';
+}
 
 function isPlanTerminal(plan) {
   if (!plan) {
@@ -33,10 +146,6 @@ function isPlanTerminal(plan) {
 
   return TERMINAL_INVITE_STATES.has(plan.invite_state)
     || TERMINAL_RESERVATION_STATES.has(plan.reservation_state);
-}
-
-function isPlanActive(plan) {
-  return !isPlanTerminal(plan);
 }
 
 function normalizeTimestamp(value) {
@@ -112,6 +221,8 @@ function mapCommunityPlayerRow(row) {
     display_name: displayNameFromRow(row),
     nombre: row.nombre,
     email: row.email || null,
+    main_level: row.main_level || null,
+    sub_level: row.sub_level || null,
     numeric_level: Number.parseInt(row.numeric_level, 10) || 0,
     is_available: row.is_available ?? true,
     avatar_url: row.avatar_url || null,
@@ -125,6 +236,8 @@ function mapParticipantRow(row, currentUserId) {
     display_name: displayNameFromRow(row),
     nombre: row.nombre,
     email: row.email || null,
+    main_level: row.main_level || null,
+    sub_level: row.sub_level || null,
     numeric_level: Number.parseInt(row.numeric_level, 10) || 0,
     is_available: row.is_available ?? true,
     avatar_url: row.avatar_url || null,
@@ -160,24 +273,57 @@ function mapNotificationRow(row) {
     metadata: row.metadata || {},
     is_read: row.is_read,
     created_at: row.created_at,
-    action_type: row.action_type || null,
+    action_type: row.action_type || row.metadata?.action_type || null,
   };
 }
 
-function buildPlanDto(row, participants, currentUserId) {
+function buildPlanDto(row, participants, currentUserId, extras = {}) {
+  const planId = Number(row.id);
   const myParticipant = participants.find(
     (participant) => Number(participant.user_id) === Number(currentUserId),
   );
+  const now = extras.now || nowInAppZone();
+  const schedule = getPlanScheduleContext(row);
+  const acceptedParticipants = participants.filter(
+    (participant) => participant.response_state === 'accepted',
+  );
+  const resultRow = extras.matchResultsByPlan?.get(planId) || null;
+  const planSubmissions = extras.resultSubmissionsByPlan?.get(planId) || [];
+  const myResultSubmission = planSubmissions.find(
+    (submission) => Number(submission.user_id) === Number(currentUserId),
+  ) || null;
+  const ratedUserIds = extras.ratedUserIdsByPlan?.get(planId) || new Set();
+  const isFinished = isPlanFinishedBySchedule(row, now);
+  const isUpcoming = !isFinished && !isPlanCancelledOrExpired(row);
+  const isAcceptedPlayer = myParticipant?.response_state === 'accepted';
+  const validAcceptedCount =
+    acceptedParticipants.length === 2 || acceptedParticipants.length === 4;
+  const canSubmitResult = row.reservation_state === 'confirmed'
+    && !isPlanCancelledOrExpired(row)
+    && isFinished
+    && isAcceptedPlayer
+    && validAcceptedCount
+    && resultRow?.status !== 'consensuado';
+  const needsResultNotification = canSubmitResult && !myResultSubmission;
+  const needsRating = row.reservation_state === 'confirmed'
+    && !isPlanCancelledOrExpired(row)
+    && isFinished
+    && isAcceptedPlayer
+    && validAcceptedCount
+    && resultRow?.status === 'consensuado'
+    && acceptedParticipants.some(
+      (participant) => Number(participant.user_id) !== Number(currentUserId)
+        && !ratedUserIds.has(Number(participant.user_id)),
+    );
 
   return {
-    id: Number(row.id),
+    id: planId,
     created_by: Number(row.created_by),
     creator_name:
       row.creator_display_name || row.creator_name || 'Organizador',
-    scheduled_date: normalizeDateValue(row.scheduled_date, APP_TIME_ZONE),
-    scheduled_time: row.scheduled_time,
-    duration_minutes:
-      Number.parseInt(row.duration_minutes, 10) || DEFAULT_DURATION_MINUTES,
+    scheduled_date: schedule.scheduledDate,
+    scheduled_time: schedule.scheduledTime,
+    duration_minutes: schedule.durationMinutes,
     invite_state: row.invite_state,
     reservation_state: row.reservation_state,
     reservation_handled_by: row.reservation_handled_by
@@ -188,6 +334,12 @@ function buildPlanDto(row, participants, currentUserId) {
       row.reservation_handled_by_name ||
       null,
     reservation_contact_phone: row.reservation_contact_phone || null,
+    modality: normalizeCommunityModality(row.modality),
+    capacity: Number.parseInt(row.capacity, 10) || 4,
+    club_id: row.venue_id ? Number(row.venue_id) : null,
+    venue_id: row.venue_id ? Number(row.venue_id) : null,
+    post_padel_plan: row.post_padel_plan || null,
+    notes: row.notes || null,
     google_event_id: row.google_event_id || null,
     last_declined_by: row.last_declined_by ? Number(row.last_declined_by) : null,
     last_declined_by_name:
@@ -215,6 +367,12 @@ function buildPlanDto(row, participants, currentUserId) {
     participants,
     is_organizer: Number(row.created_by) === Number(currentUserId),
     my_response_state: myParticipant?.response_state || null,
+    is_upcoming: isUpcoming,
+    is_finished: isFinished,
+    can_submit_result: canSubmitResult,
+    needs_result_notification: needsResultNotification,
+    my_result_submission: myResultSubmission,
+    needs_rating: needsRating,
   };
 }
 
@@ -233,6 +391,23 @@ async function loadDefaultVenue(client) {
   return result.rows[0] || null;
 }
 
+async function loadVenueById(client, venueId) {
+  if (!venueId) {
+    return null;
+  }
+
+  const result = await client.query(
+    `SELECT id, name, location, address, phone
+     FROM app.padel_venues
+     WHERE id = $1
+       AND is_active = true
+     LIMIT 1`,
+    [venueId],
+  );
+
+  return result.rows[0] || null;
+}
+
 async function loadAcceptedCompanions(client, userId) {
   const result = await client.query(
     `
@@ -246,6 +421,8 @@ async function loadAcceptedCompanions(client, userId) {
         u.nombre,
         u.email,
         pp.display_name,
+        pp.main_level,
+        pp.sub_level,
         pp.numeric_level,
         pp.is_available,
         pp.avatar_url,
@@ -365,6 +542,8 @@ async function loadParticipantsForPlans(client, planIds, currentUserId) {
         u.nombre,
         u.email,
         pp.display_name,
+        pp.main_level,
+        pp.sub_level,
         pp.numeric_level,
         pp.is_available,
         pp.avatar_url
@@ -390,6 +569,81 @@ async function loadParticipantsForPlans(client, planIds, currentUserId) {
   }
 
   return participantMap;
+}
+
+async function loadMatchResultsForPlans(client, planIds) {
+  if (!planIds.length) {
+    return new Map();
+  }
+
+  const result = await client.query(
+    `
+      SELECT id, plan_id, status, team_a_user_ids, team_b_user_ids,
+             winner_team, sets, resolved_at, created_at, updated_at
+      FROM app.padel_match_results
+      WHERE plan_id = ANY($1::int[])
+    `,
+    [planIds],
+  );
+
+  return new Map(
+    result.rows.map((row) => [Number(row.plan_id), mapResultRow(row)]),
+  );
+}
+
+async function loadMatchResultSubmissionsForPlans(client, planIds) {
+  if (!planIds.length) {
+    return new Map();
+  }
+
+  const result = await client.query(
+    `
+      SELECT id, plan_id, user_id, partner_user_id, winner_team, sets,
+             submitted_at, updated_at
+      FROM app.padel_match_result_submissions
+      WHERE plan_id = ANY($1::int[])
+      ORDER BY plan_id ASC, submitted_at ASC
+    `,
+    [planIds],
+  );
+
+  const submissionsByPlan = new Map();
+  for (const row of result.rows) {
+    const planId = Number(row.plan_id);
+    if (!submissionsByPlan.has(planId)) {
+      submissionsByPlan.set(planId, []);
+    }
+    submissionsByPlan.get(planId).push(mapSubmissionRow(row));
+  }
+
+  return submissionsByPlan;
+}
+
+async function loadCommunityRatedUserIdsByPlan(client, userId, planIds) {
+  if (!planIds.length) {
+    return new Map();
+  }
+
+  const result = await client.query(
+    `
+      SELECT community_plan_id, rated_id
+      FROM app.padel_player_ratings
+      WHERE rater_id = $1
+        AND community_plan_id = ANY($2::int[])
+    `,
+    [userId, planIds],
+  );
+
+  const ratedUserIdsByPlan = new Map();
+  for (const row of result.rows) {
+    const planId = Number(row.community_plan_id);
+    if (!ratedUserIdsByPlan.has(planId)) {
+      ratedUserIdsByPlan.set(planId, new Set());
+    }
+    ratedUserIdsByPlan.get(planId).add(Number(row.rated_id));
+  }
+
+  return ratedUserIdsByPlan;
 }
 
 async function loadUnreadNotifications(client, userId) {
@@ -1067,31 +1321,78 @@ async function syncCommunityCalendarEvent(client, plan, userId) {
   }
 }
 
+async function buildCommunityDashboardPlans(client, userId) {
+  const planRows = await loadPlanRowsForUser(client, userId);
+  const planIds = planRows.map((row) => Number(row.id));
+  const participantMap = await loadParticipantsForPlans(client, planIds, userId);
+  const matchResultsByPlan = await loadMatchResultsForPlans(client, planIds);
+  const resultSubmissionsByPlan = await loadMatchResultSubmissionsForPlans(client, planIds);
+  const ratedUserIdsByPlan = await loadCommunityRatedUserIdsByPlan(client, userId, planIds);
+  const now = nowInAppZone();
+
+  const allPlans = planRows.map((row) =>
+    buildPlanDto(
+      row,
+      participantMap.get(Number(row.id)) || [],
+      userId,
+      {
+        now,
+        matchResultsByPlan,
+        resultSubmissionsByPlan,
+        ratedUserIdsByPlan,
+      },
+    ),
+  );
+
+  const activePlans = allPlans
+    .filter((plan) => !shouldPlanAppearInHistory(plan, now))
+    .sort(compareUpcomingPlans);
+  const historyPlans = allPlans
+    .filter((plan) => shouldPlanAppearInHistory(plan, now))
+    .sort(compareHistoryPlans);
+
+  return {
+    allPlans,
+    activePlans,
+    historyPlans,
+    activePlan: activePlans[0] || null,
+  };
+}
+
+function buildDashboardBootstrapPlan(plan) {
+  if (!plan) {
+    return null;
+  }
+
+  return {
+    id: plan.id,
+    scheduled_date: plan.scheduled_date,
+    scheduled_time: plan.scheduled_time,
+    duration_minutes: plan.duration_minutes,
+    invite_state: plan.invite_state,
+    reservation_state: plan.reservation_state,
+    is_organizer: plan.is_organizer,
+    my_response_state: plan.my_response_state,
+    is_upcoming: plan.is_upcoming,
+    is_finished: plan.is_finished,
+    can_submit_result: plan.can_submit_result,
+    needs_result_notification: plan.needs_result_notification,
+    needs_rating: plan.needs_rating,
+  };
+}
+
 export async function getCommunityDashboard(userId) {
   await runCommunityLifecycleMaintenance();
   const client = await pool.connect();
   try {
     const venue = await loadDefaultVenue(client);
     const companions = await loadAcceptedCompanions(client, userId);
-    const planRows = await loadPlanRowsForUser(client, userId);
     const notifications = await loadUnreadNotifications(client, userId);
-
-    const participantMap = await loadParticipantsForPlans(
-      client,
-      planRows.map((row) => Number(row.id)),
-      userId,
-    );
-
-    const allPlans = planRows.map((row) =>
-      buildPlanDto(row, participantMap.get(Number(row.id)) || [], userId),
-    );
-
-    const activePlans = allPlans.filter((plan) => isPlanActive({
-      invite_state: plan.invite_state,
-      reservation_state: plan.reservation_state,
-    }));
-    const historyPlans = allPlans.filter((plan) => !activePlans.includes(plan));
-    const activePlan = activePlans[0] || null;
+    const {
+      activePlans,
+      historyPlans,
+      activePlan,
+    } = await buildCommunityDashboardPlans(client, userId);
 
     return {
       venue: mapVenueRow(venue),
@@ -1101,6 +1402,41 @@ export async function getCommunityDashboard(userId) {
       history_plans: historyPlans,
       active_plan: activePlan,
       notifications,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCommunityDashboardBootstrap(userId) {
+  await runCommunityLifecycleMaintenance();
+  const client = await pool.connect();
+  try {
+    const notifications = await loadUnreadNotifications(client, userId);
+    const {
+      allPlans,
+      activePlans,
+      historyPlans,
+      activePlan,
+    } = await buildCommunityDashboardPlans(client, userId);
+
+    const pendingResultPlans = allPlans.filter(
+      (plan) => plan.needs_result_notification,
+    );
+    const pendingRatingPlans = allPlans.filter((plan) => plan.needs_rating);
+    const pendingResponsePlans = activePlans.filter(planNeedsResponse);
+
+    return {
+      active_plan: buildDashboardBootstrapPlan(activePlan),
+      active_plans_count: activePlans.length,
+      history_plans_count: historyPlans.length,
+      unread_notifications_count: notifications.length,
+      pending_response_count: pendingResponsePlans.length,
+      pending_result_count: pendingResultPlans.length,
+      pending_rating_count: pendingRatingPlans.length,
+      pending_result_plan_ids: pendingResultPlans.map((plan) => plan.id),
+      pending_rating_plan_ids: pendingRatingPlans.map((plan) => plan.id),
+      updated_at: nowInAppZone().toISO(),
     };
   } finally {
     client.release();
@@ -1133,6 +1469,11 @@ export async function createCommunityPlan({
   scheduledDate,
   scheduledTime,
   participantUserIds,
+  modality = 'amistoso',
+  capacity = null,
+  venueId = null,
+  postPadelPlan = null,
+  notes = null,
   forceSend = false,
 }) {
   const client = await pool.connect();
@@ -1158,7 +1499,33 @@ export async function createCommunityPlan({
       };
     }
 
-    const defaultVenue = await loadDefaultVenue(client);
+    const resolvedModality = normalizeCommunityModality(modality);
+    const resolvedCapacity = resolveCommunityCapacity(resolvedModality);
+    if (capacity != null && Number.parseInt(capacity, 10) !== resolvedCapacity) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: resolvedModality === 'americana'
+            ? 'La modalidad americana usa 8 plazas.'
+            : 'Las convocatorias amistosas o competitivas usan 4 plazas.',
+        },
+      };
+    }
+
+    const selectedVenue = venueId
+      ? await loadVenueById(client, venueId)
+      : await loadDefaultVenue(client);
+    if (venueId && !selectedVenue) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'El club seleccionado no está disponible.',
+        },
+      };
+    }
+
     const participantPool = await ensureParticipantPool(
       client,
       userId,
@@ -1172,6 +1539,31 @@ export async function createCommunityPlan({
         body: {
           error:
             'Solo puedes convocar a jugadores que formen parte de tu red.',
+        },
+      };
+    }
+
+    if (participantPool.participantIds.length > resolvedCapacity - 1) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: resolvedModality === 'americana'
+            ? 'La modalidad americana admite 8 plazas en total.'
+            : 'Las convocatorias amistosas o competitivas admiten 4 plazas en total.',
+        },
+      };
+    }
+
+    if (
+      resolvedModality === 'americana'
+      && participantPool.participantIds.length !== resolvedCapacity - 1
+    ) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'La modalidad americana requiere invitar a 7 jugadores para completar 8 plazas.',
         },
       };
     }
@@ -1207,20 +1599,28 @@ export async function createCommunityPlan({
           scheduled_date,
           scheduled_time,
           duration_minutes,
+          modality,
+          capacity,
+          post_padel_plan,
+          notes,
           invite_state,
           reservation_state,
           reservation_contact_phone
         )
-        VALUES ($1, $2, $3, $4, $5, 'pending', 'pending', $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', 'pending', $10)
         RETURNING *
       `,
       [
         userId,
-        defaultVenue?.id || null,
+        selectedVenue?.id || null,
         scheduledDate,
         scheduledTime,
         DEFAULT_DURATION_MINUTES,
-        defaultVenue?.phone || null,
+        resolvedModality,
+        resolvedCapacity,
+        sanitizeOptionalText(postPadelPlan),
+        sanitizeOptionalText(notes),
+        selectedVenue?.phone || null,
       ],
     );
 
@@ -1296,6 +1696,11 @@ export async function updateCommunityPlan({
   scheduledDate,
   scheduledTime,
   participantUserIds,
+  modality = 'amistoso',
+  capacity = null,
+  venueId = null,
+  postPadelPlan = null,
+  notes = null,
   expectedUpdatedAt = null,
   forceSend = false,
 }) {
@@ -1326,6 +1731,34 @@ export async function updateCommunityPlan({
       return buildClosedPayload(plan);
     }
 
+    const resolvedModality = normalizeCommunityModality(modality || plan.modality);
+    const resolvedCapacity = resolveCommunityCapacity(resolvedModality);
+    if (capacity != null && Number.parseInt(capacity, 10) !== resolvedCapacity) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: resolvedModality === 'americana'
+            ? 'La modalidad americana usa 8 plazas.'
+            : 'Las convocatorias amistosas o competitivas usan 4 plazas.',
+        },
+      };
+    }
+
+    const targetVenueId = venueId || plan.venue_id || null;
+    const selectedVenue = targetVenueId
+      ? await loadVenueById(client, targetVenueId)
+      : await loadDefaultVenue(client);
+    if (targetVenueId && !selectedVenue) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'El club seleccionado no está disponible.',
+        },
+      };
+    }
+
     const participantPool = await ensureParticipantPool(
       client,
       userId,
@@ -1338,6 +1771,31 @@ export async function updateCommunityPlan({
         body: {
           error:
             'Solo puedes convocar a jugadores que formen parte de tu red.',
+        },
+      };
+    }
+
+    if (participantPool.participantIds.length > resolvedCapacity - 1) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: resolvedModality === 'americana'
+            ? 'La modalidad americana admite 8 plazas en total.'
+            : 'Las convocatorias amistosas o competitivas admiten 4 plazas en total.',
+        },
+      };
+    }
+
+    if (
+      resolvedModality === 'americana'
+      && participantPool.participantIds.length !== resolvedCapacity - 1
+    ) {
+      await client.query('ROLLBACK');
+      return {
+        status: 400,
+        body: {
+          error: 'La modalidad americana requiere invitar a 7 jugadores para completar 8 plazas.',
         },
       };
     }
@@ -1381,6 +1839,12 @@ export async function updateCommunityPlan({
         UPDATE app.padel_community_plans
         SET scheduled_date = $2,
             scheduled_time = $3,
+            venue_id = $4,
+            reservation_contact_phone = $5,
+            modality = $6,
+            capacity = $7,
+            post_padel_plan = $8,
+            notes = $9,
             invite_state = 'pending',
             calendar_sync_status = 'pending',
             reservation_state = CASE
@@ -1398,7 +1862,17 @@ export async function updateCommunityPlan({
             updated_at = NOW()
         WHERE id = $1
       `,
-      [planId, scheduledDate, scheduledTime],
+      [
+        planId,
+        scheduledDate,
+        scheduledTime,
+        selectedVenue?.id || null,
+        selectedVenue?.phone || null,
+        resolvedModality,
+        resolvedCapacity,
+        sanitizeOptionalText(postPadelPlan),
+        sanitizeOptionalText(notes),
+      ],
     );
 
     await client.query(
@@ -1449,7 +1923,18 @@ export async function updateCommunityPlan({
     };
     calendarInfo = await syncCommunityCalendarEvent(
       client,
-      { ...plan, google_event_id: plan.google_event_id },
+      {
+        ...plan,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+        venue_id: selectedVenue?.id || null,
+        reservation_contact_phone: selectedVenue?.phone || null,
+        modality: resolvedModality,
+        capacity: resolvedCapacity,
+        post_padel_plan: sanitizeOptionalText(postPadelPlan),
+        notes: sanitizeOptionalText(notes),
+        google_event_id: plan.google_event_id,
+      },
       userId,
     );
 
@@ -1932,7 +2417,7 @@ export async function updateCommunityReservationStatus({
     await createNotifications(client, {
       planId,
       userIds: participantIds,
-      excludeUserIds: [userId],
+      excludeUserIds: confirmed ? [] : [userId],
       type: notificationType,
       title: notificationTitle,
       message: notificationMessage,
@@ -1940,6 +2425,7 @@ export async function updateCommunityReservationStatus({
         handled_by_user_id: handlerId,
         handled_by_name: handlerName,
         reservation_state: confirmed ? 'confirmed' : 'retry',
+        action_type: 'review_plan',
       },
     });
 
@@ -2216,6 +2702,98 @@ async function cancelTimedOutRetryPlans(client) {
   return cancelledCount;
 }
 
+async function createResultReadyNotificationsForFinishedPlans(client) {
+  const planResult = await client.query(
+    `
+      SELECT id, scheduled_date, scheduled_time, duration_minutes
+      FROM app.padel_community_plans
+      WHERE reservation_state = 'confirmed'
+        AND invite_state NOT IN ('cancelled', 'expired')
+        AND reservation_state NOT IN ('cancelled', 'expired')
+    `,
+  );
+
+  let notifiedCount = 0;
+  const now = nowInAppZone();
+
+  for (const row of planResult.rows) {
+    const planId = Number(row.id);
+    if (!isPlanFinishedBySchedule(row, now)) {
+      continue;
+    }
+
+    const acceptedIds = [...await loadAcceptedPlayerIds(client, planId)];
+    if (acceptedIds.length !== 2 && acceptedIds.length !== 4) {
+      continue;
+    }
+
+    const submissionRows = await loadMatchResultSubmissions(client, planId);
+    const submittedIds = new Set(
+      submissionRows
+        .map((submission) => Number(submission.user_id))
+        .filter((userId) => acceptedIds.includes(userId)),
+    );
+    const missingIds = acceptedIds.filter((userId) => !submittedIds.has(userId));
+
+    if (!missingIds.length) {
+      continue;
+    }
+
+    const title = 'Resultado pendiente';
+    const message = 'El partido ya ha terminado. Registra el resultado para cerrar la convocatoria.';
+    const insertResult = await client.query(
+      `
+        WITH recipients AS (
+          SELECT UNNEST($2::int[]) AS user_id
+        )
+        INSERT INTO app.padel_community_notifications (
+          plan_id,
+          user_id,
+          type,
+          title,
+          message,
+          metadata
+        )
+        SELECT
+          $1::int,
+          recipients.user_id,
+          $3::varchar,
+          $4::varchar,
+          $5::text,
+          $6::jsonb
+        FROM recipients
+        ON CONFLICT DO NOTHING
+        RETURNING user_id
+      `,
+      [
+        planId,
+        missingIds,
+        'result_ready',
+        title,
+        message,
+        JSON.stringify({ action_type: 'submit_result' }),
+      ],
+    );
+
+    const notifiedUserIds = insertResult.rows.map((notification) =>
+      Number(notification.user_id),
+    );
+    if (!notifiedUserIds.length) {
+      continue;
+    }
+
+    notifiedCount += notifiedUserIds.length;
+    sendPushToUsers({
+      userIds: notifiedUserIds,
+      title,
+      body: message,
+      data: { planId: String(planId), type: 'result_ready' },
+    }).catch(() => {});
+  }
+
+  return notifiedCount;
+}
+
 async function retryPendingCommunityCalendarSyncs() {
   const client = await pool.connect();
   try {
@@ -2249,12 +2827,14 @@ export async function runCommunityLifecycleMaintenance() {
     await client.query('BEGIN');
     const expired = await expirePastCommunityPlans(client);
     const retryCancelled = await cancelTimedOutRetryPlans(client);
+    const resultReadyNotified = await createResultReadyNotificationsForFinishedPlans(client);
     await client.query('COMMIT');
 
     const synced = await retryPendingCommunityCalendarSyncs();
     return {
       expired,
       retry_cancelled: retryCancelled,
+      result_ready_notified: resultReadyNotified,
       synced,
     };
   } catch (error) {
@@ -2550,7 +3130,7 @@ export async function submitMatchResult({
       plan.scheduled_time,
       plan.duration_minutes || DEFAULT_DURATION_MINUTES,
     );
-    if (endMoment > nowInAppZone()) {
+    if (endMoment.plus({ minutes: RESULT_READY_GRACE_MINUTES }) > nowInAppZone()) {
       await client.query('ROLLBACK');
       return {
         status: 400,
@@ -2609,6 +3189,29 @@ export async function submitMatchResult({
 
     const resultRow = await loadMatchResultRow(client, planId);
     const submissionRows = await loadMatchResultSubmissions(client, planId);
+
+    await client.query(
+      `
+        UPDATE app.padel_community_notifications
+        SET is_read = true
+        WHERE plan_id = $1
+          AND user_id = $2
+          AND type = 'result_ready'
+      `,
+      [planId, userId],
+    );
+
+    if (resultRow?.status === 'consensuado') {
+      await client.query(
+        `
+          UPDATE app.padel_community_notifications
+          SET is_read = true
+          WHERE plan_id = $1
+            AND type = 'result_ready'
+        `,
+        [planId],
+      );
+    }
 
     await client.query('COMMIT');
 

@@ -4,10 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/community/models/community_model.dart';
+import '../../features/community/models/match_result_model.dart';
+import '../../features/community/providers/community_provider.dart';
 import '../../features/community/widgets/match_result_dialog.dart';
 import '../../features/notifications/models/app_alerts_model.dart';
 import '../../features/notifications/providers/app_alerts_provider.dart';
-import '../../features/notifications/services/app_alerts_service.dart';
 import '../../core/platform/platform_helper.dart';
 import '../../core/theme/app_theme.dart';
 import 'notification_dot.dart';
@@ -381,15 +382,58 @@ class _AppShellState extends ConsumerState<AppShell>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       for (final plan in pending) {
         if (!mounted) return;
-        final submitted = await showMatchResultDialog(context, plan: plan);
+        final prepared = await _prepareResultPrompt(plan);
+        if (!mounted) {
+          return;
+        }
+
+        if (!prepared.shouldShow) {
+          continue;
+        }
+
+        final submitted = await showMatchResultDialog(
+          context,
+          plan: plan,
+          existingSubmission: prepared.existingSubmission,
+        );
         if (submitted == true) {
-          await AppAlertsService.instance.markResultSubmitted(plan.id);
           if (mounted) {
+            ref.invalidate(communityDashboardProvider);
             ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
           }
         }
       }
     });
+  }
+
+  Future<_PreparedResultPrompt> _prepareResultPrompt(
+    CommunityPlanModel plan,
+  ) async {
+    final currentUserId = plan.currentUserParticipant?.userId;
+    if (currentUserId == null) {
+      return const _PreparedResultPrompt(shouldShow: true);
+    }
+
+    try {
+      final result = await ref.read(communityActionsProvider).fetchMatchResult(
+            plan.id,
+          );
+      final existingSubmission = result.submissionFor(currentUserId);
+
+      if (result.isConsensuado) {
+        return _PreparedResultPrompt(
+          existingSubmission: existingSubmission,
+          shouldShow: false,
+        );
+      }
+
+      return _PreparedResultPrompt(
+        existingSubmission: existingSubmission,
+        shouldShow: true,
+      );
+    } catch (_) {
+      return const _PreparedResultPrompt(shouldShow: true);
+    }
   }
 
   @override
@@ -425,4 +469,14 @@ class _AppShellState extends ConsumerState<AppShell>
       ),
     );
   }
+}
+
+class _PreparedResultPrompt {
+  final MatchResultSubmissionModel? existingSubmission;
+  final bool shouldShow;
+
+  const _PreparedResultPrompt({
+    this.existingSubmission,
+    required this.shouldShow,
+  });
 }

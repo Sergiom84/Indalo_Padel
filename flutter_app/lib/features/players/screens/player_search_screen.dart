@@ -753,7 +753,11 @@ class _PlayerConnectionCard extends StatelessWidget {
                             runSpacing: 6,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
-                              PadelBadge(label: 'Nivel ${player.level}'),
+                              LevelBadge(
+                                level: player.level,
+                                mainLevel: player.mainLevel,
+                                subLevel: player.subLevel,
+                              ),
                               if (player.avgRating > 0)
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
