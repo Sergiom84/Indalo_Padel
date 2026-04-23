@@ -13,6 +13,11 @@ class AppAlertsService {
   static final AppAlertsService instance = AppAlertsService._();
 
   static const _storagePrefix = 'padel_notified_alerts_';
+  static const _communityModalityLabels = {
+    'amistoso': 'Amistoso',
+    'competitivo': 'Competitivo',
+    'americana': 'Americana',
+  };
 
   final ApiClient _api = ApiClient();
 
@@ -189,6 +194,12 @@ class AppAlertsService {
     final date = _formatDate(plan.scheduledDate);
     final time = _formatTime(plan.scheduledTime);
     final isRescheduled = plan.inviteState == 'reschedule_pending';
+    final body = _buildCommunityInvitationBody(
+      plan: plan,
+      date: date,
+      time: time,
+      isRescheduled: isRescheduled,
+    );
 
     return AppAlertItem(
       uniqueKey:
@@ -197,10 +208,40 @@ class AppAlertsService {
       title: isRescheduled
           ? 'Nuevo horario en tu convocatoria'
           : 'Te han invitado a un partido',
-      body: isRescheduled
-          ? '${plan.creatorName} propone jugar el $date a las $time.'
-          : '${plan.creatorName} te ha invitado a jugar el $date a las $time.',
+      body: body,
     );
+  }
+
+  String _buildCommunityInvitationBody({
+    required CommunityPlanModel plan,
+    required String date,
+    required String time,
+    required bool isRescheduled,
+  }) {
+    final details = <String>[];
+    final venueName = _trimmedOrNull(plan.venue?.name);
+    final modality = _communityModalityLabels[plan.modality] ?? plan.modality;
+    final postPadelPlan = _trimmedOrNull(plan.postPadelPlan);
+    final notes = _trimmedOrNull(plan.notes);
+
+    if (venueName != null) {
+      details.add(venueName);
+    }
+    details.add('Modalidad: $modality');
+    if (postPadelPlan != null) {
+      details.add('Post pádel: $postPadelPlan');
+    }
+    if (notes != null) {
+      details.add('Observaciones: $notes');
+    }
+
+    final summary = isRescheduled
+        ? '${plan.creatorName} propone jugar el $date a las $time'
+        : '${plan.creatorName} te ha invitado a jugar el $date a las $time';
+    if (details.isEmpty) {
+      return '$summary.';
+    }
+    return '$summary. ${details.join(' · ')}.';
   }
 
   AppAlertItem _buildCommunityNotificationAlert(
@@ -230,6 +271,11 @@ class AppAlertsService {
 
   String _formatTime(String raw) {
     return raw.length >= 5 ? raw.substring(0, 5) : raw;
+  }
+
+  String? _trimmedOrNull(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
   Future<void> _notifyNewAlerts(AppAlertsState state) async {
