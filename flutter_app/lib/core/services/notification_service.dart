@@ -112,6 +112,13 @@ class NotificationService {
       }
     }
 
+    final planId = int.tryParse(
+      (data['planId'] ?? data['plan_id'])?.toString() ?? '',
+    );
+    if (planId != null && planId > 0) {
+      return '/community';
+    }
+
     return null;
   }
 

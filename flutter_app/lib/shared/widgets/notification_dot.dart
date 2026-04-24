@@ -5,11 +5,13 @@ import '../../core/theme/app_theme.dart';
 class NotificationDot extends StatelessWidget {
   final bool visible;
   final double size;
+  final Color color;
 
   const NotificationDot({
     super.key,
     required this.visible,
     this.size = 10,
+    this.color = AppColors.primary,
   });
 
   @override
@@ -22,7 +24,7 @@ class NotificationDot extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: AppColors.danger,
+        color: color,
         shape: BoxShape.circle,
         border: Border.all(color: AppColors.surface, width: 1.5),
       ),

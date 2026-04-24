@@ -355,6 +355,36 @@ async function loadEventPlanAccess(client, planId, userId) {
   return result.rows[0] || null;
 }
 
+async function loadOpenEventPlanAccess(client, planId, userId) {
+  const result = await client.query(
+    `
+      SELECT cp.id, cp.created_by
+      FROM app.padel_community_plans cp
+      WHERE cp.id = $1
+        AND cp.invite_state NOT IN ('cancelled', 'expired')
+        AND cp.reservation_state NOT IN ('cancelled', 'expired')
+        AND (
+          cp.scheduled_date
+          + cp.scheduled_time
+          + (COALESCE(cp.duration_minutes, 90) * INTERVAL '1 minute')
+        ) >= (NOW() AT TIME ZONE $3)
+        AND (
+          cp.created_by = $2
+          OR EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players cpp
+            WHERE cpp.plan_id = cp.id
+              AND cpp.user_id = $2
+          )
+        )
+      LIMIT 1
+    `,
+    [planId, userId, APP_TIME_ZONE],
+  );
+
+  return result.rows[0] || null;
+}
+
 async function syncEventConversationParticipants(
   client,
   conversationId,
@@ -534,8 +564,12 @@ async function syncEventConversationsForUser(client, userId) {
       FROM app.padel_community_plans
       WHERE created_by = $1
         AND invite_state NOT IN ('cancelled', 'expired')
-        AND reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
-        AND (scheduled_date + scheduled_time) >= (NOW() AT TIME ZONE $2)
+        AND reservation_state NOT IN ('cancelled', 'expired')
+        AND (
+          scheduled_date
+          + scheduled_time
+          + (COALESCE(duration_minutes, 90) * INTERVAL '1 minute')
+        ) >= (NOW() AT TIME ZONE $2)
 
       UNION
 
@@ -544,8 +578,12 @@ async function syncEventConversationsForUser(client, userId) {
       JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
       WHERE cpp.user_id = $1
         AND cp.invite_state NOT IN ('cancelled', 'expired')
-        AND cp.reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
-        AND (cp.scheduled_date + cp.scheduled_time) >= (NOW() AT TIME ZONE $2)
+        AND cp.reservation_state NOT IN ('cancelled', 'expired')
+        AND (
+          cp.scheduled_date
+          + cp.scheduled_time
+          + (COALESCE(cp.duration_minutes, 90) * INTERVAL '1 minute')
+        ) >= (NOW() AT TIME ZONE $2)
     `,
     [userId, APP_TIME_ZONE],
   );
@@ -637,12 +675,19 @@ async function loadConversationRows(client, userId, conversationId = null) {
         AND (
           $2::int IS NOT NULL
           OR c.kind <> 'event'
-          OR c.last_message_id IS NOT NULL
+          OR (
+            c.last_message_id IS NOT NULL
+            AND c.last_message_at >= NOW() - INTERVAL '10 days'
+          )
           OR (
             cp.id IS NOT NULL
             AND cp.invite_state NOT IN ('cancelled', 'expired')
-            AND cp.reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
-            AND (cp.scheduled_date + cp.scheduled_time) >= (NOW() AT TIME ZONE $3)
+            AND cp.reservation_state NOT IN ('cancelled', 'expired')
+            AND (
+              cp.scheduled_date
+              + cp.scheduled_time
+              + (COALESCE(cp.duration_minutes, 90) * INTERVAL '1 minute')
+            ) >= (NOW() AT TIME ZONE $3)
           )
         )
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
@@ -1259,14 +1304,14 @@ export async function getOrCreatePadelEventConversation({
     await client.query('BEGIN');
     transactionOpen = true;
 
-    const access = await loadEventPlanAccess(client, planId, userId);
+    const access = await loadOpenEventPlanAccess(client, planId, userId);
     if (!access) {
       await client.query('ROLLBACK');
       transactionOpen = false;
       return {
         status: 404,
         body: {
-          error: 'Evento no encontrado',
+          error: 'Este partido ya no admite abrir un chat nuevo',
         },
       };
     }

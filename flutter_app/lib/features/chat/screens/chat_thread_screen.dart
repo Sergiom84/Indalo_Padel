@@ -77,6 +77,14 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: ChatEventCard(event: conversation!.event!),
             ),
+          if (conversation?.kind == 'event' &&
+              conversation!.participants.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _MatchParticipantsCard(
+                participants: conversation.participants,
+              ),
+            ),
           if (state.error != null && state.messages.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -128,6 +136,48 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
               _composerController.clear();
             },
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MatchParticipantsCard extends StatelessWidget {
+  const _MatchParticipantsCard({required this.participants});
+
+  final List<ChatParticipantModel> participants;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final participant in participants)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surface2,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                participant.displayName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -1056,17 +1056,26 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.primary,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 6),
           labelColor: AppColors.primary,
+          labelStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
           unselectedLabelColor: AppColors.muted,
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
           tabs: [
             Tab(
-              child: NotificationLabel(
+              child: _CommunityTabLabel(
                 label: 'Reservar',
                 showDot: alerts.hasCommunityPlannerBadge,
               ),
             ),
             Tab(
-              child: NotificationLabel(
+              child: _CommunityTabLabel(
                 label: 'Convocatorias',
                 showDot: alerts.hasCommunityInvitationsBadge,
               ),
@@ -1395,30 +1404,6 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return 'La reserva ya no necesita más acciones.';
   }
 
-  String _calendarSyncLabel(String rawStatus) {
-    switch (rawStatus.trim().toLowerCase()) {
-      case 'synced':
-      case 'sincronizada':
-        return 'Calendar sincronizado';
-      case 'error':
-        return 'Calendar con incidencia';
-      default:
-        return 'Calendar pendiente';
-    }
-  }
-
-  PadelBadgeVariant _calendarSyncVariant(String rawStatus) {
-    switch (rawStatus.trim().toLowerCase()) {
-      case 'synced':
-      case 'sincronizada':
-        return PadelBadgeVariant.success;
-      case 'error':
-        return PadelBadgeVariant.danger;
-      default:
-        return PadelBadgeVariant.warning;
-    }
-  }
-
   String? _formatHistoryTimestamp(String? rawValue) {
     if (rawValue == null || rawValue.trim().isEmpty) {
       return null;
@@ -1450,24 +1435,6 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       PadelBadge(
         label: _modalityLabels[plan.modality] ?? plan.modality,
         variant: PadelBadgeVariant.info,
-      ),
-      PadelBadge(
-        label: '${plan.capacity} plazas',
-        variant: PadelBadgeVariant.outline,
-      ),
-      if (venueLocation.isNotEmpty)
-        PadelBadge(
-          label: venueLocation,
-          variant: PadelBadgeVariant.info,
-        ),
-      if (plan.reservationHandledByName?.trim().isNotEmpty == true)
-        PadelBadge(
-          label: 'Reserva: ${plan.reservationHandledByName!.trim()}',
-          variant: PadelBadgeVariant.outline,
-        ),
-      PadelBadge(
-        label: _calendarSyncLabel(plan.calendarSyncStatus),
-        variant: _calendarSyncVariant(plan.calendarSyncStatus),
       ),
     ];
 
@@ -1507,86 +1474,45 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       builder: (ctx) => Dialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Cabecera ──────────────────────────────────────────────
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          venueName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '$date · $time',
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // ── Estado ────────────────────────────────────────────────
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: color.withValues(alpha: 0.4)),
-                ),
-                child: Row(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.84,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Cabecera ──────────────────────────────────────────────
+                Row(
                   children: [
-                    Icon(
-                      plan.reservationConfirmed
-                          ? Icons.check_circle_outline
-                          : Icons.info_outline,
-                      color: color,
-                      size: 18,
+                    Container(
+                      width: 4,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            statusLabel,
-                            style: TextStyle(
-                              color: color,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                            venueName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
-                            statusDetail,
+                            '$date · $time',
                             style: const TextStyle(
                               color: AppColors.muted,
-                              fontSize: 12,
+                              fontSize: 13,
                             ),
                           ),
                         ],
@@ -1594,166 +1520,199 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                     ),
                   ],
                 ),
-              ),
-              if (metadataBadges.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: metadataBadges,
+                const SizedBox(height: 16),
+                // ── Estado ────────────────────────────────────────────────
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: color.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        plan.reservationConfirmed
+                            ? Icons.check_circle_outline
+                            : Icons.info_outline,
+                        color: color,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              statusLabel,
+                              style: TextStyle(
+                                color: color,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              statusDetail,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-              if ((plan.postPadelPlan ?? '').trim().isNotEmpty) ...[
-                const SizedBox(height: 14),
-                _InlineNotice(
-                  title: 'Post pádel',
-                  message: plan.postPadelPlan!.trim(),
-                  color: AppColors.info,
+                if (metadataBadges.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: metadataBadges,
+                  ),
+                ],
+                if ((plan.postPadelPlan ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _InlineNotice(
+                    title: 'Post pádel',
+                    message: plan.postPadelPlan!.trim(),
+                    color: AppColors.info,
+                  ),
+                ],
+                if ((plan.notes ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  _InlineNotice(
+                    title: 'Observaciones',
+                    message: plan.notes!.trim(),
+                    color: AppColors.warning,
+                  ),
+                ],
+                // ── Jugadores / Resultado ────────────────────────────────
+                if (plan.participants.isNotEmpty)
+                  _HistoryPlanResultSection(plan: plan),
+                const SizedBox(height: 20),
+                // ── Contacto del club ─────────────────────────────────────
+                const Divider(color: AppColors.border, height: 1),
+                const SizedBox(height: 16),
+                const Text(
+                  'Contacto del club',
+                  style: TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
                 ),
-              ],
-              if ((plan.notes ?? '').trim().isNotEmpty) ...[
-                const SizedBox(height: 4),
-                _InlineNotice(
-                  title: 'Observaciones',
-                  message: plan.notes!.trim(),
-                  color: AppColors.warning,
-                ),
-              ],
-              // ── Jugadores / Resultado ────────────────────────────────
-              if (plan.participants.isNotEmpty)
-                _HistoryPlanResultSection(plan: plan),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    context.push('/players/chat/event/${plan.id}');
-                  },
-                  icon: const Icon(Icons.forum_outlined),
-                  label: const Text('Abrir chat del partido'),
-                ),
-              ),
-              const SizedBox(height: 20),
-              // ── Contacto del club ─────────────────────────────────────
-              const Divider(color: AppColors.border, height: 1),
-              const SizedBox(height: 16),
-              const Text(
-                'Contacto del club',
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.surface2,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            contactPhone.isNotEmpty
-                                ? contactPhone
-                                : 'Teléfono pendiente de configurar',
-                            style: TextStyle(
-                              color: contactPhone.isNotEmpty
-                                  ? Colors.white
-                                  : AppColors.muted,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface2,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              contactPhone.isNotEmpty
+                                  ? contactPhone
+                                  : 'Teléfono pendiente de configurar',
+                              style: TextStyle(
+                                color: contactPhone.isNotEmpty
+                                    ? Colors.white
+                                    : AppColors.muted,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.copy_outlined,
-                              size: 18, color: AppColors.muted),
-                          tooltip: 'Copiar texto',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            final template =
-                                _buildReservationTemplate(plan, plan.venue);
-                            Clipboard.setData(ClipboardData(text: template));
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              const SnackBar(
-                                content: Text('Texto copiado'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
+                          IconButton(
+                            icon: const Icon(Icons.copy_outlined,
+                                size: 18, color: AppColors.muted),
+                            tooltip: 'Copiar texto',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () {
+                              final template =
+                                  _buildReservationTemplate(plan, plan.venue);
+                              Clipboard.setData(ClipboardData(text: template));
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Texto copiado'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      if (venueAddress.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          venueAddress,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
-                    ),
-                    if (venueAddress.isNotEmpty) ...[
+                      if (venueLocation.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          venueLocation,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (plan.closedReason?.trim().isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Motivo de cierre: ${plan.closedReason!.trim()}',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Text(
-                        venueAddress,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                    if (venueLocation.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        venueLocation,
+                        _buildReservationTemplate(plan, plan.venue),
                         style: const TextStyle(
                           color: AppColors.muted,
                           fontSize: 12,
+                          height: 1.5,
                         ),
                       ),
                     ],
-                    if (plan.closedReason?.trim().isNotEmpty == true) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Motivo de cierre: ${plan.closedReason!.trim()}',
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Text(
-                      _buildReservationTemplate(plan, plan.venue),
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.5,
-                      ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // ── Botón cerrar ─────────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              // ── Botón cerrar ─────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text(
-                    'Cerrar',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    child: const Text(
+                      'Cerrar',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1814,12 +1773,34 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        plan.venue?.name ?? 'Convocatoria #${plan.id}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              plan.venue?.name ?? 'Convocatoria #${plan.id}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.primary),
+                            ),
+                            child: const Icon(
+                              Icons.info_outline,
+                              color: AppColors.primary,
+                              size: 15,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -4058,6 +4039,25 @@ class _TeamRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CommunityTabLabel extends StatelessWidget {
+  final String label;
+  final bool showDot;
+
+  const _CommunityTabLabel({
+    required this.label,
+    required this.showDot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: NotificationLabel(label: label, showDot: showDot),
     );
   }
 }

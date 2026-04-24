@@ -77,7 +77,7 @@ class ChatConversationTile extends StatelessWidget {
                                 vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: accent,
+                                color: AppColors.primary,
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(

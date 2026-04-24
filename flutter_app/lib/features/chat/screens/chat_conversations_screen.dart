@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/adaptive_pickers.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../models/chat_models.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/chat_conversation_tile.dart';
@@ -25,7 +26,7 @@ class _ChatConversationsScreenState
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -38,6 +39,15 @@ class _ChatConversationsScreenState
   Widget build(BuildContext context) {
     final conversationsAsync = ref.watch(chatConversationsProvider);
     final socialEventsAsync = ref.watch(chatSocialEventsProvider);
+    final conversations =
+        conversationsAsync.valueOrNull ?? const <ChatConversationModel>[];
+    final hasChatUnread = conversations.any(
+      (conversation) =>
+          _isStandardChatConversation(conversation) && conversation.hasUnread,
+    );
+    final hasMatchUnread = _visibleMatchConversations(conversations).any(
+      (conversation) => conversation.hasUnread,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -61,9 +71,14 @@ class _ChatConversationsScreenState
           indicatorColor: AppColors.primary,
           labelColor: Colors.white,
           unselectedLabelColor: AppColors.muted,
-          tabs: const [
-            Tab(text: 'Chats'),
-            Tab(text: 'Agenda'),
+          tabs: [
+            Tab(
+              child: _ChatTabLabel(label: 'Chats', showDot: hasChatUnread),
+            ),
+            Tab(
+              child: _ChatTabLabel(label: 'Partidos', showDot: hasMatchUnread),
+            ),
+            const Tab(text: 'Agenda'),
           ],
         ),
       ),
@@ -74,6 +89,7 @@ class _ChatConversationsScreenState
             conversationsAsync: conversationsAsync,
             onCreatePressed: _openCreateSheet,
           ),
+          _MatchConversationsTab(conversationsAsync: conversationsAsync),
           _SocialAgendaTab(
             eventsAsync: socialEventsAsync,
             onCreatePressed: _openCreateEventSheet,
@@ -115,7 +131,11 @@ class _ConversationsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return conversationsAsync.when(
       data: (conversations) {
-        if (conversations.isEmpty) {
+        final chatConversations = conversations
+            .where(_isStandardChatConversation)
+            .toList(growable: false);
+
+        if (chatConversations.isEmpty) {
           return _EmptyChatState(onCreatePressed: onCreatePressed);
         }
 
@@ -126,11 +146,64 @@ class _ConversationsTab extends ConsumerWidget {
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-            itemCount: conversations.length,
+            itemCount: chatConversations.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final conversation = conversations[index];
+              final conversation = chatConversations[index];
               return ChatConversationTile(
+                conversation: conversation,
+                onTap: () {
+                  context.push(
+                    '/players/chat/${conversation.id}',
+                    extra: conversation,
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
+      error: (error, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            error.toString(),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.danger),
+          ),
+        ),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+class _MatchConversationsTab extends ConsumerWidget {
+  const _MatchConversationsTab({required this.conversationsAsync});
+
+  final AsyncValue<List<ChatConversationModel>> conversationsAsync;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return conversationsAsync.when(
+      data: (conversations) {
+        final matchConversations = _visibleMatchConversations(conversations);
+        if (matchConversations.isEmpty) {
+          return const _EmptyMatchChatsState();
+        }
+
+        return RefreshIndicator(
+          color: AppColors.primary,
+          backgroundColor: AppColors.surface,
+          onRefresh: () async => ref.refresh(chatConversationsProvider.future),
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            itemCount: matchConversations.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final conversation = matchConversations[index];
+              return _MatchConversationTile(
                 conversation: conversation,
                 onTap: () {
                   context.push(
@@ -201,6 +274,243 @@ class _SocialAgendaTab extends ConsumerWidget {
         ),
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+bool _isStandardChatConversation(ChatConversationModel conversation) {
+  return conversation.kind != 'event';
+}
+
+List<ChatConversationModel> _visibleMatchConversations(
+  List<ChatConversationModel> conversations,
+) {
+  final now = DateTime.now();
+  final activeMatches = <ChatConversationModel>[];
+  final recentPastMatches = <ChatConversationModel>[];
+
+  for (final conversation in conversations) {
+    if (conversation.kind != 'event') {
+      continue;
+    }
+
+    final event = conversation.event;
+    final startsAt = event?.scheduledAt;
+    if (event == null || startsAt == null) {
+      continue;
+    }
+
+    final durationMinutes = event.durationMinutes ?? 90;
+    final endsAt = startsAt.add(Duration(minutes: durationMinutes));
+    if (!endsAt.isBefore(now)) {
+      activeMatches.add(conversation);
+      continue;
+    }
+
+    final lastActivity = conversation.lastMessageAt;
+    if (lastActivity == null ||
+        now.difference(lastActivity) > const Duration(days: 10)) {
+      continue;
+    }
+    recentPastMatches.add(conversation);
+  }
+
+  int compareByStartDesc(
+    ChatConversationModel left,
+    ChatConversationModel right,
+  ) {
+    final leftStart =
+        left.event?.scheduledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final rightStart =
+        right.event?.scheduledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return rightStart.compareTo(leftStart);
+  }
+
+  int compareByStartAsc(
+    ChatConversationModel left,
+    ChatConversationModel right,
+  ) {
+    final leftStart =
+        left.event?.scheduledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final rightStart =
+        right.event?.scheduledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return leftStart.compareTo(rightStart);
+  }
+
+  activeMatches.sort(compareByStartAsc);
+  recentPastMatches.sort(compareByStartDesc);
+
+  return <ChatConversationModel>[
+    ...activeMatches,
+    ...recentPastMatches.take(5),
+  ];
+}
+
+class _MatchConversationTile extends StatelessWidget {
+  const _MatchConversationTile({
+    required this.conversation,
+    required this.onTap,
+  });
+
+  final ChatConversationModel conversation;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final event = conversation.event;
+    final venueName = event?.venueName ?? conversation.title;
+    final scheduleLabel = _formatMatchConversationSchedule(event);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppColors.info.withValues(alpha: 0.35),
+                ),
+              ),
+              child: const Icon(
+                Icons.sports_tennis_outlined,
+                color: AppColors.info,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    venueName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    scheduleLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (conversation.hasUnread) ...[
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${conversation.unreadCount}',
+                  style: const TextStyle(
+                    color: AppColors.dark,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatTabLabel extends StatelessWidget {
+  const _ChatTabLabel({
+    required this.label,
+    required this.showDot,
+  });
+
+  final String label;
+  final bool showDot;
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: NotificationLabel(label: label, showDot: showDot),
+    );
+  }
+}
+
+String _formatMatchConversationSchedule(ChatEventModel? event) {
+  final startsAt = event?.scheduledAt;
+  if (startsAt == null) {
+    return 'Fecha pendiente';
+  }
+
+  return DateFormat('EEE d MMM · HH:mm', 'es_ES').format(startsAt.toLocal());
+}
+
+class _EmptyMatchChatsState extends StatelessWidget {
+  const _EmptyMatchChatsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.sports_tennis_outlined,
+              color: AppColors.muted,
+              size: 48,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'No hay chats de partido activos.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Aquí aparecerán los chats de los partidos próximos, en juego y los últimos usados recientemente.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
