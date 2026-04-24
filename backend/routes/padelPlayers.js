@@ -504,14 +504,14 @@ router.delete(
       await client.query(
         `UPDATE app.users
          SET deleted_at = NOW(),
-             deleted_reason = $1,
+             deleted_reason = $1::VARCHAR(32),
              deleted_reason_other = CASE
-               WHEN $1 = 'otros' THEN NULLIF($2, '')
+               WHEN $1::VARCHAR(32) = 'otros' THEN NULLIF($2::TEXT, '')
                ELSE NULL
              END,
              deleted_email = email,
-             email = $3,
-             password_hash = $4,
+             email = $3::VARCHAR(100),
+             password_hash = $4::VARCHAR(255),
              email_verification_token_hash = NULL,
              email_verification_sent_at = NULL,
              email_verification_expires_at = NULL,
@@ -519,7 +519,7 @@ router.delete(
              password_reset_sent_at = NULL,
              password_reset_expires_at = NULL,
              updated_at = NOW()
-         WHERE id = $5`,
+         WHERE id = $5::INTEGER`,
         [
           reason,
           other_reason?.trim() ?? null,
