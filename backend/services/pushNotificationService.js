@@ -135,7 +135,7 @@ export async function sendPushToUsers({ userIds, title, body, data = {} }) {
             ),
             android: {
               priority: 'high',
-              notification: { channel_id: 'indalo_padel_default' },
+              notification: { channel_id: 'indalo_alerts' },
             },
           },
         }),

@@ -83,6 +83,7 @@ class AuthActionResult {
 // ---------------------------------------------------------------------------
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient _api;
+  bool _notificationPermissionScheduled = false;
 
   AuthNotifier(this._api) : super(const AuthState(loading: true)) {
     _init();
@@ -90,8 +91,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void _postAuthBootstrap() {
     NotificationService.instance.initialize().catchError((_) {});
-    NotificationService.instance.requestPermissionsIfNeeded().catchError((_) {});
     NotificationService.instance.registerToken(_api).catchError((_) {});
+    if (_notificationPermissionScheduled) {
+      return;
+    }
+
+    _notificationPermissionScheduled = true;
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      NotificationService.instance
+          .requestPermissionsIfNeeded()
+          .catchError((_) {});
+    });
   }
 
   Future<void> _init() async {

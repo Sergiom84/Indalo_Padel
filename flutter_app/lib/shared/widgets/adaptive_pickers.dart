@@ -12,6 +12,7 @@ Future<DateTime?> showAdaptiveAppDatePicker({
   if (!isCupertinoPlatform) {
     return showDatePicker(
       context: context,
+      locale: const Locale('es', 'ES'),
       initialDate: initialDate,
       firstDate: firstDate,
       lastDate: lastDate,

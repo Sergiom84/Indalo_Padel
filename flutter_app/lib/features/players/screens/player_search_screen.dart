@@ -511,18 +511,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                 child: _PlayerConnectionCard(
                   player: player,
                   onTap: () => context.push('/players/${player.userId}'),
-                  headline: _outgoingHeadline(player),
-                  timestampLabel: _outgoingTimestamp(player),
-                  footer: _OutgoingFooter(
-                    player: player,
-                    busy: _isBusy(player.userId),
-                    onRetry: player.connectionStatus == 'rejected'
-                        ? () => _runPlayerAction(
-                              player.userId,
-                              () => _sendPlayRequest(player),
-                            )
-                        : null,
-                  ),
+                  trailingAction: _OutgoingStatusBadge(player: player),
                 ),
               ),
             ),
@@ -645,52 +634,35 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
                               const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final player = discoverPlayers[index];
+                            final status = player.connectionStatus;
+                            final showInlinePlayAction = status != 'accepted' &&
+                                status != 'outgoing_pending' &&
+                                status != 'incoming_pending';
                             return _PlayerConnectionCard(
                               player: player,
                               onTap: () =>
                                   context.push('/players/${player.userId}'),
-                              footer: _DiscoverFooter(
-                                player: player,
-                                busy: _isBusy(player.userId),
-                                onRequest: () => _runPlayerAction(
-                                  player.userId,
-                                  () => _sendPlayRequest(player),
-                                ),
-                                onOpenInvitations: _goToInvitationsTab,
-                              ),
+                              trailingAction: showInlinePlayAction
+                                  ? _DiscoverPlayAction(
+                                      busy: _isBusy(player.userId),
+                                      onRequest: () => _runPlayerAction(
+                                        player.userId,
+                                        () => _sendPlayRequest(player),
+                                      ),
+                                    )
+                                  : null,
+                              footer: showInlinePlayAction
+                                  ? null
+                                  : _DiscoverFooter(
+                                      player: player,
+                                      onOpenInvitations: _goToInvitationsTab,
+                                    ),
                             );
                           },
                         ),
                 ),
         ),
       ],
-    );
-  }
-
-  String _outgoingHeadline(PlayerModel player) {
-    switch (player.connectionStatus) {
-      case 'accepted':
-        return '${player.displayName} ha aceptado tu solicitud.';
-      case 'rejected':
-        return '${player.displayName} no ha aceptado tu solicitud.';
-      case 'outgoing_pending':
-      default:
-        return 'Solicitud enviada. En cuanto responda, aparecerá aquí.';
-    }
-  }
-
-  String? _outgoingTimestamp(PlayerModel player) {
-    if (player.connectionStatus == 'accepted' ||
-        player.connectionStatus == 'rejected') {
-      return _formatConnectionMoment(
-        player.connectionRespondedAt,
-        prefix: 'Respondida',
-      );
-    }
-
-    return _formatConnectionMoment(
-      player.connectionRequestedAt,
-      prefix: 'Enviada',
     );
   }
 
@@ -732,6 +704,7 @@ class _PlayerConnectionCard extends StatelessWidget {
   final String? headline;
   final String? timestampLabel;
   final Widget? footer;
+  final Widget? trailingAction;
 
   const _PlayerConnectionCard({
     required this.player,
@@ -739,6 +712,7 @@ class _PlayerConnectionCard extends StatelessWidget {
     this.headline,
     this.timestampLabel,
     this.footer,
+    this.trailingAction,
   });
 
   @override
@@ -767,8 +741,12 @@ class _PlayerConnectionCard extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _PlayerAvatar(player: player),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: _PlayerAvatar(player: player),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -776,6 +754,8 @@ class _PlayerConnectionCard extends StatelessWidget {
                         children: [
                           Text(
                             player.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
@@ -828,7 +808,17 @@ class _PlayerConnectionCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    _AvailabilityPill(isAvailable: player.isAvailable),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _AvailabilityPill(isAvailable: player.isAvailable),
+                        if (trailingAction != null) ...[
+                          const SizedBox(height: 10),
+                          trailingAction!,
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -921,72 +911,41 @@ class _AvailabilityPill extends StatelessWidget {
   }
 }
 
-class _OutgoingFooter extends StatelessWidget {
+class _OutgoingStatusBadge extends StatelessWidget {
   final PlayerModel player;
-  final bool busy;
-  final VoidCallback? onRetry;
 
-  const _OutgoingFooter({
-    required this.player,
-    required this.busy,
-    this.onRetry,
-  });
+  const _OutgoingStatusBadge({required this.player});
 
   @override
   Widget build(BuildContext context) {
     final status = player.connectionStatus;
     if (status == 'accepted') {
-      return const Align(
-        alignment: Alignment.centerLeft,
-        child: PadelBadge(
-          label: 'Aceptada',
-          variant: PadelBadgeVariant.success,
-        ),
+      return const PadelBadge(
+        label: 'Aceptada',
+        variant: PadelBadgeVariant.success,
       );
     }
 
     if (status == 'rejected') {
-      return Row(
-        children: [
-          const PadelBadge(
-            label: 'No aceptada',
-            variant: PadelBadgeVariant.warning,
-          ),
-          const Spacer(),
-          ElevatedButton(
-            onPressed: busy ? null : onRetry,
-            child: busy
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Jugamos?'),
-          ),
-        ],
+      return const PadelBadge(
+        label: 'Rechazada',
+        variant: PadelBadgeVariant.warning,
       );
     }
 
-    return const Align(
-      alignment: Alignment.centerLeft,
-      child: PadelBadge(
-        label: 'Pendiente',
-        variant: PadelBadgeVariant.warning,
-      ),
+    return const PadelBadge(
+      label: 'Pendiente',
+      variant: PadelBadgeVariant.warning,
     );
   }
 }
 
 class _DiscoverFooter extends StatelessWidget {
   final PlayerModel player;
-  final bool busy;
-  final VoidCallback onRequest;
   final VoidCallback onOpenInvitations;
 
   const _DiscoverFooter({
     required this.player,
-    required this.busy,
-    required this.onRequest,
     required this.onOpenInvitations,
   });
 
@@ -1021,31 +980,52 @@ class _DiscoverFooter extends StatelessWidget {
           ],
         );
       case 'rejected':
-      default:
-        return Row(
-          children: [
-            if (player.connectionStatus == 'rejected')
-              const Padding(
-                padding: EdgeInsets.only(right: 12),
-                child: PadelBadge(
-                  label: 'No aceptada',
-                  variant: PadelBadgeVariant.warning,
-                ),
-              ),
-            const Spacer(),
-            ElevatedButton(
-              onPressed: busy ? null : onRequest,
-              child: busy
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Jugamos?'),
-            ),
-          ],
+        return const Align(
+          alignment: Alignment.centerLeft,
+          child: PadelBadge(
+            label: 'No aceptada',
+            variant: PadelBadgeVariant.warning,
+          ),
         );
+      default:
+        return const SizedBox.shrink();
     }
+  }
+}
+
+class _DiscoverPlayAction extends StatelessWidget {
+  final bool busy;
+  final VoidCallback onRequest;
+
+  const _DiscoverPlayAction({
+    required this.busy,
+    required this.onRequest,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 116,
+      height: 42,
+      child: ElevatedButton(
+        onPressed: busy ? null : onRequest,
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: busy
+            ? const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('Jugamos?'),
+              ),
+      ),
+    );
   }
 }
 

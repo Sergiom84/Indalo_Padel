@@ -18,6 +18,7 @@
   - `backend/routes/padelAuth.js`
   - `backend/routes/padelVenues.js`
   - `backend/routes/padelBookings.js`
+  - `backend/routes/padelDashboard.js`
   - `backend/routes/padelMatches.js`
   - `backend/routes/padelCommunity.js`
   - `backend/routes/padelPlayers.js`
@@ -41,9 +42,11 @@
   - `backend/migrations/padel_calendar.sql`
   - `backend/migrations/padel_community.sql`
   - `backend/migrations/padel_clubs_community_closure.sql`
+  - `backend/migrations/padel_community_product_updates.sql`
   - `backend/migrations/padel_player_connections.sql`
   - `backend/migrations/padel_player_profile_*.sql`
   - `backend/migrations/padel_auth_account_lifecycle.sql`
+  - `backend/migrations/padel_profile_deletion.sql`
   - `backend/migrations/padel_venue_dedup.sql`
   - `backend/migrations/padel_seed_data.sql`
   - `backend/migrations/padel_match_results.sql`
@@ -112,6 +115,7 @@
 - Constraint UNIQUE en (court_id, booking_date, start_time): no solapamiento
 - Estados: pendiente → confirmada → completada | cancelada
 - Google Calendar sync: pendiente | sincronizada | error
+- Recordatorio externo: `buildEventReminders()` usa `GOOGLE_EVENT_REMINDER_MINUTES`; el objetivo de producto es 60 minutos antes del partido.
 
 ### Precios
 - Tipos de pista: estándar y cristal
@@ -233,6 +237,7 @@ pwsh ./scripts/start_flutter_web_preview.ps1
 2. Mantener semántica de estados: `pendiente | sincronizada | error`.
 3. Para RSVP/eventos borrados, actualizar estado local de invitados y reserva.
 4. Nunca bloquear toda la API por una incidencia externa puntual de Calendar.
+5. Privacidad: mantener `guestsCanSeeOtherGuests=false`; la descripción puede incluir nombres visibles de la app (`display_name`/`nombre`), pero nunca emails de jugadores.
 
 ### E) Lifecycle de convocatorias/resultados
 1. Mantener backend y Flutter alineados en cálculo de fin: fecha + hora + duración + gracia.
@@ -240,6 +245,12 @@ pwsh ./scripts/start_flutter_web_preview.ps1
 3. No mostrar partidos futuros en historial ni en flujos de resultado/valoración.
 4. Las notificaciones de `result_ready` deben crearse solo para jugadores aceptados sin submission y marcarse leídas tras enviar o al consensuar.
 5. Las valoraciones deben quedar ligadas a `community_plan_id` o `match_id`, nunca a un jugador sin contexto de partido.
+
+### F) Notificaciones, chat y navegación
+1. Las push de chat envían `data.type = chat_message` y `conversation_id`; Flutter resuelve `getInitialMessage`/`onMessageOpenedApp` y abre `/players/chat/:conversationId`.
+2. El contador de chat usa `GET /padel/chat/unread-count` para no cargar todas las conversaciones en el arranque; se muestra en Jugadores y como burbuja en Inicio.
+3. La barra inferior Android es horizontal y scrollable, con flechas laterales visibles cuando hay pestañas ocultas.
+4. Al tocar push/local notifications, verificar tanto el payload como la navegación real en dispositivo; no basta con que FCM entregue el aviso.
 
 ## 10) Definición de Done (DoD)
 Una tarea se considera cerrada solo si cumple:
@@ -323,3 +334,22 @@ Render free tier duerme el servicio tras ~15 min de inactividad. La primera requ
 
 - **`flutter_app/lib/core/api/api_client.dart`**: `connectTimeout: 60s`, `receiveTimeout: 90s`
 - **`flutter_app/lib/features/auth/screens/login_screen.dart`**: pre-warm con `GET /health` en `initState()` mientras el usuario teclea credenciales
+
+## 15) Auditoría feedback usuarios — 2026-04-24
+
+| Petición/incidencia | Estado en app | Referencias funcionales |
+|---|---|---|
+| Recordatorio externo tipo Google Calendar 1h antes | Incluido en código: Calendar crea recordatorios popup/email a 60 minutos por defecto y `GOOGLE_EVENT_REMINDER_MINUTES=60` queda documentado para producción. | `backend/services/googleCalendar.js`, `.env.example` |
+| Notificación a los 4 participantes al confirmar/cerrar reserva de convocatoria | Incluido para convocatorias: se crea `reservation_confirmed` y se intenta push a todos los participantes. Requiere Firebase operativo en producción. | `padelCommunityService.js`, `pushNotificationService.js` |
+| Resultado no guarda y vuelve a preguntas iniciales | Incluido: submissions por jugador, upsert por `(plan_id,user_id)`, rehidratación de `my_result_submission` y diálogo precargado. | `padel_match_results.sql`, `match_result_dialog.dart` |
+| Resultado aparece antes de jugar | Incluido: backend y Flutter bloquean hasta hora de fin + gracia. | `RESULT_READY_GRACE_MINUTES`, `CommunityPlanModel.resultReadyGrace` |
+| Horario de preferencia con lunes-viernes/findes | Incluido: catálogo común y constraint actualizado. | `player_preferences.dart`, `padel_community_product_updates.sql` |
+| Nivel visual en vez de números | Incluido: dropdowns y badges muestran etiquetas; `numeric_level` queda como conversión interna 1-9. | `PlayerPreferenceCatalog`, `LevelBadge` |
+| Historial muestra partidos futuros | Incluido para comunidad: historial solo cancelado/expirado/finalizado por hora real. | `shouldPlanAppearInHistory`, `shouldAppearInHistory()` |
+| Valoración no guarda/publica; aclarar si es por partido o general | Incluido como valoración por contexto (`community_plan_id` o `match_id`) que alimenta la media pública del jugador. | `padelPlayers.js`, `player_profile_screen.dart` |
+| Chat privado entre jugadores de Mi Red y eventos sociales | Incluido: chat directo solo con conexión aceptada, grupos de Mi Red, chat de convocatoria y agenda social abierta. | `padelChatService.js`, `chat_conversations_screen.dart` |
+| Carga inicial lenta | Parcial mejorado: auth cacheada, pre-warm, dashboard agregado, permisos de notificación diferidos y contador ligero `GET /padel/chat/unread-count`; sigue pendiente medir en dispositivo real. | `auth_provider.dart`, `padelDashboard.js`, `padelChat.js` |
+| Nueva convocatoria con modalidad, club, post padel y observaciones | Incluido. Americana exige 8 plazas; su marcador específico queda para fase posterior. | `padel_community_product_updates.sql`, `community_screen.dart` |
+| Eliminar cuenta duplicada | Incluido: baja lógica, anonimización básica, borrado de tokens/red/favoritos y UI con confirmación. | `padel_profile_deletion.sql`, `profile_screen.dart` |
+| Push de mensaje abre chat y burbuja en Inicio | Incluido: backend manda `conversation_id`, Flutter abre `/players/chat/:conversationId` desde tap de push y Home muestra burbuja con contador de no leídos. | `pushNotificationService.js`, `NotificationService`, `home_screen.dart` |
+| Flecha/pista para seguir deslizando barra inferior | Incluido: la barra muestra chevrons laterales cuando hay pestañas ocultas por scroll horizontal. | `app_bottom_nav.dart` |

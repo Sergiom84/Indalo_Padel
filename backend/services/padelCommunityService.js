@@ -1168,9 +1168,11 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
       optional: false,
     }));
 
-  const playersList = participants
-    .map((participant) => participant.display_name || participant.nombre)
-    .join(', ');
+  const playersList = participants.length > 0
+    ? participants
+        .map((participant) => participant.display_name || participant.nombre || 'Jugador')
+        .join(', ')
+    : 'Sin participantes confirmados';
   const reservationLabel = describeCommunityCalendarState(plan.reservation_state);
 
   return {
@@ -1198,7 +1200,7 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     attendees,
     guestsCanModify: false,
     guestsCanInviteOthers: false,
-    guestsCanSeeOtherGuests: true,
+    guestsCanSeeOtherGuests: false,
     reminders: buildEventReminders(),
     extendedProperties: {
       private: {

@@ -99,7 +99,7 @@ class AppBottomNav extends StatelessWidget {
   }
 }
 
-class _ScrollableAppBottomNav extends StatelessWidget {
+class _ScrollableAppBottomNav extends StatefulWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
   final Map<AppTab, bool> badgeVisibility;
@@ -110,8 +110,52 @@ class _ScrollableAppBottomNav extends StatelessWidget {
     required this.badgeVisibility,
   });
 
+  @override
+  State<_ScrollableAppBottomNav> createState() =>
+      _ScrollableAppBottomNavState();
+}
+
+class _ScrollableAppBottomNavState extends State<_ScrollableAppBottomNav> {
+  final ScrollController _scrollController = ScrollController();
+  bool _canScrollLeft = false;
+  bool _canScrollRight = false;
+
   static const double _destinationWidth = 108;
   static const double _destinationSpacing = 8;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateScrollCues);
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_updateScrollCues)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _updateScrollCues() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    final position = _scrollController.position;
+    final nextCanScrollLeft = position.pixels > 4;
+    final nextCanScrollRight = position.pixels < position.maxScrollExtent - 4;
+
+    if (nextCanScrollLeft == _canScrollLeft &&
+        nextCanScrollRight == _canScrollRight) {
+      return;
+    }
+
+    setState(() {
+      _canScrollLeft = nextCanScrollLeft;
+      _canScrollRight = nextCanScrollRight;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +164,7 @@ class _ScrollableAppBottomNav extends StatelessWidget {
         icon: Icons.home_outlined,
         selectedIcon: Icons.home,
         label: 'Inicio',
-        showBadge: badgeVisibility[AppTab.home] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.home] ?? false,
       ),
       _BottomNavDestination(
         icon: Icons.sports_tennis_outlined,
@@ -128,31 +172,31 @@ class _ScrollableAppBottomNav extends StatelessWidget {
         label: 'Clubes',
         subtitle: 'Próximamente',
         enabled: false,
-        showBadge: badgeVisibility[AppTab.venues] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.venues] ?? false,
       ),
       _BottomNavDestination(
         icon: Icons.calendar_today_outlined,
         selectedIcon: Icons.calendar_today,
         label: 'Calendario',
-        showBadge: badgeVisibility[AppTab.calendar] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.calendar] ?? false,
       ),
       _BottomNavDestination(
         icon: Icons.people_outline,
         selectedIcon: Icons.people,
         label: 'Comunidad',
-        showBadge: badgeVisibility[AppTab.community] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.community] ?? false,
       ),
       _BottomNavDestination(
         icon: Icons.group_outlined,
         selectedIcon: Icons.group,
         label: 'Jugadores',
-        showBadge: badgeVisibility[AppTab.players] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.players] ?? false,
       ),
       _BottomNavDestination(
         icon: Icons.person_outline,
         selectedIcon: Icons.person,
         label: 'Perfil',
-        showBadge: badgeVisibility[AppTab.profile] ?? false,
+        showBadge: widget.badgeVisibility[AppTab.profile] ?? false,
       ),
     ];
 
@@ -168,38 +212,104 @@ class _ScrollableAppBottomNav extends StatelessWidget {
                   (destinations.length - 1) * _destinationSpacing;
               final shouldCenter = contentWidth < constraints.maxWidth;
 
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const ClampingScrollPhysics(),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: Align(
-                    alignment:
-                        shouldCenter ? Alignment.center : Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (var i = 0; i < destinations.length; i++) ...[
-                            _ScrollableAppBottomNavItem(
-                              destination: destinations[i],
-                              selected: i == currentIndex,
-                              width: _destinationWidth,
-                              onTap: destinations[i].enabled
-                                  ? () => onTap(i)
-                                  : null,
-                            ),
-                            if (i != destinations.length - 1)
-                              const SizedBox(width: _destinationSpacing),
-                          ],
-                        ],
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  _updateScrollCues();
+                }
+              });
+
+              return Stack(
+                children: [
+                  SingleChildScrollView(
+                    controller: _scrollController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints:
+                          BoxConstraints(minWidth: constraints.maxWidth),
+                      child: Align(
+                        alignment: shouldCenter
+                            ? Alignment.center
+                            : Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (var i = 0; i < destinations.length; i++) ...[
+                                _ScrollableAppBottomNavItem(
+                                  destination: destinations[i],
+                                  selected: i == widget.currentIndex,
+                                  width: _destinationWidth,
+                                  onTap: destinations[i].enabled
+                                      ? () => widget.onTap(i)
+                                      : null,
+                                ),
+                                if (i != destinations.length - 1)
+                                  const SizedBox(width: _destinationSpacing),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  _ScrollCue(
+                    alignment: Alignment.centerLeft,
+                    visible: _canScrollLeft,
+                    icon: Icons.keyboard_arrow_left,
+                  ),
+                  _ScrollCue(
+                    alignment: Alignment.centerRight,
+                    visible: _canScrollRight,
+                    icon: Icons.keyboard_arrow_right,
+                  ),
+                ],
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScrollCue extends StatelessWidget {
+  final Alignment alignment;
+  final bool visible;
+  final IconData icon;
+
+  const _ScrollCue({
+    required this.alignment,
+    required this.visible,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Align(
+        alignment: alignment,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 160),
+          opacity: visible ? 1 : 0,
+          child: Container(
+            width: 30,
+            height: 30,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: AppColors.surface2.withValues(alpha: 0.96),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.24),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 22),
           ),
         ),
       ),

@@ -22,7 +22,7 @@ function normalizeEmail(value) {
 function normalizeReminderMinutes(value) {
   const parsed = Number.parseInt(String(value || ''), 10);
   if (!Number.isFinite(parsed)) {
-    return 300;
+    return 60;
   }
 
   return Math.min(Math.max(parsed, 5), 40320);
@@ -44,7 +44,7 @@ export function shouldExcludeCalendarOwnerFromAttendees(
 
 export function buildEventReminders() {
   const reminderMinutes = normalizeReminderMinutes(
-    process.env.GOOGLE_EVENT_REMINDER_MINUTES || '300',
+    process.env.GOOGLE_EVENT_REMINDER_MINUTES || '60',
   );
 
   return {
@@ -228,7 +228,7 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
     attendees,
     guestsCanModify: false,
     guestsCanInviteOthers: false,
-    guestsCanSeeOtherGuests: true,
+    guestsCanSeeOtherGuests: false,
     reminders: buildEventReminders(),
     extendedProperties: {
       private: {

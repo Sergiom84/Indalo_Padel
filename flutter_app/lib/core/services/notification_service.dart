@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
@@ -10,6 +12,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('📬 Push en background: ${message.notification?.title}');
 }
 
+typedef NotificationOpenHandler = void Function(String location);
+
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -17,8 +21,24 @@ class NotificationService {
   final _messaging = FirebaseMessaging.instance;
   bool _initialized = false;
   bool _foregroundBound = false;
+  bool _openMessageBound = false;
+  bool _initialMessageChecked = false;
   bool _permissionRequested = false;
   bool _tokenRefreshBound = false;
+  NotificationOpenHandler? _openHandler;
+  String? _pendingOpenLocation;
+
+  void configureOpenHandler(NotificationOpenHandler handler) {
+    _openHandler = handler;
+
+    final pendingLocation = _pendingOpenLocation;
+    if (pendingLocation == null) {
+      return;
+    }
+
+    _pendingOpenLocation = null;
+    scheduleMicrotask(() => handler(pendingLocation));
+  }
 
   /// Inicializa FCM sin forzar permisos en el camino crítico de arranque.
   Future<void> initialize({bool requestPermissions = false}) async {
@@ -30,6 +50,11 @@ class NotificationService {
     }
 
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    if (!_openMessageBound) {
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleOpenedMessage);
+      _openMessageBound = true;
+    }
 
     if (!_foregroundBound) {
       FirebaseMessaging.onMessage.listen((message) {
@@ -46,9 +71,48 @@ class NotificationService {
 
     _initialized = true;
 
+    if (!_initialMessageChecked) {
+      _initialMessageChecked = true;
+      final initialMessage = await _messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleOpenedMessage(initialMessage);
+      }
+    }
+
     if (requestPermissions) {
       await requestPermissionsIfNeeded();
     }
+  }
+
+  void _handleOpenedMessage(RemoteMessage message) {
+    final location = _locationForMessage(message);
+    if (location == null) {
+      return;
+    }
+
+    final handler = _openHandler;
+    if (handler == null) {
+      _pendingOpenLocation = location;
+      return;
+    }
+
+    handler(location);
+  }
+
+  String? _locationForMessage(RemoteMessage message) {
+    final data = message.data;
+    final type = data['type']?.toString().trim().toLowerCase();
+
+    if (type == 'chat_message') {
+      final conversationId = int.tryParse(
+        data['conversation_id']?.toString() ?? '',
+      );
+      if (conversationId != null && conversationId > 0) {
+        return '/players/chat/$conversationId';
+      }
+    }
+
+    return null;
   }
 
   Future<void> requestPermissionsIfNeeded() async {
@@ -96,7 +160,8 @@ class NotificationService {
     try {
       await api.post('/padel/notifications/fcm-token', data: {
         'token': token,
-        'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+        'platform':
+            defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
       });
       debugPrint('✅ FCM token registrado en backend');
     } catch (e) {
@@ -109,7 +174,8 @@ class NotificationService {
     final token = await getToken();
     if (token == null) return;
     try {
-      await api.delete('/padel/notifications/fcm-token', data: {'token': token});
+      await api
+          .delete('/padel/notifications/fcm-token', data: {'token': token});
     } catch (_) {}
   }
 }

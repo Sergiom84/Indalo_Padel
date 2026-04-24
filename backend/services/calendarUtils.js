@@ -123,7 +123,9 @@ export function formatBookingDescription({
   players = [],
 }) {
   const formattedPlayers = players.length > 0
-    ? players.map((player) => `${player.nombre || player.display_name || 'Jugador'} <${player.email}>`).join('\n')
+    ? players
+        .map((player) => player.display_name || player.nombre || 'Jugador')
+        .join('\n')
     : 'Sin jugadores invitados';
 
   return [

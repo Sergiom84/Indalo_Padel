@@ -9,6 +9,7 @@ import {
   getOrCreatePadelEventConversation,
   getOrCreatePadelSocialEventConversation,
   getPadelChatConversation,
+  getPadelChatUnreadCount,
   listPadelSocialEvents,
   listPadelChatConversations,
   listPadelChatMessages,
@@ -35,6 +36,16 @@ router.get('/conversations', authenticateToken, async (req, res) => {
     res.status(result.status).json(result.body);
   } catch (error) {
     console.error('Error listando conversaciones de chat:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+router.get('/unread-count', authenticateToken, async (req, res) => {
+  try {
+    const result = await getPadelChatUnreadCount(req.user.userId);
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    console.error('Error obteniendo contador de chat:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

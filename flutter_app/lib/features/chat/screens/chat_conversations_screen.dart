@@ -618,6 +618,10 @@ class _CreateSocialEventSheetState
   }
 
   Future<void> _submit() async {
+    if (_saving) {
+      return;
+    }
+
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       setState(() {

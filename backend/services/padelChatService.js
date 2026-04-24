@@ -170,8 +170,8 @@ function buildEventMetadata(row) {
     social_event_id: null,
     title: null,
     description: null,
-    scheduled_date: row.event_scheduled_date,
-    scheduled_time: row.event_scheduled_time,
+    scheduled_date: normalizeDateValue(row.event_scheduled_date),
+    scheduled_time: normalizeTimeOnlyValue(row.event_scheduled_time),
     duration_minutes: row.event_duration_minutes
       ? Number(row.event_duration_minutes)
       : null,
@@ -533,6 +533,9 @@ async function syncEventConversationsForUser(client, userId) {
       SELECT id AS plan_id
       FROM app.padel_community_plans
       WHERE created_by = $1
+        AND invite_state NOT IN ('cancelled', 'expired')
+        AND reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
+        AND (scheduled_date + scheduled_time) >= (NOW() AT TIME ZONE $2)
 
       UNION
 
@@ -540,8 +543,11 @@ async function syncEventConversationsForUser(client, userId) {
       FROM app.padel_community_plan_players cpp
       JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
       WHERE cpp.user_id = $1
+        AND cp.invite_state NOT IN ('cancelled', 'expired')
+        AND cp.reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
+        AND (cp.scheduled_date + cp.scheduled_time) >= (NOW() AT TIME ZONE $2)
     `,
-    [userId],
+    [userId, APP_TIME_ZONE],
   );
 
   for (const row of planResult.rows) {
@@ -628,9 +634,20 @@ async function loadConversationRows(client, userId, conversationId = null) {
       LEFT JOIN app.padel_player_profiles se_creator_profile
         ON se_creator_profile.user_id = se_creator.id
       WHERE ($2::int IS NULL OR c.id = $2)
+        AND (
+          $2::int IS NOT NULL
+          OR c.kind <> 'event'
+          OR c.last_message_id IS NOT NULL
+          OR (
+            cp.id IS NOT NULL
+            AND cp.invite_state NOT IN ('cancelled', 'expired')
+            AND cp.reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
+            AND (cp.scheduled_date + cp.scheduled_time) >= (NOW() AT TIME ZONE $3)
+          )
+        )
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
     `,
-    [userId, conversationId],
+    [userId, conversationId, APP_TIME_ZONE],
   );
 
   return result.rows;
@@ -864,6 +881,37 @@ async function loadSenderProfile(client, userId) {
   );
 
   return result.rows[0] || null;
+}
+
+export async function getPadelChatUnreadCount(userId) {
+  const client = await pool.connect();
+
+  try {
+    const result = await client.query(
+      `
+        SELECT COUNT(message.id)::int AS unread_count
+        FROM app.padel_chat_participants participant
+        JOIN app.padel_chat_messages message
+          ON message.conversation_id = participant.conversation_id
+        WHERE participant.user_id = $1
+          AND message.sender_user_id <> $1
+          AND (
+            participant.last_read_message_id IS NULL
+            OR message.id > participant.last_read_message_id
+          )
+      `,
+      [userId],
+    );
+
+    return {
+      status: 200,
+      body: {
+        unread_count: Number(result.rows[0]?.unread_count || 0),
+      },
+    };
+  } finally {
+    client.release();
+  }
 }
 
 export async function listPadelChatConversations(userId) {

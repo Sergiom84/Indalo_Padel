@@ -80,13 +80,18 @@ cd backend && node migrations/run.js
 | `app.padel_booking_players` | Participantes de reserva + RSVP | → bookings, → users |
 | `app.padel_matches` | Partidos abiertos/privados | → bookings, → users, → venues |
 | `app.padel_match_players` | Jugadores en partido | → matches, → users |
+| `app.padel_match_result_submissions` | Envíos individuales de resultado | → community_plans, → users |
+| `app.padel_match_results` | Resultado consolidado de convocatoria | → community_plans |
 | `app.padel_player_profiles` | Perfil de jugador (nivel, posición, bio) | → users (UNIQUE) |
-| `app.padel_player_ratings` | Valoraciones 1-5 entre jugadores | → users, → matches |
+| `app.padel_player_ratings` | Valoraciones 1-5 por partido/convocatoria | → users, → matches/planes |
 | `app.padel_favorites` | Jugadores favoritos | → users |
 | `app.padel_player_connections` | Red de jugadores e invitaciones "Jugamos?" | → users |
 | `app.padel_community_plans` | Convocatorias de comunidad | → users, → venues/courts |
 | `app.padel_community_plan_players` | Participantes de convocatorias | → community_plans, → users |
 | `app.padel_community_notifications` | Notificaciones internas de comunidad | → users, → community_plans |
+| `app.padel_fcm_tokens` | Tokens de dispositivo para push | → users |
+| `app.padel_social_events` | Agenda social/local abierta | → users |
+| `app.padel_chat_*` | Conversaciones, miembros, mensajes y lecturas | → users, → community_plans/social_events |
 | `app.padel_calendar_sync_state` | Estado de sync con Google Calendar | — |
 
 ## Deuda técnica conocida
@@ -96,7 +101,28 @@ cd backend && node migrations/run.js
 3. **Servicio monolítico** — `backend/services/padelBookingService.js` tiene 1000+ líneas. Necesita refactoring en módulos cohesivos.
 4. **Validación mixta** — Hay Zod en `backend/validators`, pero siguen existiendo validaciones de negocio ad-hoc en rutas/servicios.
 5. **Tests mínimos** — Backend: 0 tests. Flutter: pocos tests básicos.
-6. **Sin push notifications** — No hay infraestructura de notificaciones.
+6. **Push notifications parcial** — Existe FCM backend/Flutter y tap de chat con deep link; falta verificar producción/dispositivo real y presentación foreground/iOS.
+7. **Startup performance** — Auth cacheada, pre-warm, permisos diferidos y contador ligero de chat están aplicados; falta medición real y desacoplar alertas/dashboard.
+
+## Auditoría de feedback de usuarios — 2026-04-24
+
+| Feedback | Estado |
+|---|---|
+| Recordatorio externo 1h antes | Incluido en código: Google Calendar usa 60 minutos por defecto y `GOOGLE_EVENT_REMINDER_MINUTES=60` queda documentado para producción. |
+| Privacidad en invitaciones Google Calendar | Incluido: invitados ocultos con `guestsCanSeeOtherGuests=false` y descripciones con nombres visibles de la app, sin correos. |
+| Aviso a los 4 participantes al confirmar reserva/partido cerrado | Incluido para convocatorias con `reservation_confirmed` + push fire-and-forget. |
+| Resultado no guarda / vuelve a preguntas | Incluido: guarda submissions y rehidrata `my_result_submission`. |
+| Resultado salta antes de jugar | Incluido: se desbloquea tras hora fin + gracia. |
+| Preferencias lunes-viernes/findes | Incluido en catálogo Flutter, validadores y constraint DB actualizada. |
+| Niveles por etiquetas, no números | Incluido en `PlayerPreferenceCatalog`/`LevelBadge`; `numeric_level` queda interno. |
+| Historial con partidos futuros | Corregido para comunidad: historial filtra por finalización real o cancelación/expiración. |
+| Valoración jugador | Incluida por contexto de partido/convocatoria; alimenta media pública. |
+| Chat privado Mi Red / socializar / eventos locales | Incluido: directos, grupos, chats de evento y agenda social. |
+| Carga inicial lenta | Parcial mejorado: mitigaciones aplicadas, permisos push diferidos y contador ligero `GET /padel/chat/unread-count`; pendiente medición y desacoplar alertas/dashboard. |
+| Convocatoria con modalidad, club, post padel, observaciones | Incluido; Americana soporta 8 plazas, marcador específico de Americana pendiente. |
+| Eliminar cuenta | Incluido con baja lógica y anonimización básica. |
+| Push de mensaje abre chat + burbuja mensajes en Inicio | Incluido: Flutter navega desde tap de push a `/players/chat/:conversationId` y Home muestra burbuja con contador de no leídos. |
+| Flecha "sigue deslizando" en barra inferior | Incluido: la barra horizontal muestra chevrons laterales cuando hay contenido oculto. |
 
 ## Infraestructura — Render + Supabase
 

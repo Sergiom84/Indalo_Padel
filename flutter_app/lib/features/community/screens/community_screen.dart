@@ -1934,28 +1934,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
             ),
           ),
           const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SegmentedButton<String>(
-              segments: _modalityLabels.entries
-                  .map(
-                    (entry) => ButtonSegment<String>(
-                      value: entry.key,
-                      label: Text(entry.value),
-                    ),
-                  )
-                  .toList(growable: false),
-              selected: <String>{_draftModality},
-              showSelectedIcon: false,
-              onSelectionChanged: editable
-                  ? (selection) {
-                      if (selection.isEmpty) {
-                        return;
-                      }
-                      _setDraftModality(selection.first);
-                    }
-                  : null,
-            ),
+          _ModalitySegmentedControl(
+            labels: _modalityLabels,
+            selected: _draftModality,
+            onChanged: editable ? _setDraftModality : null,
           ),
           const SizedBox(height: 10),
           Container(
@@ -3030,6 +3012,103 @@ class _CommunityCard extends StatelessWidget {
           const SizedBox(height: 16),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _ModalitySegmentedControl extends StatelessWidget {
+  final Map<String, String> labels;
+  final String selected;
+  final ValueChanged<String>? onChanged;
+
+  const _ModalitySegmentedControl({
+    required this.labels,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = labels.entries.toList(growable: false);
+    final enabled = onChanged != null;
+    final borderColor = Colors.white.withValues(alpha: enabled ? 0.88 : 0.42);
+
+    return Opacity(
+      opacity: enabled ? 1 : 0.62,
+      child: Container(
+        height: 48,
+        width: double.infinity,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: borderColor, width: 1.2),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: Row(
+            children: [
+              for (var index = 0; index < entries.length; index++)
+                Expanded(
+                  child: _ModalitySegment(
+                    label: entries[index].value,
+                    selected: entries[index].key == selected,
+                    showLeadingDivider: index > 0,
+                    dividerColor: borderColor,
+                    onTap: enabled
+                        ? () => onChanged?.call(entries[index].key)
+                        : null,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModalitySegment extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool showLeadingDivider;
+  final Color dividerColor;
+  final VoidCallback? onTap;
+
+  const _ModalitySegment({
+    required this.label,
+    required this.selected,
+    required this.showLeadingDivider,
+    required this.dividerColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: selected ? null : onTap,
+      child: Container(
+        height: double.infinity,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          border: showLeadingDivider
+              ? Border(left: BorderSide(color: dividerColor, width: 1.2))
+              : null,
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            maxLines: 1,
+            style: TextStyle(
+              color: selected ? AppColors.dark : Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+        ),
       ),
     );
   }

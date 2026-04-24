@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/notification_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
@@ -49,7 +50,8 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = ref.watch(_routerRefreshProvider);
 
-  return GoRouter(
+  late final GoRouter router;
+  router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
     refreshListenable: refreshNotifier,
@@ -250,4 +252,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+
+  NotificationService.instance.configureOpenHandler((location) {
+    router.go(location);
+  });
+
+  return router;
 });

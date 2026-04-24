@@ -33,17 +33,14 @@ final chatSocialEventsProvider = FutureProvider<List<ChatSocialEventModel>>((
   return repository.fetchSocialEvents();
 });
 
-final chatUnreadCountProvider = Provider<int>((ref) {
+final chatUnreadCountValueProvider = FutureProvider<int>((ref) async {
   ref.watch(chatSocketSyncProvider);
-  final conversations = ref.watch(chatConversationsProvider).valueOrNull;
-  if (conversations == null) {
-    return 0;
-  }
+  final repository = ref.watch(chatRepositoryProvider);
+  return repository.fetchUnreadCount();
+});
 
-  return conversations.fold<int>(
-    0,
-    (sum, conversation) => sum + conversation.unreadCount,
-  );
+final chatUnreadCountProvider = Provider<int>((ref) {
+  return ref.watch(chatUnreadCountValueProvider).valueOrNull ?? 0;
 });
 
 final chatActionsProvider = Provider<ChatActions>((ref) {
@@ -101,6 +98,14 @@ class ChatRepository {
           ),
         )
         .toList(growable: false);
+  }
+
+  Future<int> fetchUnreadCount() async {
+    final data = await _api.get('/padel/chat/unread-count');
+    if (data is Map) {
+      return _asInt(data['unread_count']);
+    }
+    return 0;
   }
 
   Future<ChatConversationModel> fetchConversation(int conversationId) async {
@@ -240,6 +245,19 @@ class ChatRepository {
         : Map<String, dynamic>.from(data as Map);
     return ChatConversationModel.fromJson(json);
   }
+
+  int _asInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
 }
 
 class ChatActions {
@@ -331,13 +349,18 @@ class ChatSocketSync {
           ChatSocketService.instance.conversationCreatedEvents.listen((_) {
         _ref.invalidate(chatConversationsProvider);
         _ref.invalidate(chatSocialEventsProvider);
+        _ref.invalidate(chatUnreadCountValueProvider);
       });
-      _messageCreatedSubscription = ChatSocketService
-          .instance.messageCreatedEvents
-          .listen((_) => _ref.invalidate(chatConversationsProvider));
-      _conversationReadSubscription = ChatSocketService
-          .instance.conversationReadEvents
-          .listen((_) => _ref.invalidate(chatConversationsProvider));
+      _messageCreatedSubscription =
+          ChatSocketService.instance.messageCreatedEvents.listen((_) {
+        _ref.invalidate(chatConversationsProvider);
+        _ref.invalidate(chatUnreadCountValueProvider);
+      });
+      _conversationReadSubscription =
+          ChatSocketService.instance.conversationReadEvents.listen((_) {
+        _ref.invalidate(chatConversationsProvider);
+        _ref.invalidate(chatUnreadCountValueProvider);
+      });
     } catch (_) {}
   }
 
@@ -448,6 +471,7 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
             messageId: messageId,
           );
       _ref.invalidate(chatConversationsProvider);
+      _ref.invalidate(chatUnreadCountValueProvider);
     } catch (_) {}
   }
 

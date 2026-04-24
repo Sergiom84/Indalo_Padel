@@ -9,6 +9,7 @@ import '../../../shared/widgets/loading_spinner.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../chat/providers/chat_provider.dart';
 import '../../players/models/player_model.dart';
 import '../../players/providers/player_provider.dart';
 import '../../profile/providers/current_profile_provider.dart';
@@ -303,6 +304,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final networkAsync = ref.watch(networkProvider);
     final incomingRequests =
         networkAsync.valueOrNull?.incomingRequests ?? const <PlayerModel>[];
+    final chatUnreadCount = ref.watch(chatUnreadCountProvider);
     final greeting = (profile?['display_name'] ??
             profile?['nombre'] ??
             user?.nombre ??
@@ -340,6 +342,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(height: 6),
                       Text(
                         'Hola, $greeting',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 28,
@@ -357,7 +361,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     loading: networkAsync.isLoading && incomingRequests.isEmpty,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
+                _ChatBubbleButton(
+                  unreadCount: chatUnreadCount,
+                  onTap: () {
+                    appLightImpact();
+                    context.push('/players/chat');
+                  },
+                ),
+                const SizedBox(width: 10),
                 GestureDetector(
                   onTap: () {
                     appLightImpact();
@@ -659,6 +671,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       'diciembre',
     ];
     return '${weekDays[now.weekday - 1]}, ${now.day} ${months[now.month - 1]}';
+  }
+}
+
+class _ChatBubbleButton extends StatelessWidget {
+  final int unreadCount;
+  final VoidCallback onTap;
+
+  const _ChatBubbleButton({
+    required this.unreadCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUnread = unreadCount > 0;
+
+    return Tooltip(
+      message: 'Mensajes',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(18),
+              child: Ink(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: hasUnread
+                      ? AppColors.primary.withValues(alpha: 0.16)
+                      : AppColors.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: hasUnread
+                        ? AppColors.primary.withValues(alpha: 0.55)
+                        : AppColors.border,
+                  ),
+                ),
+                child: Icon(
+                  hasUnread ? Icons.forum : Icons.forum_outlined,
+                  color: hasUnread ? AppColors.primary : Colors.white,
+                ),
+              ),
+            ),
+          ),
+          if (hasUnread)
+            Positioned(
+              top: -4,
+              right: -4,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.dark, width: 2),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  unreadCount > 9 ? '9+' : '$unreadCount',
+                  style: const TextStyle(
+                    color: AppColors.dark,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
