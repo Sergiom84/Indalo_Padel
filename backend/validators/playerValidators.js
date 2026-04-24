@@ -37,7 +37,12 @@ export const updateProfileSchema = z.object({
 });
 
 export const deleteProfileSchema = z.object({
-  reason: z.enum(['no_uso', 'no_me_gusta', 'no_es_lo_que_buscaba', 'otros']),
+  reason: z.enum([
+    'no_uso_la_app',
+    'no_me_gusta',
+    'no_es_lo_que_buscaba',
+    'otros',
+  ]),
   other_reason: z.string().trim().max(500).optional(),
 });
 

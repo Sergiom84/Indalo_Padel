@@ -487,6 +487,10 @@ router.delete(
         [userId]
       );
       await client.query(
+        'DELETE FROM app.padel_fcm_tokens WHERE user_id = $1',
+        [userId]
+      );
+      await client.query(
         'DELETE FROM app.padel_player_connections WHERE user_a_id = $1 OR user_b_id = $1',
         [userId]
       );

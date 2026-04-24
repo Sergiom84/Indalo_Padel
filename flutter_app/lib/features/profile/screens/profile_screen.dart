@@ -163,6 +163,46 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     await ref.read(authProvider.notifier).logout();
   }
 
+  Future<void> _deleteAccount() async {
+    await appMediumImpact();
+    if (!mounted) {
+      return;
+    }
+    final request = await showModalBottomSheet<_DeleteAccountRequest>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _DeleteAccountSheet(),
+    );
+
+    if (request == null) {
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.delete('/padel/players/profile', data: request.toJson());
+      ref.read(currentProfileProvider.notifier).setProfile(null);
+      await ref.read(authProvider.notifier).logout();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authUser = ref.watch(authProvider).user;
@@ -343,10 +383,208 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           danger: true,
                           onTap: _logout,
                         ),
+                        _ProfileActionTile(
+                          icon: isCupertinoPlatform
+                              ? CupertinoIcons.delete
+                              : Icons.delete_outline,
+                          title: 'Eliminar cuenta',
+                          subtitle:
+                              'Borra tu perfil y cierra la sesión en este dispositivo.',
+                          danger: true,
+                          onTap: _saving ? () {} : _deleteAccount,
+                        ),
                       ],
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _DeleteAccountRequest {
+  final String reason;
+  final String? otherReason;
+
+  const _DeleteAccountRequest({
+    required this.reason,
+    this.otherReason,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'reason': reason,
+        if (otherReason != null && otherReason!.trim().isNotEmpty)
+          'other_reason': otherReason!.trim(),
+      };
+}
+
+class _DeleteReasonOption {
+  final String value;
+  final String label;
+
+  const _DeleteReasonOption(this.value, this.label);
+}
+
+const _deleteReasonOptions = [
+  _DeleteReasonOption('no_uso_la_app', 'No uso la app'),
+  _DeleteReasonOption('no_me_gusta', 'No me gusta'),
+  _DeleteReasonOption('no_es_lo_que_buscaba', 'No es lo que buscaba'),
+  _DeleteReasonOption('otros', 'Otros'),
+];
+
+class _DeleteAccountSheet extends StatefulWidget {
+  const _DeleteAccountSheet();
+
+  @override
+  State<_DeleteAccountSheet> createState() => _DeleteAccountSheetState();
+}
+
+class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
+  late final TextEditingController _confirmationCtrl;
+  late final TextEditingController _otherReasonCtrl;
+  String _reason = _deleteReasonOptions.first.value;
+
+  bool get _canDelete => _confirmationCtrl.text.trim() == 'ELIMINAR';
+
+  @override
+  void initState() {
+    super.initState();
+    _confirmationCtrl = TextEditingController()..addListener(_onChanged);
+    _otherReasonCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _confirmationCtrl
+      ..removeListener(_onChanged)
+      ..dispose();
+    _otherReasonCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onChanged() {
+    setState(() {});
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(
+      _DeleteAccountRequest(
+        reason: _reason,
+        otherReason: _otherReasonCtrl.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Eliminar cuenta',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Tu cuenta se desactivará, tus datos personales se anonimizarán y se cerrará la sesión.',
+                style: TextStyle(color: AppColors.muted, height: 1.35),
+              ),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<String>(
+                initialValue: _reason,
+                decoration: const InputDecoration(labelText: 'Motivo'),
+                dropdownColor: AppColors.surface2,
+                iconEnabledColor: AppColors.muted,
+                items: _deleteReasonOptions
+                    .map(
+                      (option) => DropdownMenuItem<String>(
+                        value: option.value,
+                        child: Text(option.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() => _reason = value);
+                },
+              ),
+              if (_reason == 'otros') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _otherReasonCtrl,
+                  maxLines: 3,
+                  maxLength: 500,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Observaciones',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _confirmationCtrl,
+                textCapitalization: TextCapitalization.characters,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Escribe ELIMINAR para confirmar',
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.danger,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _canDelete ? _submit : null,
+                      child: const Text('Eliminar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
