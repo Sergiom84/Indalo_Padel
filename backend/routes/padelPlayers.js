@@ -14,6 +14,12 @@ import {
   playerSearchQuerySchema,
   updateProfileSchema,
 } from '../validators/playerValidators.js';
+import {
+  AvatarStorageError,
+  deleteAvatarByPublicUrl,
+  isAvatarDataUrl,
+  uploadAvatarDataUrl,
+} from '../services/avatarStorageService.js';
 
 const router = express.Router();
 
@@ -354,6 +360,9 @@ router.get('/profile', authenticateToken, async (req, res) => {
 // PUT /api/padel/players/profile - Actualizar perfil
 router.put('/profile', authenticateToken, validate(updateProfileSchema), async (req, res) => {
   const client = await pool.connect();
+  let uploadedAvatarUrl = null;
+  let oldAvatarUrlToDelete = null;
+  let committed = false;
 
   try {
     const {
@@ -375,6 +384,37 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
     } = req.body;
 
     await client.query('BEGIN');
+
+    const currentProfile = await client.query(
+      `SELECT avatar_url
+       FROM app.padel_player_profiles
+       WHERE user_id = $1
+       FOR UPDATE`,
+      [req.user.userId],
+    );
+
+    if (currentProfile.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Perfil no encontrado' });
+    }
+
+    let resolvedAvatarUrl = avatar_url;
+    if (typeof avatar_url === 'string') {
+      const trimmedAvatarUrl = avatar_url.trim();
+      if (isAvatarDataUrl(trimmedAvatarUrl)) {
+        uploadedAvatarUrl = await uploadAvatarDataUrl({
+          userId: req.user.userId,
+          dataUrl: trimmedAvatarUrl,
+        });
+        resolvedAvatarUrl = uploadedAvatarUrl;
+        oldAvatarUrlToDelete = currentProfile.rows[0].avatar_url || null;
+      } else {
+        resolvedAvatarUrl = trimmedAvatarUrl;
+        if (!trimmedAvatarUrl) {
+          oldAvatarUrlToDelete = currentProfile.rows[0].avatar_url || null;
+        }
+      }
+    }
 
     if (new_password) {
       const passwordHash = await bcrypt.hash(new_password, 10);
@@ -421,7 +461,7 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
         sub_level,
         preferred_venue_id,
         bio,
-        avatar_url,
+        resolvedAvatarUrl,
         is_available,
         court_preferences,
         dominant_hands,
@@ -440,9 +480,28 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
     }
 
     await client.query('COMMIT');
+    committed = true;
+
+    if (
+      oldAvatarUrlToDelete &&
+      oldAvatarUrlToDelete !== result.rows[0].avatar_url
+    ) {
+      await deleteAvatarByPublicUrl(oldAvatarUrlToDelete).catch((deleteError) => {
+        console.warn('No se pudo borrar avatar anterior:', deleteError.message);
+      });
+    }
+
     res.json({ profile: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (!committed && uploadedAvatarUrl) {
+      await deleteAvatarByPublicUrl(uploadedAvatarUrl).catch((deleteError) => {
+        console.warn('No se pudo limpiar avatar tras error:', deleteError.message);
+      });
+    }
+    if (error instanceof AvatarStorageError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Error actualizando perfil:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
@@ -461,6 +520,7 @@ router.delete(
     try {
       const { reason, other_reason } = req.body;
       const userId = req.user.userId;
+      let avatarUrlToDelete = null;
       const deletedPasswordHash = await bcrypt.hash(
         `deleted::${userId}::${Date.now()}`,
         10
@@ -494,9 +554,20 @@ router.delete(
         'DELETE FROM app.padel_player_connections WHERE user_a_id = $1 OR user_b_id = $1',
         [userId]
       );
+
+      const profileResult = await client.query(
+        `SELECT avatar_url
+         FROM app.padel_player_profiles
+         WHERE user_id = $1
+         FOR UPDATE`,
+        [userId],
+      );
+      avatarUrlToDelete = profileResult.rows[0]?.avatar_url || null;
+
       await client.query(
         `UPDATE app.padel_player_profiles
          SET is_available = false,
+             avatar_url = NULL,
              updated_at = NOW()
          WHERE user_id = $1`,
         [userId]
@@ -530,6 +601,11 @@ router.delete(
       );
 
       await client.query('COMMIT');
+      if (avatarUrlToDelete) {
+        await deleteAvatarByPublicUrl(avatarUrlToDelete).catch((deleteError) => {
+          console.warn('No se pudo borrar avatar tras baja:', deleteError.message);
+        });
+      }
       return res.json({ message: 'Perfil eliminado correctamente' });
     } catch (error) {
       await client.query('ROLLBACK');

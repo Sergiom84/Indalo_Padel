@@ -3,14 +3,17 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+const int _maxAvatarDimension = 512;
+const int _avatarImageQuality = 72;
+
 Future<String?> pickProfileImageAsDataUrlImpl() async {
   final picker = ImagePicker();
   try {
     final pickedFile = await picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 86,
-      maxWidth: 1400,
-      maxHeight: 1400,
+      imageQuality: _avatarImageQuality,
+      maxWidth: _maxAvatarDimension.toDouble(),
+      maxHeight: _maxAvatarDimension.toDouble(),
     );
     if (pickedFile == null) {
       return null;

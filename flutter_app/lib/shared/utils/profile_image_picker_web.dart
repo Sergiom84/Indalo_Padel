@@ -3,8 +3,9 @@
 import 'dart:async';
 import 'dart:html' as html;
 
-const int _maxImageDimension = 960;
-const double _jpegQuality = 0.84;
+const int _maxImageDimension = 512;
+const double _jpegQuality = 0.72;
+const String _outputMimeType = 'image/jpeg';
 
 Future<String?> pickProfileImageAsDataUrlImpl() {
   final completer = Completer<String?>();
@@ -42,12 +43,7 @@ Future<String> _readOptimizedImageAsDataUrl(html.File file) async {
   }
 
   final targetSize = _scaledDimensions(width, height);
-  final needsResize = targetSize.$1 != width || targetSize.$2 != height;
-  final mimeType = _outputMimeType(file.type);
-
-  if (!needsResize && mimeType != 'image/jpeg') {
-    return originalDataUrl;
-  }
+  const mimeType = _outputMimeType;
 
   final canvas = html.CanvasElement(
     width: targetSize.$1,
@@ -62,11 +58,7 @@ Future<String> _readOptimizedImageAsDataUrl(html.File file) async {
     targetSize.$2.toDouble(),
   );
 
-  if (mimeType == 'image/jpeg') {
-    return canvas.toDataUrl(mimeType, _jpegQuality);
-  }
-
-  return canvas.toDataUrl(mimeType);
+  return canvas.toDataUrl(mimeType, _jpegQuality);
 }
 
 Future<String> _readFileAsDataUrl(html.File file) {
@@ -108,12 +100,4 @@ Future<html.ImageElement> _loadImage(String dataUrl) {
     (width * scale).round(),
     (height * scale).round(),
   );
-}
-
-String _outputMimeType(String rawMimeType) {
-  final mimeType = rawMimeType.toLowerCase().trim();
-  if (mimeType == 'image/png') {
-    return 'image/png';
-  }
-  return 'image/jpeg';
 }
