@@ -3697,6 +3697,10 @@ class _InvitationCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (plan.participants.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _InvitationParticipantsPanel(participants: plan.participants),
+            ],
             const SizedBox(height: 14),
             const Divider(color: AppColors.border, height: 1),
             const SizedBox(height: 12),
@@ -3747,6 +3751,151 @@ class _InvitationCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _InvitationParticipantsPanel extends StatelessWidget {
+  final List<CommunityParticipantModel> participants;
+
+  const _InvitationParticipantsPanel({required this.participants});
+
+  int _countStates(Set<String> states) {
+    return participants
+        .where((participant) => states.contains(participant.responseState))
+        .length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final acceptedCount = _countStates({'accepted'});
+    final waitingCount = _countStates({'pending', 'doubt'});
+    final declinedCount = _countStates({'declined'});
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          iconColor: AppColors.primary,
+          collapsedIconColor: AppColors.muted,
+          title: const Text(
+            'Invitados y estado',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                PadelBadge(
+                  label: '${participants.length} convocados',
+                  variant: PadelBadgeVariant.outline,
+                ),
+                PadelBadge(
+                  label: '$acceptedCount aceptados',
+                  variant: PadelBadgeVariant.success,
+                ),
+                if (waitingCount > 0)
+                  PadelBadge(
+                    label: '$waitingCount en espera',
+                    variant: PadelBadgeVariant.warning,
+                  ),
+                if (declinedCount > 0)
+                  PadelBadge(
+                    label: '$declinedCount no pueden',
+                    variant: PadelBadgeVariant.danger,
+                  ),
+              ],
+            ),
+          ),
+          children: participants
+              .map(
+                (participant) => Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _InvitationParticipantRow(participant: participant),
+                ),
+              )
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+}
+
+class _InvitationParticipantRow extends StatelessWidget {
+  final CommunityParticipantModel participant;
+
+  const _InvitationParticipantRow({required this.participant});
+
+  PadelBadgeVariant get _variant {
+    return switch (participant.responseState) {
+      'accepted' => PadelBadgeVariant.success,
+      'declined' => PadelBadgeVariant.danger,
+      'doubt' => PadelBadgeVariant.info,
+      _ => PadelBadgeVariant.warning,
+    };
+  }
+
+  String get _label {
+    return switch (participant.responseState) {
+      'accepted' => 'Aceptado',
+      'declined' => 'No puede',
+      'doubt' => 'En duda',
+      _ => 'En espera',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          participant.isOrganizer ? Icons.star_rounded : Icons.person_outline,
+          color: participant.isOrganizer ? AppColors.primary : AppColors.muted,
+          size: 17,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            participant.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        if (participant.isCurrentUser) ...[
+          const SizedBox(width: 6),
+          const PadelBadge(
+            label: 'Tú',
+            variant: PadelBadgeVariant.outline,
+          ),
+        ],
+        if (participant.isOrganizer) ...[
+          const SizedBox(width: 6),
+          const PadelBadge(
+            label: 'Organiza',
+            variant: PadelBadgeVariant.info,
+          ),
+        ],
+        const SizedBox(width: 6),
+        PadelBadge(label: _label, variant: _variant),
+      ],
     );
   }
 }

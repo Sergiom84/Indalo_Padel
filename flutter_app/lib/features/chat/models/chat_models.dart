@@ -471,6 +471,35 @@ class ChatSendMessageResult {
   }
 }
 
+class ChatDeleteMessagesResult {
+  final ChatConversationModel? conversation;
+  final List<int> deletedMessageIds;
+
+  const ChatDeleteMessagesResult({
+    this.conversation,
+    this.deletedMessageIds = const [],
+  });
+
+  factory ChatDeleteMessagesResult.fromJson(Map<String, dynamic> json) {
+    final conversationJson = json['conversation'];
+    final rawMessageIds = json['deleted_message_ids'];
+    final deletedMessageIds = rawMessageIds is List
+        ? rawMessageIds.map(_asInt).where((id) => id > 0).toList()
+        : const <int>[];
+
+    return ChatDeleteMessagesResult(
+      conversation: conversationJson is Map<String, dynamic>
+          ? ChatConversationModel.fromJson(conversationJson)
+          : (conversationJson is Map
+              ? ChatConversationModel.fromJson(
+                  Map<String, dynamic>.from(conversationJson),
+                )
+              : null),
+      deletedMessageIds: deletedMessageIds,
+    );
+  }
+}
+
 class ChatConversationCreatedEventModel {
   final int conversationId;
   final String kind;
@@ -538,11 +567,44 @@ class ChatConversationReadEventModel {
   }
 }
 
+class ChatMessagesDeletedEventModel {
+  final int conversationId;
+  final List<int> messageIds;
+  final ChatConversationModel? conversation;
+
+  const ChatMessagesDeletedEventModel({
+    required this.conversationId,
+    required this.messageIds,
+    this.conversation,
+  });
+
+  factory ChatMessagesDeletedEventModel.fromJson(Map<String, dynamic> json) {
+    final conversationJson = json['conversation'];
+    final rawMessageIds = json['message_ids'];
+    final messageIds = rawMessageIds is List
+        ? rawMessageIds.map(_asInt).where((id) => id > 0).toList()
+        : const <int>[];
+
+    return ChatMessagesDeletedEventModel(
+      conversationId: _asInt(json['conversation_id']),
+      messageIds: messageIds,
+      conversation: conversationJson is Map<String, dynamic>
+          ? ChatConversationModel.fromJson(conversationJson)
+          : (conversationJson is Map
+              ? ChatConversationModel.fromJson(
+                  Map<String, dynamic>.from(conversationJson),
+                )
+              : null),
+    );
+  }
+}
+
 class ChatThreadState {
   final ChatConversationModel? conversation;
   final List<ChatMessageModel> messages;
   final bool loading;
   final bool sending;
+  final bool deleting;
   final String? error;
 
   const ChatThreadState({
@@ -550,6 +612,7 @@ class ChatThreadState {
     this.messages = const [],
     this.loading = true,
     this.sending = false,
+    this.deleting = false,
     this.error,
   });
 
@@ -558,6 +621,7 @@ class ChatThreadState {
     List<ChatMessageModel>? messages,
     bool? loading,
     bool? sending,
+    bool? deleting,
     String? error,
     bool clearError = false,
   }) {
@@ -566,6 +630,7 @@ class ChatThreadState {
       messages: messages ?? this.messages,
       loading: loading ?? this.loading,
       sending: sending ?? this.sending,
+      deleting: deleting ?? this.deleting,
       error: clearError ? null : (error ?? this.error),
     );
   }

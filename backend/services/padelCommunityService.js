@@ -438,7 +438,6 @@ async function loadAcceptedCompanions(client, userId) {
         pp.availability_preferences,
         pp.match_preferences,
         pp.is_available,
-        pp.avatar_url,
         COALESCE(r.avg_rating, 0) as avg_rating
       FROM app.padel_player_connections pc
       JOIN app.users u
@@ -562,8 +561,7 @@ async function loadParticipantsForPlans(client, planIds, currentUserId) {
         pp.dominant_hands,
         pp.availability_preferences,
         pp.match_preferences,
-        pp.is_available,
-        pp.avatar_url
+        pp.is_available
       FROM app.padel_community_plan_players cpp
       JOIN app.users u ON u.id = cpp.user_id
       LEFT JOIN app.padel_player_profiles pp ON pp.user_id = cpp.user_id

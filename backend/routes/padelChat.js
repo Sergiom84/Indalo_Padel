@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate.js';
 import {
   createPadelGroupConversation,
   createPadelSocialEvent,
+  deletePadelChatMessages,
   getOrCreatePadelDirectConversation,
   getOrCreatePadelEventConversation,
   getOrCreatePadelSocialEventConversation,
@@ -20,6 +21,7 @@ import {
   conversationParamsSchema,
   createGroupConversationSchema,
   createSocialEventSchema,
+  deleteChatMessagesSchema,
   directConversationParamsSchema,
   eventConversationParamsSchema,
   listConversationMessagesQuerySchema,
@@ -211,6 +213,26 @@ router.post(
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error('Error enviando mensaje de chat:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+);
+
+router.delete(
+  '/conversations/:id/messages',
+  authenticateToken,
+  validate(conversationParamsSchema, 'params'),
+  validate(deleteChatMessagesSchema),
+  async (req, res) => {
+    try {
+      const result = await deletePadelChatMessages({
+        userId: req.user.userId,
+        conversationId: req.params.id,
+        messageIds: req.body.message_ids,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error('Error eliminando mensajes de chat:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   },

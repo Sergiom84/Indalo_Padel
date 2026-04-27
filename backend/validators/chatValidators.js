@@ -45,6 +45,13 @@ export const sendChatMessageSchema = z.object({
   body: z.string().trim().min(1).max(4000),
 });
 
+export const deleteChatMessagesSchema = z.object({
+  message_ids: z
+    .array(positiveInt)
+    .min(1, 'Selecciona al menos un mensaje')
+    .max(50, 'Puedes eliminar hasta 50 mensajes a la vez'),
+});
+
 export const markConversationReadSchema = z.object({
   message_id: z.number().int().positive().nullable().optional(),
 });

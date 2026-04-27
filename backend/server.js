@@ -13,6 +13,7 @@ import padelCommunityRoutes from './routes/padelCommunity.js';
 import padelChatRoutes from './routes/padelChat.js';
 import padelPlayersRoutes from './routes/padelPlayers.js';
 import padelFcmTokensRoutes from './routes/padelFcmTokens.js';
+import padelAlertsRoutes from './routes/padelAlerts.js';
 import { startCalendarSyncJob } from './services/padelCalendarSync.js';
 import { attachPadelChatSocket } from './services/padelChatSocket.js';
 import { startCommunityLifecycleJob } from './services/padelCommunityLifecycle.js';
@@ -106,6 +107,7 @@ app.use('/api/padel/community', padelCommunityRoutes);
 app.use('/api/padel/chat', padelChatRoutes);
 app.use('/api/padel/players', padelPlayersRoutes);
 app.use('/api/padel/notifications', padelFcmTokensRoutes);
+app.use('/api/padel/alerts', padelAlertsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

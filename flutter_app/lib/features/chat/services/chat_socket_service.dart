@@ -18,6 +18,7 @@ class ChatSocketService {
   StreamController<ChatConversationCreatedEventModel>?
       _conversationCreatedController;
   StreamController<ChatMessageCreatedEventModel>? _messageCreatedController;
+  StreamController<ChatMessagesDeletedEventModel>? _messagesDeletedController;
   StreamController<ChatConversationReadEventModel>? _conversationReadController;
 
   Stream<ChatConversationCreatedEventModel> get conversationCreatedEvents {
@@ -30,6 +31,12 @@ class ChatSocketService {
     _messageCreatedController ??=
         StreamController<ChatMessageCreatedEventModel>.broadcast();
     return _messageCreatedController!.stream;
+  }
+
+  Stream<ChatMessagesDeletedEventModel> get messagesDeletedEvents {
+    _messagesDeletedController ??=
+        StreamController<ChatMessagesDeletedEventModel>.broadcast();
+    return _messagesDeletedController!.stream;
   }
 
   Stream<ChatConversationReadEventModel> get conversationReadEvents {
@@ -53,6 +60,8 @@ class ChatSocketService {
         StreamController<ChatConversationCreatedEventModel>.broadcast();
     _messageCreatedController ??=
         StreamController<ChatMessageCreatedEventModel>.broadcast();
+    _messagesDeletedController ??=
+        StreamController<ChatMessagesDeletedEventModel>.broadcast();
     _conversationReadController ??=
         StreamController<ChatConversationReadEventModel>.broadcast();
 
@@ -81,6 +90,7 @@ class ChatSocketService {
       ..on('chat:ready', (_) => _rejoinActiveConversations())
       ..on('chat:conversation.created', _handleConversationCreated)
       ..on('chat:message.created', _handleMessageCreated)
+      ..on('chat:messages.deleted', _handleMessagesDeleted)
       ..on('chat:conversation.read', _handleConversationRead)
       ..on('connect_error', (_) {})
       ..connect();
@@ -134,6 +144,17 @@ class ChatSocketService {
     }
 
     _messageCreatedController?.add(ChatMessageCreatedEventModel.fromJson(json));
+  }
+
+  void _handleMessagesDeleted(dynamic payload) {
+    final json = _asJsonMap(payload);
+    if (json == null) {
+      return;
+    }
+
+    _messagesDeletedController?.add(
+      ChatMessagesDeletedEventModel.fromJson(json),
+    );
   }
 
   void _handleConversationRead(dynamic payload) {

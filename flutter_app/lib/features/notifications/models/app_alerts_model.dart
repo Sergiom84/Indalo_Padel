@@ -14,6 +14,18 @@ class AppAlertItem {
     required this.title,
     required this.body,
   });
+
+  factory AppAlertItem.fromJson(
+    Map<String, dynamic> json, {
+    required AppAlertScope scope,
+  }) {
+    return AppAlertItem(
+      uniqueKey: (json['unique_key'] ?? '').toString(),
+      scope: scope,
+      title: (json['title'] ?? '').toString(),
+      body: (json['body'] ?? '').toString(),
+    );
+  }
 }
 
 class AppAlertsState {
@@ -30,6 +42,55 @@ class AppAlertsState {
     this.playerInvitationAlerts = const [],
     this.pendingResultPlans = const [],
   });
+
+  factory AppAlertsState.fromJson(Map<String, dynamic> json) {
+    List<AppAlertItem> parseAlerts(dynamic value, AppAlertScope scope) {
+      if (value is! List) {
+        return const [];
+      }
+
+      return value
+          .whereType<Map>()
+          .map(
+            (item) => AppAlertItem.fromJson(
+              Map<String, dynamic>.from(item),
+              scope: scope,
+            ),
+          )
+          .where((alert) => alert.uniqueKey.isNotEmpty)
+          .toList(growable: false);
+    }
+
+    List<CommunityPlanModel> parsePlans(dynamic value) {
+      if (value is! List) {
+        return const [];
+      }
+
+      return value
+          .whereType<Map>()
+          .map(
+            (item) =>
+                CommunityPlanModel.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false);
+    }
+
+    return AppAlertsState(
+      communityPlannerAlerts: parseAlerts(
+        json['community_planner_alerts'],
+        AppAlertScope.communityPlanner,
+      ),
+      communityInvitationAlerts: parseAlerts(
+        json['community_invitation_alerts'],
+        AppAlertScope.communityInvitations,
+      ),
+      playerInvitationAlerts: parseAlerts(
+        json['player_invitation_alerts'],
+        AppAlertScope.players,
+      ),
+      pendingResultPlans: parsePlans(json['pending_result_plans']),
+    );
+  }
 
   AppAlertsState copyWith({
     bool? loading,

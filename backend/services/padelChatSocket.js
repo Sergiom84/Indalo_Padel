@@ -188,6 +188,19 @@ export function emitPadelChatMessageCreated({
   });
 }
 
+export function emitPadelChatMessagesDeleted({
+  userIds,
+  conversationId,
+  messageIds,
+  conversation,
+}) {
+  emitToUsers(userIds, 'chat:messages.deleted', {
+    conversation_id: Number(conversationId),
+    message_ids: messageIds.map((messageId) => Number(messageId)),
+    conversation,
+  });
+}
+
 export function emitPadelChatReadUpdated({
   userIds,
   conversationId,

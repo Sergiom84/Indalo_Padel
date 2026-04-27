@@ -161,6 +161,19 @@ class ChatRepository {
         Map<String, dynamic>.from(data as Map));
   }
 
+  Future<ChatDeleteMessagesResult> deleteMessages({
+    required int conversationId,
+    required List<int> messageIds,
+  }) async {
+    final data = await _api.delete(
+      '/padel/chat/conversations/$conversationId/messages',
+      data: {'message_ids': messageIds},
+    );
+    return ChatDeleteMessagesResult.fromJson(
+      Map<String, dynamic>.from(data as Map),
+    );
+  }
+
   Future<void> markConversationRead(
     int conversationId, {
     int? messageId,
@@ -339,6 +352,8 @@ class ChatSocketSync {
   StreamSubscription<ChatConversationCreatedEventModel>?
       _conversationCreatedSubscription;
   StreamSubscription<ChatMessageCreatedEventModel>? _messageCreatedSubscription;
+  StreamSubscription<ChatMessagesDeletedEventModel>?
+      _messagesDeletedSubscription;
   StreamSubscription<ChatConversationReadEventModel>?
       _conversationReadSubscription;
 
@@ -356,6 +371,11 @@ class ChatSocketSync {
         _ref.invalidate(chatConversationsProvider);
         _ref.invalidate(chatUnreadCountValueProvider);
       });
+      _messagesDeletedSubscription =
+          ChatSocketService.instance.messagesDeletedEvents.listen((_) {
+        _ref.invalidate(chatConversationsProvider);
+        _ref.invalidate(chatUnreadCountValueProvider);
+      });
       _conversationReadSubscription =
           ChatSocketService.instance.conversationReadEvents.listen((_) {
         _ref.invalidate(chatConversationsProvider);
@@ -367,6 +387,7 @@ class ChatSocketSync {
   void dispose() {
     _conversationCreatedSubscription?.cancel();
     _messageCreatedSubscription?.cancel();
+    _messagesDeletedSubscription?.cancel();
     _conversationReadSubscription?.cancel();
   }
 }
@@ -381,6 +402,7 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
   final ChatThreadArgs _args;
 
   StreamSubscription<ChatMessageCreatedEventModel>? _messageSubscription;
+  StreamSubscription<ChatMessagesDeletedEventModel>? _deleteSubscription;
   StreamSubscription<ChatConversationReadEventModel>? _readSubscription;
 
   Future<void> _initialize() async {
@@ -391,6 +413,10 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
       _messageSubscription =
           ChatSocketService.instance.messageCreatedEvents.listen(
         _handleIncomingMessage,
+      );
+      _deleteSubscription =
+          ChatSocketService.instance.messagesDeletedEvents.listen(
+        _handleDeletedMessages,
       );
       _readSubscription =
           ChatSocketService.instance.conversationReadEvents.listen(
@@ -464,6 +490,39 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
     }
   }
 
+  Future<void> deleteMessages(List<int> messageIds) async {
+    final ids = messageIds.toSet().toList(growable: false);
+    if (ids.isEmpty || state.deleting) {
+      return;
+    }
+
+    state = state.copyWith(deleting: true, clearError: true);
+    try {
+      final repository = _ref.read(chatRepositoryProvider);
+      final result = await repository.deleteMessages(
+        conversationId: _args.conversationId,
+        messageIds: ids,
+      );
+      final deletedIds = result.deletedMessageIds.toSet();
+      final nextMessages = state.messages
+          .where((message) => !deletedIds.contains(message.id))
+          .toList(growable: false);
+
+      state = state.copyWith(
+        conversation: result.conversation ?? state.conversation,
+        messages: nextMessages,
+        deleting: false,
+      );
+      _ref.invalidate(chatConversationsProvider);
+      _ref.invalidate(chatUnreadCountValueProvider);
+    } catch (error) {
+      state = state.copyWith(
+        deleting: false,
+        error: error.toString(),
+      );
+    }
+  }
+
   Future<void> markRead([int? messageId]) async {
     try {
       await _ref.read(chatRepositoryProvider).markConversationRead(
@@ -493,6 +552,28 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
     unawaited(markRead(event.message.id));
   }
 
+  void _handleDeletedMessages(ChatMessagesDeletedEventModel event) {
+    if (event.conversationId != _args.conversationId) {
+      _ref.invalidate(chatConversationsProvider);
+      return;
+    }
+
+    final deletedIds = event.messageIds.toSet();
+    if (deletedIds.isEmpty) {
+      return;
+    }
+
+    final nextMessages = state.messages
+        .where((message) => !deletedIds.contains(message.id))
+        .toList(growable: false);
+    state = state.copyWith(
+      conversation: event.conversation ?? state.conversation,
+      messages: nextMessages,
+    );
+    _ref.invalidate(chatConversationsProvider);
+    _ref.invalidate(chatUnreadCountValueProvider);
+  }
+
   void _handleReadUpdate(ChatConversationReadEventModel event) {
     if (event.conversationId != _args.conversationId) {
       return;
@@ -516,6 +597,7 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
   void dispose() {
     ChatSocketService.instance.leaveConversation(_args.conversationId);
     _messageSubscription?.cancel();
+    _deleteSubscription?.cancel();
     _readSubscription?.cancel();
     super.dispose();
   }

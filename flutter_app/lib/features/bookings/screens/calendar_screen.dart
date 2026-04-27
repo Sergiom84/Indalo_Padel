@@ -19,6 +19,10 @@ PadelBadgeVariant _statusVariant(String status) {
       return PadelBadgeVariant.success;
     case 'pendiente':
       return PadelBadgeVariant.warning;
+    case 'en_duda':
+    case 'doubt':
+    case 'tentative':
+      return PadelBadgeVariant.info;
     case 'cancelada':
     case 'declined':
     case 'rechazada':
@@ -176,8 +180,11 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
                   'user_id': m['user_id'],
                   'display_name': m['display_name'] ?? m['nombre'] ?? '',
                   'role': m['role'] ?? 'player',
-                  'invite_status': 'aceptada',
-                  'google_response_status': 'accepted',
+                  'invite_status':
+                      _communityResponseInviteStatus(m['response_state']),
+                  'google_response_status':
+                      _communityResponseGoogleStatus(m['response_state']),
+                  'responded_at': m['responded_at'],
                 })
             .toList();
         final model = CalendarBookingModel.fromJson({
@@ -225,6 +232,32 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
       return source[key] as List<dynamic>;
     }
     return const [];
+  }
+
+  static String _communityResponseInviteStatus(dynamic value) {
+    switch (value?.toString()) {
+      case 'accepted':
+        return 'aceptada';
+      case 'declined':
+        return 'rechazada';
+      case 'doubt':
+        return 'en_duda';
+      default:
+        return 'pendiente';
+    }
+  }
+
+  static String _communityResponseGoogleStatus(dynamic value) {
+    switch (value?.toString()) {
+      case 'accepted':
+        return 'accepted';
+      case 'declined':
+        return 'declined';
+      case 'doubt':
+        return 'tentative';
+      default:
+        return 'needsAction';
+    }
   }
 
   Future<void> _cancelBooking(int bookingId) async {
@@ -905,20 +938,7 @@ class _CompactBookingCardState extends State<_CompactBookingCard> {
           ),
           if (booking.participants.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: booking.participants
-                  .map((p) => PadelBadge(
-                        label: p.displayName,
-                        variant: p.inviteStatus == 'aceptada'
-                            ? PadelBadgeVariant.success
-                            : p.inviteStatus == 'rechazada'
-                                ? PadelBadgeVariant.danger
-                                : PadelBadgeVariant.neutral,
-                      ))
-                  .toList(),
-            ),
+            _CalendarParticipantsPanel(participants: booking.participants),
           ],
           if (widget.onRespond != null ||
               widget.onEdit != null ||
@@ -1022,6 +1042,162 @@ class _CompactBookingCardState extends State<_CompactBookingCard> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _CalendarParticipantsPanel extends StatelessWidget {
+  final List<CalendarParticipantModel> participants;
+
+  const _CalendarParticipantsPanel({required this.participants});
+
+  String _statusKey(CalendarParticipantModel participant) {
+    final inviteStatus = participant.inviteStatus.toLowerCase();
+    final googleStatus = participant.googleResponseStatus.toLowerCase();
+
+    if (inviteStatus == 'aceptada' ||
+        inviteStatus == 'accepted' ||
+        googleStatus == 'accepted') {
+      return 'accepted';
+    }
+    if (inviteStatus == 'rechazada' ||
+        inviteStatus == 'declined' ||
+        googleStatus == 'declined') {
+      return 'declined';
+    }
+    if (inviteStatus == 'en_duda' ||
+        inviteStatus == 'doubt' ||
+        googleStatus == 'tentative') {
+      return 'doubt';
+    }
+    return 'pending';
+  }
+
+  String _labelFor(CalendarParticipantModel participant) {
+    return switch (_statusKey(participant)) {
+      'accepted' => 'Aceptado',
+      'declined' => 'No puede',
+      'doubt' => 'En duda',
+      _ => 'En espera',
+    };
+  }
+
+  PadelBadgeVariant _variantFor(CalendarParticipantModel participant) {
+    return switch (_statusKey(participant)) {
+      'accepted' => PadelBadgeVariant.success,
+      'declined' => PadelBadgeVariant.danger,
+      'doubt' => PadelBadgeVariant.info,
+      _ => PadelBadgeVariant.warning,
+    };
+  }
+
+  int _count(String statusKey) {
+    return participants
+        .where((participant) => _statusKey(participant) == statusKey)
+        .length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final acceptedCount = _count('accepted');
+    final waitingCount = _count('pending') + _count('doubt');
+    final declinedCount = _count('declined');
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          iconColor: AppColors.primary,
+          collapsedIconColor: AppColors.muted,
+          title: const Text(
+            'Jugadores',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                PadelBadge(
+                  label: '${participants.length} convocados',
+                  variant: PadelBadgeVariant.outline,
+                ),
+                PadelBadge(
+                  label: '$acceptedCount aceptados',
+                  variant: PadelBadgeVariant.success,
+                ),
+                if (waitingCount > 0)
+                  PadelBadge(
+                    label: '$waitingCount en espera',
+                    variant: PadelBadgeVariant.warning,
+                  ),
+                if (declinedCount > 0)
+                  PadelBadge(
+                    label: '$declinedCount no pueden',
+                    variant: PadelBadgeVariant.danger,
+                  ),
+              ],
+            ),
+          ),
+          children: participants
+              .map(
+                (participant) => Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        participant.role == 'organizer'
+                            ? Icons.star_rounded
+                            : Icons.person_outline,
+                        color: participant.role == 'organizer'
+                            ? AppColors.primary
+                            : AppColors.muted,
+                        size: 17,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          participant.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (participant.role == 'organizer') ...[
+                        const SizedBox(width: 6),
+                        const PadelBadge(
+                          label: 'Organiza',
+                          variant: PadelBadgeVariant.info,
+                        ),
+                      ],
+                      const SizedBox(width: 6),
+                      PadelBadge(
+                        label: _labelFor(participant),
+                        variant: _variantFor(participant),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        ),
       ),
     );
   }

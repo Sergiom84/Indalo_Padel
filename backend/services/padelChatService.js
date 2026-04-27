@@ -9,6 +9,7 @@ import { sendPushToUsers } from './pushNotificationService.js';
 import {
   emitPadelChatConversationCreated,
   emitPadelChatMessageCreated,
+  emitPadelChatMessagesDeleted,
   emitPadelChatReadUpdated,
 } from './padelChatSocket.js';
 
@@ -1855,6 +1856,166 @@ export async function sendPadelChatMessage({
       body: {
         conversation,
         message,
+      },
+    };
+  } catch (error) {
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deletePadelChatMessages({
+  userId,
+  conversationId,
+  messageIds,
+}) {
+  const ids = [
+    ...new Set(
+      (messageIds || [])
+        .map((messageId) => Number(messageId))
+        .filter((messageId) => Number.isInteger(messageId) && messageId > 0),
+    ),
+  ];
+
+  if (ids.length === 0) {
+    return {
+      status: 400,
+      body: {
+        error: 'Selecciona al menos un mensaje',
+      },
+    };
+  }
+
+  const client = await pool.connect();
+  let transactionOpen = false;
+
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+
+    const access = await ensureConversationReadyForUser(
+      client,
+      conversationId,
+      userId,
+    );
+
+    if (!access) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 404,
+        body: {
+          error: 'Conversación no encontrada',
+        },
+      };
+    }
+
+    const existingResult = await client.query(
+      `
+        SELECT id, sender_user_id
+        FROM app.padel_chat_messages
+        WHERE conversation_id = $1
+          AND id = ANY($2::bigint[])
+        FOR UPDATE
+      `,
+      [conversationId, ids],
+    );
+
+    if (existingResult.rows.length !== ids.length) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 404,
+        body: {
+          error: 'Algún mensaje ya no existe en esta conversación',
+        },
+      };
+    }
+
+    const hasForeignMessage = existingResult.rows.some(
+      (row) => Number(row.sender_user_id) !== Number(userId),
+    );
+
+    if (hasForeignMessage) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 403,
+        body: {
+          error: 'Solo puedes eliminar tus propios mensajes',
+        },
+      };
+    }
+
+    const deleteResult = await client.query(
+      `
+        DELETE FROM app.padel_chat_messages
+        WHERE conversation_id = $1
+          AND sender_user_id = $2
+          AND id = ANY($3::bigint[])
+        RETURNING id
+      `,
+      [conversationId, userId, ids],
+    );
+
+    const deletedMessageIds = deleteResult.rows.map((row) => Number(row.id));
+
+    const lastMessageResult = await client.query(
+      `
+        SELECT id, created_at
+        FROM app.padel_chat_messages
+        WHERE conversation_id = $1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [conversationId],
+    );
+    const lastMessage = lastMessageResult.rows[0] || null;
+
+    await client.query(
+      `
+        UPDATE app.padel_chat_conversations
+        SET last_message_id = $2,
+            last_message_at = $3,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        conversationId,
+        lastMessage ? Number(lastMessage.id) : null,
+        lastMessage?.created_at || null,
+      ],
+    );
+
+    const participantIds = await loadConversationParticipantIds(
+      client,
+      conversationId,
+    );
+    const conversation = await loadConversationDtoById(
+      client,
+      conversationId,
+      userId,
+    );
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    emitPadelChatMessagesDeleted({
+      userIds: participantIds,
+      conversationId,
+      messageIds: deletedMessageIds,
+      conversation,
+    });
+
+    return {
+      status: 200,
+      body: {
+        conversation,
+        deleted_message_ids: deletedMessageIds,
       },
     };
   } catch (error) {

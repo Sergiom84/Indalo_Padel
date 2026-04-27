@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../models/chat_models.dart';
@@ -24,11 +27,168 @@ class ChatThreadScreen extends ConsumerStatefulWidget {
 
 class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
   final TextEditingController _composerController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final Set<int> _selectedMessageIds = <int>{};
+  Timer? _dateBannerTimer;
+  bool _selectionMode = false;
+  bool _showDateBanner = false;
+  String? _dateBannerLabel;
 
   @override
   void dispose() {
+    _dateBannerTimer?.cancel();
+    _scrollController.dispose();
     _composerController.dispose();
     super.dispose();
+  }
+
+  String? _dateLabel(DateTime? dateTime) {
+    if (dateTime == null) {
+      return null;
+    }
+    final local = dateTime.toLocal();
+    return DateFormat('d MMMM yyyy', 'es_ES').format(local);
+  }
+
+  bool _shouldShowDateSeparator(
+    List<ChatMessageModel> messages,
+    int index,
+  ) {
+    final current = messages[index].createdAt;
+    if (current == null) {
+      return false;
+    }
+    if (index == 0) {
+      return true;
+    }
+
+    final previous = messages[index - 1].createdAt;
+    if (previous == null) {
+      return true;
+    }
+
+    final currentLocal = current.toLocal();
+    final previousLocal = previous.toLocal();
+    return currentLocal.year != previousLocal.year ||
+        currentLocal.month != previousLocal.month ||
+        currentLocal.day != previousLocal.day;
+  }
+
+  String? _dateLabelForScroll(
+    List<ChatMessageModel> messages,
+    ScrollMetrics metrics,
+  ) {
+    if (messages.isEmpty) {
+      return null;
+    }
+
+    final maxScroll = metrics.maxScrollExtent;
+    final ratio =
+        maxScroll <= 0 ? 1.0 : (metrics.pixels / maxScroll).clamp(0.0, 1.0);
+    final index = (ratio * (messages.length - 1)).round();
+    return _dateLabel(messages[index].createdAt);
+  }
+
+  bool _handleMessageScroll(
+    ScrollNotification notification,
+    List<ChatMessageModel> messages,
+  ) {
+    if (notification is! ScrollUpdateNotification &&
+        notification is! OverscrollNotification &&
+        notification is! UserScrollNotification) {
+      return false;
+    }
+
+    final label = _dateLabelForScroll(messages, notification.metrics);
+    if (label == null || !mounted) {
+      return false;
+    }
+
+    setState(() {
+      _dateBannerLabel = label;
+      _showDateBanner = true;
+    });
+
+    _dateBannerTimer?.cancel();
+    _dateBannerTimer = Timer(const Duration(milliseconds: 1100), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _showDateBanner = false);
+    });
+
+    return false;
+  }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      _selectedMessageIds.clear();
+    });
+  }
+
+  void _toggleMessageSelection(ChatMessageModel message) {
+    if (!message.isMine) {
+      return;
+    }
+
+    setState(() {
+      if (_selectedMessageIds.contains(message.id)) {
+        _selectedMessageIds.remove(message.id);
+      } else {
+        _selectedMessageIds.add(message.id);
+      }
+    });
+  }
+
+  Future<void> _confirmDeleteSelected(ChatThreadController controller) async {
+    if (_selectedMessageIds.isEmpty) {
+      return;
+    }
+
+    final count = _selectedMessageIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text(
+          'Eliminar mensajes',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          count == 1
+              ? 'Se eliminará este mensaje del chat para todos.'
+              : 'Se eliminarán estos $count mensajes del chat para todos.',
+          style: const TextStyle(color: AppColors.light),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    final messageIds = _selectedMessageIds.toList(growable: false);
+    await controller.deleteMessages(messageIds);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedMessageIds.clear();
+      _selectionMode = false;
+    });
   }
 
   @override
@@ -46,32 +206,60 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              conversation?.title ?? 'Chat',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (conversation != null)
-              Text(
-                conversation.isEvent
-                    ? 'Evento local'
-                    : conversation.isGroup
-                        ? '${conversation.memberCount} participantes'
-                        : 'Chat privado',
-                style: const TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
+        title: _selectionMode
+            ? Text(
+                _selectedMessageIds.isEmpty
+                    ? 'Selecciona mensajes'
+                    : '${_selectedMessageIds.length} seleccionados',
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    conversation?.title ?? 'Chat',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (conversation != null)
+                    Text(
+                      conversation.isEvent
+                          ? 'Evento local'
+                          : conversation.isGroup
+                              ? '${conversation.memberCount} participantes'
+                              : 'Chat privado',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
+        actions: [
+          if (_selectionMode)
+            IconButton(
+              tooltip: 'Eliminar seleccionados',
+              icon: state.deleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+              onPressed: _selectedMessageIds.isEmpty || state.deleting
+                  ? null
+                  : () => _confirmDeleteSelected(controller),
+            ),
+          IconButton(
+            tooltip: _selectionMode ? 'Cancelar selección' : 'Editar mensajes',
+            icon: Icon(_selectionMode ? Icons.close : Icons.edit_outlined),
+            onPressed: state.deleting ? null : _toggleSelectionMode,
+          ),
+        ],
       ),
       body: Column(
         children: [
+          if (_selectionMode) const _DeleteModeHint(),
           if (conversation?.event != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -96,6 +284,17 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                 ),
               ),
             ),
+          if (state.error != null && state.messages.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Text(
+                state.error!,
+                style: const TextStyle(
+                  color: AppColors.danger,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           Expanded(
             child: state.loading && state.messages.isEmpty
                 ? const Center(child: CircularProgressIndicator())
@@ -109,34 +308,182 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                           );
                         },
                       )
-                    : RefreshIndicator(
-                        color: AppColors.primary,
-                        backgroundColor: AppColors.surface,
-                        onRefresh: controller.refresh,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                          itemCount: state.messages.length,
-                          itemBuilder: (context, index) {
-                            return ChatMessageBubble(
-                              message: state.messages[index],
-                            );
-                          },
-                        ),
+                    : Stack(
+                        children: [
+                          RefreshIndicator(
+                            color: AppColors.primary,
+                            backgroundColor: AppColors.surface,
+                            onRefresh: controller.refresh,
+                            child: NotificationListener<ScrollNotification>(
+                              onNotification: (notification) =>
+                                  _handleMessageScroll(
+                                notification,
+                                state.messages,
+                              ),
+                              child: ListView.builder(
+                                controller: _scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                                itemCount: state.messages.length,
+                                itemBuilder: (context, index) {
+                                  final message = state.messages[index];
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (_shouldShowDateSeparator(
+                                        state.messages,
+                                        index,
+                                      ))
+                                        _ThreadDateChip(
+                                          label: _dateLabel(
+                                                message.createdAt,
+                                              ) ??
+                                              '',
+                                        ),
+                                      ChatMessageBubble(
+                                        message: message,
+                                        selectionMode: _selectionMode,
+                                        selected: _selectedMessageIds
+                                            .contains(message.id),
+                                        onTap: message.isMine
+                                            ? () => _toggleMessageSelection(
+                                                  message,
+                                                )
+                                            : null,
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          if (_dateBannerLabel != null)
+                            Positioned(
+                              top: 8,
+                              left: 0,
+                              right: 0,
+                              child: IgnorePointer(
+                                child: AnimatedOpacity(
+                                  opacity: _showDateBanner ? 1 : 0,
+                                  duration: const Duration(milliseconds: 180),
+                                  child: Center(
+                                    child: _FloatingDateBanner(
+                                      label: _dateBannerLabel!,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
           ),
-          ChatComposer(
-            controller: _composerController,
-            sending: state.sending,
-            onSend: () async {
-              final body = _composerController.text;
-              await controller.sendMessage(body);
-              if (!mounted) {
-                return;
-              }
-              _composerController.clear();
-            },
+          if (!_selectionMode)
+            ChatComposer(
+              controller: _composerController,
+              sending: state.sending,
+              onSend: () async {
+                final body = _composerController.text;
+                await controller.sendMessage(body);
+                if (!mounted) {
+                  return;
+                }
+                _composerController.clear();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThreadDateChip extends StatelessWidget {
+  const _ThreadDateChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    if (label.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingDateBanner extends StatelessWidget {
+  const _FloatingDateBanner({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeleteModeHint extends StatelessWidget {
+  const _DeleteModeHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: AppColors.surface2,
+      child: const Text(
+        'Toca tus mensajes para seleccionarlos y eliminarlos.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: AppColors.muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
