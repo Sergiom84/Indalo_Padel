@@ -35,7 +35,10 @@ function maxAvatarBytes() {
 }
 
 function getStorageConfig() {
-  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const projectRef = (process.env.SUPABASE_PROJECT_REF || '').trim();
+  const supabaseUrl = projectRef
+    ? `https://${projectRef}.supabase.co`
+    : (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const serviceRoleKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
 
@@ -117,7 +120,10 @@ export function avatarPathFromPublicUrl(rawUrl) {
     return null;
   }
 
-  const configuredUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const projectRef = (process.env.SUPABASE_PROJECT_REF || '').trim();
+  const configuredUrl = projectRef
+    ? `https://${projectRef}.supabase.co`
+    : (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   if (!configuredUrl) {
     return null;
   }

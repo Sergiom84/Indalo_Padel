@@ -110,14 +110,33 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await SecureStorage.getToken();
-          if (token != null && token.isNotEmpty) {
+          final skipAuth = options.extra['skipAuthRefresh'] == true;
+          final token = skipAuth ? null : await SecureStorage.getToken();
+          if (!skipAuth && token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
           handler.next(options);
         },
         onError: (error, handler) async {
           if (_isAuthFailure(error)) {
+            final retried = error.requestOptions.extra['authRetry'] == true;
+            final skipRefresh =
+                error.requestOptions.extra['skipAuthRefresh'] == true;
+            if (!retried && !skipRefresh) {
+              final refreshedToken = await _refreshAccessToken();
+              if (refreshedToken != null) {
+                final requestOptions = error.requestOptions;
+                requestOptions.extra['authRetry'] = true;
+                requestOptions.headers['Authorization'] =
+                    'Bearer $refreshedToken';
+                try {
+                  final response = await _dio.fetch<dynamic>(requestOptions);
+                  handler.resolve(response);
+                  return;
+                } catch (_) {}
+              }
+            }
+
             await SecureStorage.clearAll();
             onUnauthorized?.call();
           }
@@ -188,6 +207,41 @@ class ApiClient {
       message = e.message!;
     }
     return ApiException(message, statusCode: e.response?.statusCode);
+  }
+
+  Future<String?> _refreshAccessToken() async {
+    final refreshToken = await SecureStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return null;
+    }
+
+    try {
+      final response = await _dio.post<dynamic>(
+        '/padel/auth/refresh',
+        data: {'refresh_token': refreshToken},
+        options: Options(extra: {'skipAuthRefresh': true}),
+      );
+
+      final data = response.data;
+      if (data is! Map) {
+        return null;
+      }
+
+      final accessToken =
+          (data['supabase_access_token'] ?? data['token'])?.toString();
+      final newRefreshToken = data['supabase_refresh_token']?.toString();
+      if (accessToken == null || accessToken.isEmpty) {
+        return null;
+      }
+
+      await SecureStorage.saveToken(accessToken);
+      if (newRefreshToken != null && newRefreshToken.isNotEmpty) {
+        await SecureStorage.saveRefreshToken(newRefreshToken);
+      }
+      return accessToken;
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _isAuthFailure(DioException error) {

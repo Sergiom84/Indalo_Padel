@@ -16,6 +16,13 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from '../services/authEmailService.js';
+import {
+  createSupabasePasswordSession,
+  ensureSupabaseAuthUserForAppUser,
+  refreshSupabaseSession,
+  SupabaseAuthError,
+  updateSupabaseAuthPassword,
+} from '../services/supabaseAuthService.js';
 
 const router = express.Router();
 
@@ -36,6 +43,22 @@ function buildJwt(user) {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
   );
+}
+
+function buildAuthPayload({ legacyToken, supabaseSession }) {
+  return {
+    token: legacyToken,
+    auth_provider: supabaseSession ? 'supabase' : 'legacy',
+    ...(supabaseSession
+      ? {
+          supabase_access_token: supabaseSession.access_token,
+          supabase_refresh_token: supabaseSession.refresh_token,
+          supabase_expires_in: supabaseSession.expires_in,
+          supabase_expires_at: supabaseSession.expires_at,
+          supabase_token_type: supabaseSession.token_type,
+        }
+      : {}),
+  };
 }
 
 function buildVerificationResponse(delivery) {
@@ -280,10 +303,16 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     const userResult = await client.query(
       `INSERT INTO app.users (nombre, email, password_hash)
        VALUES ($1, $2, $3)
-       RETURNING id, nombre, email, created_at`,
+       RETURNING id, nombre, email, auth_user_id, created_at`,
       [nombre, email, hashedPassword]
     );
     const user = userResult.rows[0];
+
+    user.auth_user_id = await ensureSupabaseAuthUserForAppUser(
+      client,
+      user,
+      password,
+    );
 
     await client.query(
       `INSERT INTO app.padel_player_profiles (
@@ -365,6 +394,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
          u.id,
          u.nombre,
          u.email,
+         u.auth_user_id,
          u.password_hash,
          u.email_verified_at,
          pp.avatar_url
@@ -391,6 +421,22 @@ router.post('/login', validate(loginSchema), async (req, res) => {
       });
     }
 
+    let supabaseSession = null;
+    try {
+      await ensureSupabaseAuthUserForAppUser(pool, user, password);
+      supabaseSession = await createSupabasePasswordSession({
+        email: user.email,
+        password,
+      });
+    } catch (authError) {
+      console.error('Error preparando sesión Supabase Auth:', authError);
+      if (process.env.REQUIRE_SUPABASE_AUTH === 'true') {
+        return res.status(503).json({
+          error: 'No se pudo preparar la sesión. Inténtalo de nuevo.',
+        });
+      }
+    }
+
     const token = buildJwt(user);
 
     return res.json({
@@ -401,7 +447,10 @@ router.post('/login', validate(loginSchema), async (req, res) => {
         email: user.email,
         avatar_url: user.avatar_url,
       },
-      token,
+      ...buildAuthPayload({
+        legacyToken: token,
+        supabaseSession,
+      }),
     });
   } catch (error) {
     console.error('Error en login:', error);
@@ -410,6 +459,32 @@ router.post('/login', validate(loginSchema), async (req, res) => {
       details:
         process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
+  }
+});
+
+// POST /api/padel/auth/refresh
+router.post('/refresh', async (req, res) => {
+  try {
+    const refreshToken = req.body?.refresh_token?.toString().trim();
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token requerido' });
+    }
+
+    const supabaseSession = await refreshSupabaseSession(refreshToken);
+    return res.json(buildAuthPayload({
+      legacyToken: null,
+      supabaseSession,
+    }));
+  } catch (error) {
+    if (error instanceof SupabaseAuthError) {
+      return res.status(error.status === 503 ? 503 : 401).json({
+        error: 'Sesión caducada. Vuelve a iniciar sesión.',
+        code: 'REFRESH_TOKEN_INVALID',
+      });
+    }
+
+    console.error('Error refrescando sesión:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -743,7 +818,7 @@ router.post('/reset-password', async (req, res) => {
        WHERE password_reset_token_hash = $2
          AND deleted_at IS NULL
          AND (password_reset_expires_at IS NULL OR password_reset_expires_at >= NOW())
-       RETURNING id`,
+       RETURNING id, email, nombre, auth_user_id`,
       [passwordHash, hashOneTimeToken(token)]
     );
 
@@ -760,6 +835,20 @@ router.post('/reset-password', async (req, res) => {
             tone: 'error',
           })
         );
+    }
+
+    const user = result.rows[0];
+    try {
+      const authUserId = await ensureSupabaseAuthUserForAppUser(
+        pool,
+        user,
+        password,
+      );
+      if (authUserId) {
+        await updateSupabaseAuthPassword(authUserId, password);
+      }
+    } catch (authError) {
+      console.error('Error sincronizando contraseña con Supabase Auth:', authError);
     }
 
     return res

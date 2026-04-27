@@ -6,6 +6,7 @@ class SecureStorage {
   );
 
   static const _tokenKey = 'padel_token';
+  static const _refreshTokenKey = 'padel_refresh_token';
   static const _userKey = 'padel_user';
 
   static Future<String?> getToken() async {
@@ -18,6 +19,18 @@ class SecureStorage {
 
   static Future<void> deleteToken() async {
     await _storage.delete(key: _tokenKey);
+  }
+
+  static Future<String?> getRefreshToken() async {
+    return await _storage.read(key: _refreshTokenKey);
+  }
+
+  static Future<void> saveRefreshToken(String token) async {
+    await _storage.write(key: _refreshTokenKey, value: token);
+  }
+
+  static Future<void> deleteRefreshToken() async {
+    await _storage.delete(key: _refreshTokenKey);
   }
 
   static Future<String?> getUser() async {

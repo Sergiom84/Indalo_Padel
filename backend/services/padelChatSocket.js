@@ -1,7 +1,7 @@
-import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 
 import { pool } from '../db.js';
+import { authenticateAccessToken } from './tokenAuthService.js';
 
 let ioInstance = null;
 
@@ -49,29 +49,8 @@ async function authenticateSocket(socket, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = Number(decoded?.userId ?? decoded?.id);
-
-    if (!Number.isInteger(userId) || userId <= 0) {
-      next(new Error('Token inválido'));
-      return;
-    }
-
-    const result = await pool.query(
-      `SELECT id
-       FROM app.users
-       WHERE id = $1
-         AND deleted_at IS NULL
-       LIMIT 1`,
-      [userId],
-    );
-
-    if (result.rows.length === 0) {
-      next(new Error('Usuario no encontrado'));
-      return;
-    }
-
-    socket.data.userId = userId;
+    const user = await authenticateAccessToken(token);
+    socket.data.userId = user.userId;
     next();
   } catch (_error) {
     next(new Error('Token inválido'));

@@ -1,30 +1,29 @@
-import jwt from 'jsonwebtoken';
+import {
+  authenticateAccessToken,
+  AuthTokenError,
+} from '../services/tokenAuthService.js';
 
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ error: 'Token de acceso requerido' });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      const expired = err.name === 'TokenExpiredError';
-      return res.status(401).json({
-        error: expired ? 'Token expirado' : 'Token inválido',
-        code: expired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN',
+  try {
+    req.user = await authenticateAccessToken(token);
+    return next();
+  } catch (error) {
+    if (error instanceof AuthTokenError) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code,
       });
     }
 
-    req.user = {
-      ...decoded,
-      id: decoded?.userId ?? decoded?.id,
-      userId: decoded?.userId ?? decoded?.id,
-    };
-
-    next();
-  });
+    console.error('Error autenticando token:', error);
+    return res.status(503).json({
+      error: 'No se pudo validar la sesión',
+      code: 'AUTH_UNAVAILABLE',
+    });
+  }
 };
 
 export default authenticateToken;

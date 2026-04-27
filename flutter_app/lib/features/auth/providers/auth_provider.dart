@@ -150,9 +150,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         'email': email,
         'password': password,
       });
-      final token = data['token'] as String;
+      final token = (data['supabase_access_token'] ?? data['token']) as String;
+      final refreshToken = data['supabase_refresh_token'] as String?;
       final user = UserModel.fromJson(data['user'] as Map<String, dynamic>);
       await SecureStorage.saveToken(token);
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await SecureStorage.saveRefreshToken(refreshToken);
+      } else {
+        await SecureStorage.deleteRefreshToken();
+      }
       await SecureStorage.saveUser(jsonEncode(user.toJson()));
       state = AuthState(user: user);
       _postAuthBootstrap();

@@ -20,6 +20,11 @@ import {
   isAvatarDataUrl,
   uploadAvatarDataUrl,
 } from '../services/avatarStorageService.js';
+import {
+  deleteSupabaseAuthUser,
+  ensureSupabaseAuthUserForAppUser,
+  updateSupabaseAuthPassword,
+} from '../services/supabaseAuthService.js';
 
 const router = express.Router();
 
@@ -423,13 +428,23 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
          SET password_hash = $1,
              updated_at = NOW()
          WHERE id = $2
-         RETURNING id`,
+         RETURNING id, email, nombre, auth_user_id`,
         [passwordHash, req.user.userId]
       );
 
       if (userResult.rows.length === 0) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      const user = userResult.rows[0];
+      const authUserId = await ensureSupabaseAuthUserForAppUser(
+        client,
+        user,
+        new_password,
+      );
+      if (authUserId) {
+        await updateSupabaseAuthPassword(authUserId, new_password);
       }
     }
 
@@ -521,6 +536,7 @@ router.delete(
       const { reason, other_reason } = req.body;
       const userId = req.user.userId;
       let avatarUrlToDelete = null;
+      let authUserIdToDelete = null;
       const deletedPasswordHash = await bcrypt.hash(
         `deleted::${userId}::${Date.now()}`,
         10
@@ -529,7 +545,7 @@ router.delete(
       await client.query('BEGIN');
 
       const userResult = await client.query(
-        `SELECT id, email
+        `SELECT id, email, auth_user_id
          FROM app.users
          WHERE id = $1
            AND deleted_at IS NULL
@@ -541,6 +557,7 @@ router.delete(
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Perfil no encontrado' });
       }
+      authUserIdToDelete = userResult.rows[0].auth_user_id || null;
 
       await client.query(
         'DELETE FROM app.padel_favorites WHERE user_id = $1 OR favorite_id = $1',
@@ -604,6 +621,11 @@ router.delete(
       if (avatarUrlToDelete) {
         await deleteAvatarByPublicUrl(avatarUrlToDelete).catch((deleteError) => {
           console.warn('No se pudo borrar avatar tras baja:', deleteError.message);
+        });
+      }
+      if (authUserIdToDelete) {
+        await deleteSupabaseAuthUser(authUserIdToDelete).catch((deleteError) => {
+          console.warn('No se pudo borrar usuario de Supabase Auth:', deleteError.message);
         });
       }
       return res.json({ message: 'Perfil eliminado correctamente' });
