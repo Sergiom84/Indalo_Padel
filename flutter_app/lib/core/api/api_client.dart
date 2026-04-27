@@ -117,7 +117,7 @@ class ApiClient {
           handler.next(options);
         },
         onError: (error, handler) async {
-          if (error.response?.statusCode == 401) {
+          if (_isAuthFailure(error)) {
             await SecureStorage.clearAll();
             onUnauthorized?.call();
           }
@@ -188,6 +188,32 @@ class ApiClient {
       message = e.message!;
     }
     return ApiException(message, statusCode: e.response?.statusCode);
+  }
+
+  bool _isAuthFailure(DioException error) {
+    final status = error.response?.statusCode;
+    if (status == 401) {
+      return true;
+    }
+
+    if (status != 403) {
+      return false;
+    }
+
+    final data = error.response?.data;
+    if (data is! Map) {
+      return false;
+    }
+
+    final code = data['code']?.toString();
+    if (code == 'TOKEN_EXPIRED' || code == 'INVALID_TOKEN') {
+      return true;
+    }
+
+    final message = data['error']?.toString().toLowerCase();
+    return message == 'token invalido' ||
+        message == 'token inválido' ||
+        message == 'token expirado';
   }
 }
 
