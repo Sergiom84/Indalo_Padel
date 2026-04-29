@@ -9,6 +9,7 @@ class ChatComposer extends StatelessWidget {
     required this.onSend,
     required this.onAttachPressed,
     required this.onVoicePressed,
+    this.onVoiceCancelPressed,
     this.focusNode,
     this.sending = false,
     this.recording = false,
@@ -19,6 +20,7 @@ class ChatComposer extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onAttachPressed;
   final VoidCallback onVoicePressed;
+  final VoidCallback? onVoiceCancelPressed;
   final FocusNode? focusNode;
   final bool sending;
   final bool recording;
@@ -100,49 +102,93 @@ class ChatComposer extends StatelessWidget {
                     ),
             ),
             const SizedBox(width: 8),
-            SizedBox(
-              width: 44,
-              height: 48,
-              child: IconButton(
-                tooltip:
-                    recording ? 'Enviar nota de voz' : 'Grabar nota de voz',
-                onPressed: sending ? null : onVoicePressed,
-                icon: Icon(recording ? Icons.stop_circle : Icons.mic_none),
-                color: recording ? AppColors.danger : AppColors.primary,
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.surface2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+            if (recording) ...[
+              SizedBox(
+                width: 44,
+                height: 48,
+                child: IconButton(
+                  tooltip: 'Eliminar nota de voz',
+                  onPressed: sending ? null : onVoiceCancelPressed,
+                  icon: const Icon(Icons.delete_outline),
+                  color: AppColors.danger,
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.surface2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: FilledButton(
-                onPressed: sending || recording ? null : onSend,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: AppColors.dark,
-                  padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: FilledButton(
+                  onPressed: sending ? null : onVoicePressed,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.dark,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.dark,
+                          ),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
+                ),
+              ),
+            ] else ...[
+              SizedBox(
+                width: 44,
+                height: 48,
+                child: IconButton(
+                  tooltip: 'Grabar nota de voz',
+                  onPressed: sending ? null : onVoicePressed,
+                  icon: const Icon(Icons.mic_none),
+                  color: AppColors.primary,
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.surface2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
-                child: sending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.dark,
-                        ),
-                      )
-                    : const Icon(Icons.send_rounded),
               ),
-            ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: FilledButton(
+                  onPressed: sending ? null : onSend,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.dark,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.dark,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded),
+                ),
+              ),
+            ],
           ],
         ),
       ),

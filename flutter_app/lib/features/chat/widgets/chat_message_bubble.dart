@@ -15,12 +15,14 @@ class ChatMessageBubble extends StatelessWidget {
     required this.message,
     this.selectionMode = false,
     this.selected = false,
+    this.readByOthers = false,
     this.onTap,
   });
 
   final ChatMessageModel message;
   final bool selectionMode;
   final bool selected;
+  final bool readByOthers;
   final VoidCallback? onTap;
 
   @override
@@ -32,6 +34,8 @@ class ChatMessageBubble extends StatelessWidget {
     final timeLabel = message.createdAt == null
         ? ''
         : DateFormat('HH:mm', 'es_ES').format(message.createdAt!.toLocal());
+    final metaColor =
+        mine ? AppColors.dark.withValues(alpha: 0.75) : AppColors.muted;
 
     final bubbleContent = AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -96,17 +100,29 @@ class ChatMessageBubble extends StatelessWidget {
               ),
             ),
           ],
-          if (timeLabel.isNotEmpty) ...[
+          if (timeLabel.isNotEmpty || (mine && readByOthers)) ...[
             const SizedBox(height: 6),
-            Text(
-              timeLabel,
-              style: TextStyle(
-                color: mine
-                    ? AppColors.dark.withValues(alpha: 0.75)
-                    : AppColors.muted,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (timeLabel.isNotEmpty)
+                  Text(
+                    timeLabel,
+                    style: TextStyle(
+                      color: metaColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                if (mine && readByOthers) ...[
+                  if (timeLabel.isNotEmpty) const SizedBox(width: 4),
+                  const Icon(
+                    Icons.done_all_rounded,
+                    size: 14,
+                    color: AppColors.info,
+                  ),
+                ],
+              ],
             ),
           ],
         ],

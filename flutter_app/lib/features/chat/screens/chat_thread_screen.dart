@@ -122,6 +122,32 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     return 'Chat privado';
   }
 
+  bool _isMessageReadByOthers(
+    ChatConversationModel? conversation,
+    ChatMessageModel message,
+  ) {
+    if (!message.isMine || conversation == null) {
+      return false;
+    }
+
+    final otherParticipants = conversation.participants
+        .where((participant) => !participant.isSelf)
+        .toList(growable: false);
+    if (otherParticipants.isEmpty) {
+      return false;
+    }
+
+    bool hasRead(ChatParticipantModel participant) {
+      final lastReadMessageId = participant.lastReadMessageId;
+      return lastReadMessageId != null && lastReadMessageId >= message.id;
+    }
+
+    if (conversation.isDirect) {
+      return otherParticipants.any(hasRead);
+    }
+    return otherParticipants.every(hasRead);
+  }
+
   bool _shouldShowDateSeparator(
     List<ChatMessageModel> messages,
     int index,
@@ -385,7 +411,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
 
   Future<void> _toggleVoiceRecording(ChatThreadController controller) async {
     if (_recordingVoice) {
-      await _stopVoiceRecording(controller);
+      await _sendVoiceRecording(controller);
       return;
     }
 
@@ -425,7 +451,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
         if (_recordingSeconds + 1 >= chatVoiceMaxSeconds) {
           setState(() => _recordingSeconds = chatVoiceMaxSeconds);
           timer.cancel();
-          unawaited(_stopVoiceRecording(controller));
+          unawaited(_sendVoiceRecording(controller));
           return;
         }
 
@@ -438,7 +464,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     }
   }
 
-  Future<void> _stopVoiceRecording(ChatThreadController controller) async {
+  Future<void> _sendVoiceRecording(ChatThreadController controller) async {
     if (_voiceBusy) {
       return;
     }
@@ -471,6 +497,30 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
           _recordingSeconds = 0;
         });
       }
+      _showSnack(error.toString());
+    } finally {
+      _voiceBusy = false;
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    if (_voiceBusy || !_recordingVoice) {
+      return;
+    }
+
+    _voiceBusy = true;
+    _recordingTimer?.cancel();
+    try {
+      await _voiceRecorder.cancel();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _recordingVoice = false;
+        _recordingSeconds = 0;
+      });
+      _showSnack('Nota de voz eliminada.');
+    } catch (error) {
       _showSnack(error.toString());
     } finally {
       _voiceBusy = false;
@@ -640,6 +690,10 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                                         ),
                                       ChatMessageBubble(
                                         message: message,
+                                        readByOthers: _isMessageReadByOthers(
+                                          conversation,
+                                          message,
+                                        ),
                                         selectionMode: _selectionMode,
                                         selected: _selectedMessageIds
                                             .contains(message.id),
@@ -684,6 +738,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
               recordingSeconds: _recordingSeconds,
               onAttachPressed: () => _showImageSourceSheet(controller),
               onVoicePressed: () => _toggleVoiceRecording(controller),
+              onVoiceCancelPressed: _cancelVoiceRecording,
               onSend: () async {
                 final body = _composerController.text;
                 await controller.sendMessage(body);

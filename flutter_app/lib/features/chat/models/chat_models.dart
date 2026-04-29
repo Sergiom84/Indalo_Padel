@@ -50,6 +50,24 @@ class ChatParticipantModel extends ChatUserSummaryModel {
 
   bool get isCurrentUser => isSelf;
 
+  ChatParticipantModel copyWith({
+    int? lastReadMessageId,
+    DateTime? lastReadAt,
+  }) {
+    return ChatParticipantModel(
+      userId: userId,
+      displayName: displayName,
+      nombre: nombre,
+      avatarUrl: avatarUrl,
+      role: role,
+      joinedAt: joinedAt,
+      lastReadMessageId: lastReadMessageId ?? this.lastReadMessageId,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
+      isSelf: isSelf,
+      isOnline: isOnline,
+    );
+  }
+
   factory ChatParticipantModel.fromJson(Map<String, dynamic> json) {
     final summary = ChatUserSummaryModel.fromJson(json);
 
@@ -412,6 +430,7 @@ class ChatConversationModel {
     int? unreadCount,
     int? lastReadMessageId,
     DateTime? lastReadAt,
+    List<ChatParticipantModel>? participants,
     ChatMessageModel? lastMessage,
     bool clearLastMessage = false,
   }) {
@@ -426,7 +445,7 @@ class ChatConversationModel {
       lastReadMessageId: lastReadMessageId ?? this.lastReadMessageId,
       lastReadAt: lastReadAt ?? this.lastReadAt,
       memberCount: memberCount,
-      participants: participants,
+      participants: participants ?? this.participants,
       directPeer: directPeer,
       event: event,
       lastMessage: clearLastMessage ? null : (lastMessage ?? this.lastMessage),

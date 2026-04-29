@@ -706,10 +706,26 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
       return;
     }
 
+    final readUserIsSelf = conversation.participants.any(
+      (participant) => participant.userId == event.userId && participant.isSelf,
+    );
+    final participants = conversation.participants
+        .map(
+          (participant) => participant.userId == event.userId
+              ? participant.copyWith(
+                  lastReadMessageId: event.messageId,
+                  lastReadAt: event.readAt,
+                )
+              : participant,
+        )
+        .toList(growable: false);
+
     state = state.copyWith(
       conversation: conversation.copyWith(
-        lastReadMessageId: event.messageId,
-        lastReadAt: event.readAt,
+        lastReadMessageId:
+            readUserIsSelf ? event.messageId : conversation.lastReadMessageId,
+        lastReadAt: readUserIsSelf ? event.readAt : conversation.lastReadAt,
+        participants: participants,
       ),
     );
     _ref.invalidate(chatConversationsProvider);
