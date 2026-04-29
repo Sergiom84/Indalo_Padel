@@ -615,6 +615,7 @@ class _AppShellState extends ConsumerState<AppShell>
       bottomNavigationBar: AppBottomNav(
         currentIndex: widget.navigationShell.currentIndex,
         badgeVisibility: {
+          AppTab.calendar: alerts.hasCalendarBadge,
           AppTab.community: alerts.hasCommunityBadge,
           AppTab.players: alerts.hasPlayersBadge || chatUnreadCount > 0,
           AppTab.profile: alerts.hasProfileBadge,

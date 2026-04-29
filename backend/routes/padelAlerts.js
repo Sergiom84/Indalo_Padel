@@ -173,9 +173,104 @@ async function loadPlayerAlerts(client, userId) {
 
   return result.rows.map((row) => ({
     unique_key: `player-request:${row.id}:${row.requested_at || ''}`,
+    kind: 'network_request',
     title: 'Nueva invitacion en Jugadores',
     body: `${displayNameFromRow(row)} quiere jugar contigo.`,
   }));
+}
+
+async function loadAcceptedPlayerAlerts(client, userId) {
+  const result = await client.query(
+    `
+      SELECT
+        pc.id,
+        pc.responded_at,
+        COALESCE(NULLIF(pp.display_name, ''), u.nombre, 'Jugador') AS display_name
+      FROM app.padel_player_connections pc
+      JOIN app.users u
+        ON u.id = CASE
+          WHEN pc.user_a_id = $1 THEN pc.user_b_id
+          ELSE pc.user_a_id
+        END
+       AND u.deleted_at IS NULL
+      LEFT JOIN app.padel_player_profiles pp ON pp.user_id = u.id
+      WHERE (pc.user_a_id = $1 OR pc.user_b_id = $1)
+        AND pc.status = 'accepted'
+        AND pc.requested_by = $1
+        AND pc.responded_at IS NOT NULL
+        AND pc.responded_at >= NOW() - INTERVAL '14 days'
+      ORDER BY pc.responded_at DESC
+      LIMIT 20
+    `,
+    [userId],
+  );
+
+  return result.rows.map((row) => ({
+    unique_key: `player-request-accepted:${row.id}:${row.responded_at || ''}`,
+    kind: 'network_accepted',
+    title: 'Solicitud aceptada',
+    body: `${displayNameFromRow(row)} ha aceptado tu solicitud de amistad.`,
+  }));
+}
+
+async function loadBookingInvitationAlerts(client, userId) {
+  const now = nowInAppZone();
+  const today = now.toISODate();
+  const currentTime = now.toFormat('HH:mm:ss');
+
+  const result = await client.query(
+    `
+      SELECT
+        bp.id,
+        bp.created_at,
+        bp.updated_at,
+        b.id AS booking_id,
+        b.booking_date,
+        b.start_time,
+        b.end_time,
+        c.name AS court_name,
+        v.name AS venue_name,
+        COALESCE(NULLIF(organizer_profile.display_name, ''), organizer.nombre, 'Organizador') AS organizer_name
+      FROM app.padel_booking_players bp
+      JOIN app.padel_bookings b ON b.id = bp.booking_id
+      JOIN app.padel_courts c ON c.id = b.court_id
+      JOIN app.padel_venues v ON v.id = c.venue_id
+      JOIN app.users organizer
+        ON organizer.id = b.booked_by
+       AND organizer.deleted_at IS NULL
+      LEFT JOIN app.padel_player_profiles organizer_profile
+        ON organizer_profile.user_id = b.booked_by
+      WHERE bp.user_id = $1
+        AND bp.role = 'guest'
+        AND bp.invite_status = 'pendiente'
+        AND b.status <> 'cancelada'
+        AND (
+          b.booking_date > $2::date
+          OR (b.booking_date = $2::date AND b.end_time >= $3::time)
+        )
+      ORDER BY b.booking_date ASC, b.start_time ASC, bp.id ASC
+      LIMIT 20
+    `,
+    [userId, today, currentTime],
+  );
+
+  return result.rows.map((row) => {
+    const date = formatDate(row.booking_date);
+    const time = formatTime(row.start_time);
+    const place = [row.venue_name, row.court_name].filter(Boolean).join(' - ');
+    const details = [place, date && time ? `${date} a las ${time}` : date || time]
+      .filter(Boolean)
+      .join(' - ');
+
+    return {
+      unique_key: `booking-invitation:${row.id}:${row.updated_at || row.created_at || ''}`,
+      kind: 'booking_invitation',
+      title: 'Invitacion a reserva',
+      body: details
+        ? `${row.organizer_name} te ha invitado a una reserva. ${details}.`
+        : `${row.organizer_name} te ha invitado a una reserva.`,
+    };
+  });
 }
 
 function buildRatingContext(row) {
@@ -464,6 +559,9 @@ router.get('/', authenticateToken, async (req, res) => {
     const client = await pool.connect();
     try {
       const playerInvitationAlerts = await loadPlayerAlerts(client, userId);
+      const acceptedPlayerAlerts = await loadAcceptedPlayerAlerts(client, userId);
+      const bookingInvitationAlerts =
+        await loadBookingInvitationAlerts(client, userId);
       const ratingAlerts = await loadRatingAlerts(client, userId);
       const notificationAlerts =
         await loadCommunityNotificationAlerts(client, userId);
@@ -476,7 +574,11 @@ router.get('/', authenticateToken, async (req, res) => {
       res.json({
         community_planner_alerts: notificationAlerts.planner,
         community_invitation_alerts: communityInvitationAlerts,
-        player_invitation_alerts: playerInvitationAlerts,
+        booking_invitation_alerts: bookingInvitationAlerts,
+        player_invitation_alerts: [
+          ...playerInvitationAlerts,
+          ...acceptedPlayerAlerts,
+        ],
         rating_alerts: ratingAlerts,
         pending_result_plans: pendingResultPlans,
         updated_at: nowInAppZone().toISO(),

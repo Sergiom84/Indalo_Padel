@@ -2,7 +2,7 @@ import express from 'express';
 
 import { pool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { listBookingsForUser } from '../services/padelBookingService.js';
+import { listMyCalendar } from '../services/padelBookingService.js';
 import { getCommunityDashboard } from '../services/padelCommunityService.js';
 
 const router = express.Router();
@@ -11,7 +11,13 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const [venuesResult, matchesResult, bookings, community] = await Promise.all([
+    const [
+      venuesResult,
+      matchesResult,
+      matchCountResult,
+      calendar,
+      community,
+    ] = await Promise.all([
       pool.query(
         `SELECT id, name, location, address, phone, opening_time, closing_time,
                 COALESCE(is_bookable, true) AS is_bookable
@@ -23,7 +29,7 @@ router.get('/', authenticateToken, async (req, res) => {
          LIMIT 3`,
       ),
       pool.query(
-        `SELECT m.*,
+        `SELECT DISTINCT m.*,
                 m.current_players AS player_count,
                 v.name AS venue_name,
                 v.location AS venue_location,
@@ -31,13 +37,38 @@ router.get('/', authenticateToken, async (req, res) => {
          FROM app.padel_matches m
          LEFT JOIN app.padel_venues v ON m.venue_id = v.id
          JOIN app.users u ON m.created_by = u.id
-         WHERE m.status IN ('buscando', 'completo')
+         LEFT JOIN app.padel_match_players mp
+           ON mp.match_id = m.id
+          AND mp.user_id = $1
+          AND mp.status <> 'abandonado'
+         WHERE (m.created_by = $1 OR mp.user_id = $1)
+           AND m.status IN ('buscando', 'completo', 'en_juego')
          ORDER BY m.match_date ASC, m.start_time ASC
          LIMIT 12`,
+        [userId],
       ),
-      listBookingsForUser(userId),
+      pool.query(
+        `SELECT COUNT(DISTINCT m.id)::int AS total
+         FROM app.padel_matches m
+         LEFT JOIN app.padel_match_players mp
+           ON mp.match_id = m.id
+          AND mp.user_id = $1
+          AND mp.status <> 'abandonado'
+         WHERE (m.created_by = $1 OR mp.user_id = $1)
+           AND m.status IN ('buscando', 'completo', 'en_juego')`,
+        [userId],
+      ),
+      listMyCalendar(userId),
       getCommunityDashboard(userId),
     ]);
+    const bookings = {
+      upcoming: Array.isArray(calendar?.agenda?.upcoming)
+        ? calendar.agenda.upcoming
+        : [],
+      past: Array.isArray(calendar?.agenda?.history)
+        ? calendar.agenda.history
+        : [],
+    };
 
     res.json({
       venues: venuesResult.rows,
@@ -46,10 +77,8 @@ router.get('/', authenticateToken, async (req, res) => {
       community,
       metrics: {
         venues: venuesResult.rows.length,
-        upcoming_bookings: Array.isArray(bookings?.upcoming)
-          ? bookings.upcoming.length
-          : 0,
-        open_matches: matchesResult.rows.length,
+        upcoming_bookings: bookings.upcoming.length,
+        open_matches: Number(matchCountResult.rows[0]?.total) || 0,
         community_active_plans: Array.isArray(community?.active_plans)
           ? community.active_plans.length
           : 0,

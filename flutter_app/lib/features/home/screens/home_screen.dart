@@ -10,6 +10,9 @@ import '../../../shared/widgets/padel_badge.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/providers/chat_provider.dart';
+import '../../community/models/community_model.dart';
+import '../../notifications/models/app_alerts_model.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
 import '../../players/models/player_model.dart';
 import '../../players/providers/player_provider.dart';
 import '../../profile/providers/current_profile_provider.dart';
@@ -28,6 +31,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<dynamic> _venues = [];
   Map<String, dynamic> _bookings = {'upcoming': [], 'past': []};
   List<dynamic> _matches = [];
+  Map<String, dynamic> _metrics = {};
   List<Map<String, dynamic>> _confirmedCommunityPlans = [];
 
   @override
@@ -65,6 +69,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _venues = _asList(json?['venues']);
         _bookings = bookings;
         _matches = _asList(json?['matches']);
+        _metrics = _asMap(json?['metrics']) ?? const {};
         _confirmedCommunityPlans = community == null
             ? const []
             : _buildCommunityBookingsFromDashboard(community);
@@ -242,12 +247,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return null;
   }
 
-  List<dynamic> get _openMatches {
+  List<dynamic> get _allOpenMatches {
     final matches = _matches
         .whereType<Map>()
         .map((match) => Map<String, dynamic>.from(match))
         .where((match) =>
-            match['status'] == 'buscando' || match['status'] == 'abierto')
+            match['status'] == 'buscando' ||
+            match['status'] == 'abierto' ||
+            match['status'] == 'completo' ||
+            match['status'] == 'en_juego')
         .toList();
 
     matches.sort((left, right) {
@@ -265,10 +273,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return leftId.compareTo(rightId);
     });
 
-    return matches.take(3).toList();
+    return matches;
   }
 
-  List<dynamic> get _upcomingBookings {
+  List<dynamic> get _allUpcomingBookings {
     final bookings = _asList(_bookings['upcoming'])
         .whereType<Map>()
         .map((booking) => Map<String, dynamic>.from(booking))
@@ -294,7 +302,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return leftId.compareTo(rightId);
     });
 
-    return all.take(3).toList();
+    return all;
+  }
+
+  List<dynamic> get _upcomingBookings => _allUpcomingBookings.take(3).toList();
+
+  int _dashboardMetric(String key, int fallback) =>
+      _asInt(_metrics[key]) ?? fallback;
+
+  int _notificationCount(
+    AppAlertsState alerts, {
+    required int fallbackRequests,
+  }) {
+    final count = alerts.allAlerts.length + alerts.pendingResultPlans.length;
+    if (count > 0) {
+      return count;
+    }
+    return fallbackRequests;
   }
 
   @override
@@ -302,6 +326,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final user = ref.watch(authProvider).user;
     final profile = ref.watch(currentProfileProvider).valueOrNull;
     final networkAsync = ref.watch(networkProvider);
+    final alerts = ref.watch(appAlertsProvider);
     final incomingRequests =
         networkAsync.valueOrNull?.incomingRequests ?? const <PlayerModel>[];
     final chatUnreadCount = ref.watch(chatUnreadCountProvider);
@@ -314,7 +339,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final loadingSummary =
         _loadingVenues || _loadingBookings || _loadingMatches;
     final upcomingBookings = _upcomingBookings;
-    final openMatches = _openMatches;
+    final upcomingBookingsCount = _dashboardMetric(
+      'upcoming_bookings',
+      _allUpcomingBookings.length,
+    );
+    final openMatchesCount = _dashboardMetric(
+      'open_matches',
+      _allOpenMatches.length,
+    );
+    final notificationsCount =
+        _notificationCount(alerts, fallbackRequests: incomingRequests.length);
+    final notificationsLoading = (alerts.loading && notificationsCount == 0) ||
+        (networkAsync.isLoading &&
+            incomingRequests.isEmpty &&
+            alerts.playerInvitationAlerts.any(
+              (alert) => alert.kind == 'network_request',
+            ));
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -356,12 +396,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                   _NotificationBellButton(
-                    pendingCount: incomingRequests.length,
-                    loading: networkAsync.isLoading && incomingRequests.isEmpty,
+                    pendingCount: notificationsCount,
+                    loading: notificationsLoading,
                     onTap: () => _openNotificationsDialog(
-                      incomingRequests,
-                      loading:
-                          networkAsync.isLoading && incomingRequests.isEmpty,
+                      initialRequests: incomingRequests,
+                      alerts: alerts,
+                      loading: notificationsLoading,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -423,15 +463,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             label: 'Reservas',
                             value: _loadingBookings
                                 ? '—'
-                                : '${upcomingBookings.length}',
+                                : '$upcomingBookingsCount',
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _MetricTile(
                             label: 'Partidos',
-                            value:
-                                _loadingMatches ? '—' : '${openMatches.length}',
+                            value: _loadingMatches ? '—' : '$openMatchesCount',
                           ),
                         ),
                       ],
@@ -483,8 +522,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _openNotificationsDialog(List<PlayerModel> initialRequests,
-      {required bool loading}) async {
+  Future<void> _openNotificationsDialog({
+    required List<PlayerModel> initialRequests,
+    required AppAlertsState alerts,
+    required bool loading,
+  }) async {
+    final rootContext = context;
+
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -495,6 +539,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void closeAndGo(String location) {
+              navigator.pop();
+              if (mounted) {
+                rootContext.go(location);
+              }
+            }
+
             Future<void> handleAction(PlayerModel player, String action) async {
               if (busyIds.contains(player.userId)) {
                 return;
@@ -522,10 +573,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ? '${player.displayName} ya forma parte de tu red.'
                           : 'Has rechazado la solicitud de ${player.displayName}.'),
                 );
-
-                if (requests.isEmpty && navigator.canPop()) {
-                  navigator.pop();
-                }
               } catch (error) {
                 if (!mounted) {
                   return;
@@ -534,6 +581,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _showMessage(error.toString(), isError: true);
               }
             }
+
+            final playerAlerts = alerts.playerInvitationAlerts
+                .where((alert) => alert.kind != 'network_request')
+                .toList(growable: false);
+            final hasNotifications = requests.isNotEmpty ||
+                alerts.bookingInvitationAlerts.isNotEmpty ||
+                alerts.communityInvitationAlerts.isNotEmpty ||
+                alerts.communityPlannerAlerts.isNotEmpty ||
+                alerts.pendingResultPlans.isNotEmpty ||
+                playerAlerts.isNotEmpty ||
+                alerts.profileRatingAlerts.isNotEmpty;
 
             return AlertDialog(
               backgroundColor: AppColors.surface,
@@ -547,7 +605,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Solicitudes de red',
+                      'Notificaciones',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -563,7 +621,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               content: SizedBox(
                 width: 420,
-                child: loading
+                child: loading && !hasNotifications
                     ? const Padding(
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Column(
@@ -572,36 +630,133 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             LoadingSpinner(),
                             SizedBox(height: 12),
                             Text(
-                              'Cargando solicitudes...',
+                              'Cargando notificaciones...',
                               style: TextStyle(color: AppColors.muted),
                             ),
                           ],
                         ),
                       )
-                    : requests.isEmpty
+                    : !hasNotifications
                         ? const _EmptyState(
                             icon: Icons.notifications_none_outlined,
-                            message: 'No tienes solicitudes pendientes.',
+                            message: 'No tienes notificaciones pendientes.',
                           )
                         : SingleChildScrollView(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              children: requests
-                                  .map(
-                                    (player) => Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 12),
-                                      child: _NetworkRequestDialogCard(
-                                        player: player,
-                                        busy: busyIds.contains(player.userId),
-                                        onAccept: () =>
-                                            handleAction(player, 'accepted'),
-                                        onReject: () =>
-                                            handleAction(player, 'rejected'),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(growable: false),
+                              children: [
+                                if (requests.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Solicitudes de amistad',
+                                    children: requests
+                                        .map(
+                                          (player) => _NetworkRequestDialogCard(
+                                            player: player,
+                                            busy:
+                                                busyIds.contains(player.userId),
+                                            onAccept: () => handleAction(
+                                              player,
+                                              'accepted',
+                                            ),
+                                            onReject: () => handleAction(
+                                              player,
+                                              'rejected',
+                                            ),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (alerts.bookingInvitationAlerts.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Reservas',
+                                    children: alerts.bookingInvitationAlerts
+                                        .map(
+                                          (alert) => _AlertDialogCard(
+                                            alert: alert,
+                                            icon: Icons.calendar_today_outlined,
+                                            actionLabel: 'Ver calendario',
+                                            onAction: () =>
+                                                closeAndGo('/calendar'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (alerts.communityInvitationAlerts.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Convocatorias',
+                                    children: alerts.communityInvitationAlerts
+                                        .map(
+                                          (alert) => _AlertDialogCard(
+                                            alert: alert,
+                                            icon: Icons.sports_tennis_outlined,
+                                            actionLabel: 'Ver comunidad',
+                                            onAction: () =>
+                                                closeAndGo('/community'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (alerts.communityPlannerAlerts.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Partidos organizados',
+                                    children: alerts.communityPlannerAlerts
+                                        .map(
+                                          (alert) => _AlertDialogCard(
+                                            alert: alert,
+                                            icon: Icons.event_available,
+                                            actionLabel: 'Ver comunidad',
+                                            onAction: () =>
+                                                closeAndGo('/community'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (alerts.pendingResultPlans.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Resultados pendientes',
+                                    children: alerts.pendingResultPlans
+                                        .map(
+                                          (plan) => _AlertDialogCard(
+                                            alert: _alertFromPendingPlan(plan),
+                                            icon: Icons.fact_check_outlined,
+                                            actionLabel: 'Ver comunidad',
+                                            onAction: () =>
+                                                closeAndGo('/community'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (playerAlerts.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Jugadores',
+                                    children: playerAlerts
+                                        .map(
+                                          (alert) => _AlertDialogCard(
+                                            alert: alert,
+                                            icon: Icons.group_outlined,
+                                            actionLabel: 'Ver jugadores',
+                                            onAction: () =>
+                                                closeAndGo('/players'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                if (alerts.profileRatingAlerts.isNotEmpty)
+                                  _NotificationDialogSection(
+                                    title: 'Valoraciones',
+                                    children: alerts.profileRatingAlerts
+                                        .map(
+                                          (alert) => _AlertDialogCard(
+                                            alert: alert,
+                                            icon: Icons.star_border,
+                                            actionLabel: 'Ver perfil',
+                                            onAction: () =>
+                                                closeAndGo('/profile'),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                              ],
                             ),
                           ),
               ),
@@ -610,6 +765,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       },
     );
+  }
+
+  AppAlertItem _alertFromPendingPlan(CommunityPlanModel plan) {
+    final details = [
+      plan.venue?.name,
+      _formatPlanDateTime(plan.scheduledDate, plan.scheduledTime),
+    ].whereType<String>().where((item) => item.isNotEmpty).join(' · ');
+
+    return AppAlertItem(
+      uniqueKey: 'pending-result:${plan.id}',
+      scope: AppAlertScope.communityPlanner,
+      kind: 'pending_result',
+      title: 'Resultado pendiente',
+      body: details.isEmpty
+          ? 'Tienes un partido pendiente de resultado.'
+          : 'Tienes un partido pendiente de resultado. $details.',
+    );
+  }
+
+  String? _formatPlanDateTime(String date, String time) {
+    final cleanDate = date.trim();
+    final cleanTime = time.trim();
+    if (cleanDate.isEmpty && cleanTime.isEmpty) {
+      return null;
+    }
+
+    final shortTime =
+        cleanTime.length >= 5 ? cleanTime.substring(0, 5) : cleanTime;
+    if (cleanDate.isEmpty) {
+      return shortTime;
+    }
+    if (shortTime.isEmpty) {
+      return cleanDate;
+    }
+    return '$cleanDate · $shortTime';
   }
 
   Future<String?> _respondToNetworkRequest(
@@ -999,6 +1189,123 @@ class _EmptyState extends StatelessWidget {
             message,
             style: const TextStyle(color: AppColors.muted),
             textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationDialogSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _NotificationDialogSection({
+    required this.title,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          ...children.map(
+            (child) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlertDialogCard extends StatelessWidget {
+  final AppAlertItem alert;
+  final IconData icon;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _AlertDialogCard({
+    required this.alert,
+    required this.icon,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 21),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  alert.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (alert.body.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    alert.body,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: onAction,
+                    child: Text(actionLabel),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import '../../community/models/community_model.dart';
 
 enum AppAlertScope {
+  bookings,
   communityPlanner,
   communityInvitations,
   players,
@@ -10,12 +11,14 @@ enum AppAlertScope {
 class AppAlertItem {
   final String uniqueKey;
   final AppAlertScope scope;
+  final String kind;
   final String title;
   final String body;
 
   const AppAlertItem({
     required this.uniqueKey,
     required this.scope,
+    this.kind = '',
     required this.title,
     required this.body,
   });
@@ -27,6 +30,7 @@ class AppAlertItem {
     return AppAlertItem(
       uniqueKey: (json['unique_key'] ?? '').toString(),
       scope: scope,
+      kind: (json['kind'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
       body: (json['body'] ?? '').toString(),
     );
@@ -35,6 +39,7 @@ class AppAlertItem {
 
 class AppAlertsState {
   final bool loading;
+  final List<AppAlertItem> bookingInvitationAlerts;
   final List<AppAlertItem> communityPlannerAlerts;
   final List<AppAlertItem> communityInvitationAlerts;
   final List<AppAlertItem> playerInvitationAlerts;
@@ -43,6 +48,7 @@ class AppAlertsState {
 
   const AppAlertsState({
     this.loading = false,
+    this.bookingInvitationAlerts = const [],
     this.communityPlannerAlerts = const [],
     this.communityInvitationAlerts = const [],
     this.playerInvitationAlerts = const [],
@@ -83,6 +89,10 @@ class AppAlertsState {
     }
 
     return AppAlertsState(
+      bookingInvitationAlerts: parseAlerts(
+        json['booking_invitation_alerts'],
+        AppAlertScope.bookings,
+      ),
       communityPlannerAlerts: parseAlerts(
         json['community_planner_alerts'],
         AppAlertScope.communityPlanner,
@@ -105,6 +115,7 @@ class AppAlertsState {
 
   AppAlertsState copyWith({
     bool? loading,
+    List<AppAlertItem>? bookingInvitationAlerts,
     List<AppAlertItem>? communityPlannerAlerts,
     List<AppAlertItem>? communityInvitationAlerts,
     List<AppAlertItem>? playerInvitationAlerts,
@@ -113,6 +124,8 @@ class AppAlertsState {
   }) {
     return AppAlertsState(
       loading: loading ?? this.loading,
+      bookingInvitationAlerts:
+          bookingInvitationAlerts ?? this.bookingInvitationAlerts,
       communityPlannerAlerts:
           communityPlannerAlerts ?? this.communityPlannerAlerts,
       communityInvitationAlerts:
@@ -125,6 +138,8 @@ class AppAlertsState {
   }
 
   bool get hasResultPendingBadge => pendingResultPlans.isNotEmpty;
+
+  bool get hasCalendarBadge => bookingInvitationAlerts.isNotEmpty;
 
   bool get hasCommunityBadge =>
       communityPlannerAlerts.isNotEmpty ||
@@ -139,6 +154,7 @@ class AppAlertsState {
   bool get hasProfileBadge => profileRatingAlerts.isNotEmpty;
 
   List<AppAlertItem> get allAlerts => [
+        ...bookingInvitationAlerts,
         ...communityPlannerAlerts,
         ...communityInvitationAlerts,
         ...playerInvitationAlerts,
