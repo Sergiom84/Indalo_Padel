@@ -1,6 +1,11 @@
 import '../../community/models/community_model.dart';
 
-enum AppAlertScope { communityPlanner, communityInvitations, players }
+enum AppAlertScope {
+  communityPlanner,
+  communityInvitations,
+  players,
+  profileRatings,
+}
 
 class AppAlertItem {
   final String uniqueKey;
@@ -33,6 +38,7 @@ class AppAlertsState {
   final List<AppAlertItem> communityPlannerAlerts;
   final List<AppAlertItem> communityInvitationAlerts;
   final List<AppAlertItem> playerInvitationAlerts;
+  final List<AppAlertItem> profileRatingAlerts;
   final List<CommunityPlanModel> pendingResultPlans;
 
   const AppAlertsState({
@@ -40,6 +46,7 @@ class AppAlertsState {
     this.communityPlannerAlerts = const [],
     this.communityInvitationAlerts = const [],
     this.playerInvitationAlerts = const [],
+    this.profileRatingAlerts = const [],
     this.pendingResultPlans = const [],
   });
 
@@ -88,6 +95,10 @@ class AppAlertsState {
         json['player_invitation_alerts'],
         AppAlertScope.players,
       ),
+      profileRatingAlerts: parseAlerts(
+        json['rating_alerts'],
+        AppAlertScope.profileRatings,
+      ),
       pendingResultPlans: parsePlans(json['pending_result_plans']),
     );
   }
@@ -97,6 +108,7 @@ class AppAlertsState {
     List<AppAlertItem>? communityPlannerAlerts,
     List<AppAlertItem>? communityInvitationAlerts,
     List<AppAlertItem>? playerInvitationAlerts,
+    List<AppAlertItem>? profileRatingAlerts,
     List<CommunityPlanModel>? pendingResultPlans,
   }) {
     return AppAlertsState(
@@ -107,6 +119,7 @@ class AppAlertsState {
           communityInvitationAlerts ?? this.communityInvitationAlerts,
       playerInvitationAlerts:
           playerInvitationAlerts ?? this.playerInvitationAlerts,
+      profileRatingAlerts: profileRatingAlerts ?? this.profileRatingAlerts,
       pendingResultPlans: pendingResultPlans ?? this.pendingResultPlans,
     );
   }
@@ -123,10 +136,12 @@ class AppAlertsState {
   bool get hasCommunityInvitationsBadge => communityInvitationAlerts.isNotEmpty;
 
   bool get hasPlayersBadge => playerInvitationAlerts.isNotEmpty;
+  bool get hasProfileBadge => profileRatingAlerts.isNotEmpty;
 
   List<AppAlertItem> get allAlerts => [
         ...communityPlannerAlerts,
         ...communityInvitationAlerts,
         ...playerInvitationAlerts,
+        ...profileRatingAlerts,
       ];
 }

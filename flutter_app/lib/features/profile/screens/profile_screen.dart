@@ -9,9 +9,12 @@ import '../providers/current_profile_provider.dart';
 import '../../../shared/utils/player_preferences.dart';
 import '../../../shared/utils/profile_image_picker.dart';
 import '../../../shared/widgets/loading_spinner.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/preference_checkbox_group.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../notifications/providers/app_alerts_provider.dart';
+import '../../players/models/player_model.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -158,6 +161,56 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
+  Future<void> _openRatingsSheet() async {
+    final unreadRatingAlerts = ref.read(appAlertsProvider).profileRatingAlerts;
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.get('/padel/players/profile/ratings');
+      final list = data is Map ? data['ratings'] : const [];
+      final ratings = list is List
+          ? list
+              .whereType<Map>()
+              .map(
+                (rating) => RatingModel.fromJson(
+                  Map<String, dynamic>.from(rating),
+                ),
+              )
+              .toList(growable: false)
+          : const <RatingModel>[];
+
+      if (!mounted) {
+        return;
+      }
+
+      if (unreadRatingAlerts.isNotEmpty) {
+        await ref.read(appAlertsProvider.notifier).markProfileRatingsSeen();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _ProfileRatingsSheet(ratings: ratings),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
   Future<void> _logout() async {
     await appMediumImpact();
     await ref.read(authProvider.notifier).logout();
@@ -206,6 +259,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final authUser = ref.watch(authProvider).user;
+    final alerts = ref.watch(appAlertsProvider);
     final profile = _profile ?? <String, dynamic>{};
     final preferences = PlayerPreferencesModel.fromJson(profile);
     final displayName = (profile['display_name'] ??
@@ -317,6 +371,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: _ProfileMetric(
                                   label: 'Valoración',
                                   value: '${profile['avg_rating'] ?? '0.0'}',
+                                  showDot: alerts.hasProfileBadge,
+                                  onTap: _openRatingsSheet,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -703,8 +759,8 @@ class _PreferencesSheetState extends State<_PreferencesSheet> {
               selectedValues: availabilityDayValues,
               enabled: !_saving,
               onChanged: (v) => setState(
-                () => _availability = PlayerPreferenceCatalog
-                    .mergeAvailabilityValues(
+                () => _availability =
+                    PlayerPreferenceCatalog.mergeAvailabilityValues(
                   dayValues: v,
                   timeValues: availabilityTimeValues,
                 ),
@@ -717,8 +773,8 @@ class _PreferencesSheetState extends State<_PreferencesSheet> {
               selectedValues: availabilityTimeValues,
               enabled: !_saving,
               onChanged: (v) => setState(
-                () => _availability = PlayerPreferenceCatalog
-                    .mergeAvailabilityValues(
+                () => _availability =
+                    PlayerPreferenceCatalog.mergeAvailabilityValues(
                   dayValues: availabilityDayValues,
                   timeValues: v,
                 ),
@@ -1081,47 +1137,281 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 class _ProfileMetric extends StatelessWidget {
   final String label;
   final String value;
+  final bool showDot;
+  final VoidCallback? onTap;
 
-  const _ProfileMetric({required this.label, required this.value});
+  const _ProfileMetric({
+    required this.label,
+    required this.value,
+    this.showDot = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(18);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: borderRadius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: borderRadius,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              constraints: const BoxConstraints(minHeight: 82),
+              decoration: BoxDecoration(
+                color: AppColors.surface2,
+                borderRadius: borderRadius,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    height: 24,
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        value,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (showDot)
+              const Positioned(
+                top: 8,
+                right: 8,
+                child: NotificationDot(visible: true, size: 9),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileRatingsSheet extends StatelessWidget {
+  final List<RatingModel> ratings;
+
+  const _ProfileRatingsSheet({required this.ratings});
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionallySizedBox(
+      heightFactor: 0.82,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Valoraciones recibidas',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.close, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ratings.isEmpty
+                  ? const _EmptyRatingsState()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                      itemCount: ratings.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        return _ProfileRatingCard(rating: ratings[index]);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyRatingsState extends StatelessWidget {
+  const _EmptyRatingsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star_outline, color: AppColors.border, size: 52),
+            SizedBox(height: 12),
+            Text(
+              'Aún no tienes valoraciones.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileRatingCard extends StatelessWidget {
+  final RatingModel rating;
+
+  const _ProfileRatingCard({required this.rating});
+
+  @override
+  Widget build(BuildContext context) {
+    final contextLabel = _ratingContextLabel(rating);
+    final createdLabel = _formatRatingCreatedAt(rating.createdAt);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      constraints: const BoxConstraints(minHeight: 82),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface2,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            height: 24,
-            width: double.infinity,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.star,
+                  color: AppColors.primary,
+                  size: 20,
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rating.raterName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (contextLabel != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        contextLabel,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              _RatingStars(value: rating.rating),
+            ],
+          ),
+          if (rating.comment != null && rating.comment!.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              rating.comment!.trim(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.35,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
+          ],
+          if (createdLabel != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              createdLabel,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _RatingStars extends StatelessWidget {
+  final double value;
+
+  const _RatingStars({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...List.generate(
+          5,
+          (index) => Icon(
+            Icons.star,
+            size: 14,
+            color: index < value.round() ? Colors.amber : AppColors.muted,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1182,6 +1472,66 @@ class _ProfileActionTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _ratingContextLabel(RatingModel rating) {
+  final parts = <String>[];
+  final venue = rating.venueName?.trim();
+  if (venue != null && venue.isNotEmpty) {
+    parts.add(venue);
+  }
+
+  final date = _formatRatingDate(rating.scheduledDate);
+  final time = _formatRatingTime(rating.scheduledTime);
+  if (date != null) {
+    parts.add(time == null ? date : '$date · $time');
+  }
+
+  if (parts.isEmpty) {
+    return null;
+  }
+  return parts.join(' · ');
+}
+
+String? _formatRatingCreatedAt(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return null;
+  }
+  final local = parsed.toLocal();
+  final day = local.day.toString().padLeft(2, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final year = local.year.toString();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return 'Recibida el $day/$month/$year a las $hour:$minute';
+}
+
+String? _formatRatingDate(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return value;
+  }
+  final day = parsed.day.toString().padLeft(2, '0');
+  final month = parsed.month.toString().padLeft(2, '0');
+  return '$day/$month/${parsed.year}';
+}
+
+String? _formatRatingTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parts = value.split(':');
+  if (parts.length < 2) {
+    return value;
+  }
+  return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
 }
 
 int? _asInt(dynamic value) {

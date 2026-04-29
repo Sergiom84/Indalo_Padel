@@ -140,7 +140,10 @@ class LocalNotificationService {
   String _buildSummaryBody(List<AppAlertItem> alerts) {
     final playerCount =
         alerts.where((alert) => alert.scope == AppAlertScope.players).length;
-    final communityCount = alerts.length - playerCount;
+    final ratingCount = alerts
+        .where((alert) => alert.scope == AppAlertScope.profileRatings)
+        .length;
+    final communityCount = alerts.length - playerCount - ratingCount;
     final parts = <String>[];
 
     if (communityCount > 0) {
@@ -156,6 +159,14 @@ class LocalNotificationService {
         playerCount == 1
             ? '1 invitación en Jugadores'
             : '$playerCount invitaciones en Jugadores',
+      );
+    }
+
+    if (ratingCount > 0) {
+      parts.add(
+        ratingCount == 1
+            ? '1 nueva valoración'
+            : '$ratingCount nuevas valoraciones',
       );
     }
 

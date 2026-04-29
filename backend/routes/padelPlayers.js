@@ -328,6 +328,63 @@ async function loadRatingContextsForPlayer(client, { raterId, ratedId }) {
     });
 }
 
+async function loadReceivedRatings(client, userId) {
+  const result = await client.query(
+    `
+      SELECT
+        r.id,
+        r.rating,
+        r.comment,
+        r.created_at,
+        COALESCE(NULLIF(rater_profile.display_name, ''), rater.nombre, 'Anónimo') AS rater_name,
+        CASE
+          WHEN r.community_plan_id IS NOT NULL THEN 'community_plan'
+          WHEN r.match_id IS NOT NULL THEN 'match'
+          ELSE 'rating'
+        END AS context_type,
+        r.community_plan_id AS plan_id,
+        r.match_id,
+        cp.scheduled_date,
+        cp.scheduled_time,
+        m.match_date,
+        m.start_time,
+        COALESCE(plan_venue.name, match_venue.name) AS venue_name
+      FROM app.padel_player_ratings r
+      JOIN app.users rater
+        ON rater.id = r.rater_id
+       AND rater.deleted_at IS NULL
+      LEFT JOIN app.padel_player_profiles rater_profile
+        ON rater_profile.user_id = r.rater_id
+      LEFT JOIN app.padel_community_plans cp
+        ON cp.id = r.community_plan_id
+      LEFT JOIN app.padel_matches m
+        ON m.id = r.match_id
+      LEFT JOIN app.padel_venues plan_venue
+        ON plan_venue.id = cp.venue_id
+      LEFT JOIN app.padel_venues match_venue
+        ON match_venue.id = m.venue_id
+      WHERE r.rated_id = $1
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 50
+    `,
+    [userId],
+  );
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    rater_name: row.rater_name || 'Anónimo',
+    rating: Number(row.rating) || 0,
+    comment: row.comment || null,
+    created_at: row.created_at || null,
+    context_type: row.context_type || 'rating',
+    plan_id: row.plan_id ? Number(row.plan_id) : null,
+    match_id: row.match_id ? Number(row.match_id) : null,
+    scheduled_date: normalizeDateValue(row.scheduled_date || row.match_date),
+    scheduled_time: row.scheduled_time || row.start_time || null,
+    venue_name: row.venue_name || null,
+  }));
+}
+
 // GET /api/padel/players/profile - Mi perfil
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
@@ -358,6 +415,17 @@ router.get('/profile', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error obteniendo perfil:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// GET /api/padel/players/profile/ratings - Valoraciones recibidas
+router.get('/profile/ratings', authenticateToken, async (req, res) => {
+  try {
+    const ratings = await loadReceivedRatings(pool, req.user.userId);
+    res.json({ ratings });
+  } catch (error) {
+    console.error('Error obteniendo valoraciones del perfil:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

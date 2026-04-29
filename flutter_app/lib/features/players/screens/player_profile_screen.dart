@@ -395,7 +395,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen> {
         backgroundColor: AppColors.surface,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         child: Column(
           children: [
             // Profile header

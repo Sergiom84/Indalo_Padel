@@ -178,6 +178,68 @@ async function loadPlayerAlerts(client, userId) {
   }));
 }
 
+function buildRatingContext(row) {
+  const date = formatDate(row.scheduled_date || row.match_date);
+  const time = formatTime(row.scheduled_time || row.start_time);
+  const details = [];
+
+  if (row.venue_name) {
+    details.push(row.venue_name);
+  }
+  if (date) {
+    details.push(time ? `${date} a las ${time}` : date);
+  }
+
+  return details.length ? ` (${details.join(' - ')})` : '';
+}
+
+async function loadRatingAlerts(client, userId) {
+  const result = await client.query(
+    `
+      SELECT
+        r.id,
+        r.rating,
+        r.comment,
+        r.created_at,
+        COALESCE(NULLIF(rater_profile.display_name, ''), rater.nombre, 'Jugador') AS rater_name,
+        cp.scheduled_date,
+        cp.scheduled_time,
+        m.match_date,
+        m.start_time,
+        COALESCE(plan_venue.name, match_venue.name) AS venue_name
+      FROM app.padel_player_ratings r
+      JOIN app.users rater
+        ON rater.id = r.rater_id
+       AND rater.deleted_at IS NULL
+      LEFT JOIN app.padel_player_profiles rater_profile
+        ON rater_profile.user_id = r.rater_id
+      LEFT JOIN app.padel_community_plans cp
+        ON cp.id = r.community_plan_id
+      LEFT JOIN app.padel_matches m
+        ON m.id = r.match_id
+      LEFT JOIN app.padel_venues plan_venue
+        ON plan_venue.id = cp.venue_id
+      LEFT JOIN app.padel_venues match_venue
+        ON match_venue.id = m.venue_id
+      WHERE r.rated_id = $1
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 10
+    `,
+    [userId],
+  );
+
+  return result.rows.map((row) => {
+    const rating = Number.parseInt(row.rating, 10) || 0;
+    const context = buildRatingContext(row);
+    const comment = row.comment ? ` Comentario: ${row.comment}` : '';
+    return {
+      unique_key: `player-rating:${row.id}:${row.created_at || ''}`,
+      title: 'Nueva valoración recibida',
+      body: `${displayNameFromRow(row, row.rater_name)} te ha valorado con ${rating}/5 estrellas${context}.${comment}`,
+    };
+  });
+}
+
 async function loadCommunityNotificationAlerts(client, userId) {
   const result = await client.query(
     `
@@ -402,6 +464,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const client = await pool.connect();
     try {
       const playerInvitationAlerts = await loadPlayerAlerts(client, userId);
+      const ratingAlerts = await loadRatingAlerts(client, userId);
       const notificationAlerts =
         await loadCommunityNotificationAlerts(client, userId);
       const communityInvitationAlerts = [
@@ -414,6 +477,7 @@ router.get('/', authenticateToken, async (req, res) => {
         community_planner_alerts: notificationAlerts.planner,
         community_invitation_alerts: communityInvitationAlerts,
         player_invitation_alerts: playerInvitationAlerts,
+        rating_alerts: ratingAlerts,
         pending_result_plans: pendingResultPlans,
         updated_at: nowInAppZone().toISO(),
       });

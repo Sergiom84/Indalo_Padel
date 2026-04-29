@@ -153,12 +153,26 @@ class RatingModel {
   final String raterName;
   final double rating;
   final String? comment;
+  final String? createdAt;
+  final String? contextType;
+  final int? planId;
+  final int? matchId;
+  final String? scheduledDate;
+  final String? scheduledTime;
+  final String? venueName;
 
   const RatingModel({
     this.id,
     required this.raterName,
     required this.rating,
     this.comment,
+    this.createdAt,
+    this.contextType,
+    this.planId,
+    this.matchId,
+    this.scheduledDate,
+    this.scheduledTime,
+    this.venueName,
   });
 
   factory RatingModel.fromJson(Map<String, dynamic> json) {
@@ -167,6 +181,13 @@ class RatingModel {
       raterName: (json['rater_name'] ?? 'Anónimo') as String,
       rating: _asDouble(json['rating']) ?? 0,
       comment: json['comment'] as String?,
+      createdAt: json['created_at']?.toString(),
+      contextType: json['context_type']?.toString(),
+      planId: _asNullableInt(json['plan_id']),
+      matchId: _asNullableInt(json['match_id']),
+      scheduledDate: json['scheduled_date']?.toString(),
+      scheduledTime: json['scheduled_time']?.toString(),
+      venueName: json['venue_name']?.toString(),
     );
   }
 }

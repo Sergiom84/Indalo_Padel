@@ -459,6 +459,7 @@ class _AppShellState extends ConsumerState<AppShell>
     with WidgetsBindingObserver {
   // Plan IDs para los que ya se mostró el popup en esta sesión.
   final Set<int> _shownResultPlanIds = {};
+  final Set<String> _shownRatingAlertKeys = {};
 
   @override
   void initState() {
@@ -517,6 +518,54 @@ class _AppShellState extends ConsumerState<AppShell>
     });
   }
 
+  void _maybeShowRatingDialog(List<AppAlertItem> alerts) {
+    final pending = alerts
+        .where((alert) => !_shownRatingAlertKeys.contains(alert.uniqueKey))
+        .toList(growable: false);
+    if (pending.isEmpty) return;
+
+    for (final alert in pending) {
+      _shownRatingAlertKeys.add(alert.uniqueKey);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      final first = pending.first;
+      final multiple = pending.length > 1;
+      final openProfile = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            multiple ? 'Nuevas valoraciones' : first.title,
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            multiple
+                ? 'Tienes ${pending.length} valoraciones nuevas. Puedes revisarlas en Perfil, dentro de la tarjeta Valoración.'
+                : first.body,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Más tarde'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Ver perfil'),
+            ),
+          ],
+        ),
+      );
+
+      if (openProfile == true && mounted) {
+        widget.navigationShell.goBranch(AppTab.profile.index);
+      }
+    });
+  }
+
   Future<_PreparedResultPrompt> _prepareResultPrompt(
     CommunityPlanModel plan,
   ) async {
@@ -552,6 +601,7 @@ class _AppShellState extends ConsumerState<AppShell>
     ref.listen<AppAlertsState>(appAlertsProvider, (_, next) {
       if (!next.loading) {
         _maybeShowResultDialogs(next.pendingResultPlans);
+        _maybeShowRatingDialog(next.profileRatingAlerts);
       }
     });
 
@@ -567,6 +617,7 @@ class _AppShellState extends ConsumerState<AppShell>
         badgeVisibility: {
           AppTab.community: alerts.hasCommunityBadge,
           AppTab.players: alerts.hasPlayersBadge || chatUnreadCount > 0,
+          AppTab.profile: alerts.hasProfileBadge,
         },
         onTap: (index) {
           if (index == AppTab.venues.index) {

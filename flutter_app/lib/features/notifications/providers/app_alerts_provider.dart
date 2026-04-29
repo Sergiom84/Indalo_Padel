@@ -58,6 +58,16 @@ class AppAlertsController extends StateNotifier<AppAlertsState> {
     }
   }
 
+  Future<void> markProfileRatingsSeen() async {
+    final alerts = state.profileRatingAlerts;
+    if (alerts.isEmpty) {
+      return;
+    }
+
+    await AppAlertsService.instance.markProfileRatingAlertsSeen(alerts);
+    state = state.copyWith(profileRatingAlerts: const []);
+  }
+
   void _startPolling() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(minutes: 5), (_) {
