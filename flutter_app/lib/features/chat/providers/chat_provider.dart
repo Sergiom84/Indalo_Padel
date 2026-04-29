@@ -152,10 +152,24 @@ class ChatRepository {
   Future<ChatSendMessageResult> sendMessage({
     required int conversationId,
     required String body,
+    String messageType = 'text',
+    String? attachmentDataUrl,
+    int? attachmentDurationSeconds,
   }) async {
+    final payload = <String, dynamic>{
+      'message_type': messageType,
+      'body': body,
+    };
+    if (attachmentDataUrl != null) {
+      payload['attachment_data_url'] = attachmentDataUrl;
+    }
+    if (attachmentDurationSeconds != null) {
+      payload['attachment_duration_seconds'] = attachmentDurationSeconds;
+    }
+
     final data = await _api.post(
       '/padel/chat/conversations/$conversationId/messages',
-      data: {'body': body},
+      data: payload,
     );
     return ChatSendMessageResult.fromJson(
         Map<String, dynamic>.from(data as Map));
@@ -482,6 +496,71 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
         sending: false,
       );
       _ref.invalidate(chatConversationsProvider);
+    } catch (error) {
+      state = state.copyWith(
+        sending: false,
+        error: error.toString(),
+      );
+    }
+  }
+
+  Future<void> sendImage({
+    required String dataUrl,
+    String caption = '',
+  }) {
+    return _sendMedia(
+      messageType: 'image',
+      dataUrl: dataUrl,
+      body: caption,
+    );
+  }
+
+  Future<void> sendVoice({
+    required String dataUrl,
+    required int durationSeconds,
+  }) {
+    return _sendMedia(
+      messageType: 'voice',
+      dataUrl: dataUrl,
+      body: '',
+      durationSeconds: durationSeconds,
+    );
+  }
+
+  Future<void> _sendMedia({
+    required String messageType,
+    required String dataUrl,
+    required String body,
+    int? durationSeconds,
+  }) async {
+    if (state.sending) {
+      return;
+    }
+
+    state = state.copyWith(sending: true, clearError: true);
+    try {
+      final repository = _ref.read(chatRepositoryProvider);
+      final result = await repository.sendMessage(
+        conversationId: _args.conversationId,
+        messageType: messageType,
+        body: body.trim(),
+        attachmentDataUrl: dataUrl,
+        attachmentDurationSeconds: durationSeconds,
+      );
+
+      final existing =
+          state.messages.any((item) => item.id == result.message.id);
+      final nextMessages = existing
+          ? state.messages
+          : (List<ChatMessageModel>.from(state.messages)..add(result.message));
+
+      state = state.copyWith(
+        conversation: result.conversation ?? state.conversation,
+        messages: nextMessages,
+        sending: false,
+      );
+      _ref.invalidate(chatConversationsProvider);
+      unawaited(markRead(result.message.id));
     } catch (error) {
       state = state.copyWith(
         sending: false,

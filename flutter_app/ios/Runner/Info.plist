@@ -27,7 +27,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Indalo Padel necesita acceso a tu biblioteca para elegir una foto de perfil.</string>
+	<string>Indalo Padel necesita acceso a tu biblioteca para elegir fotos de perfil o enviarlas por chat.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Indalo Padel necesita acceso a la camara para enviar fotos por chat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Indalo Padel necesita acceso al microfono para enviar notas de voz de hasta 60 segundos.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

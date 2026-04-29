@@ -208,7 +208,11 @@ router.post(
       const result = await sendPadelChatMessage({
         userId: req.user.userId,
         conversationId: req.params.id,
-        body: req.body.body,
+        body: req.body.body ?? '',
+        messageType: req.body.message_type ?? 'text',
+        attachmentDataUrl: req.body.attachment_data_url ?? null,
+        attachmentDurationSeconds:
+          req.body.attachment_duration_seconds ?? null,
       });
       res.status(result.status).json(result.body);
     } catch (error) {

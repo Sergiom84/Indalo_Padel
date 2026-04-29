@@ -7,6 +7,12 @@ import {
 } from './calendarUtils.js';
 import { sendPushToUsers } from './pushNotificationService.js';
 import {
+  addSignedUrlsToMessages,
+  ChatMediaStorageError,
+  deleteChatMediaObjects,
+  prepareChatMediaAttachment,
+} from './chatMediaStorageService.js';
+import {
   emitPadelChatConversationCreated,
   emitPadelChatMessageCreated,
   emitPadelChatMessagesDeleted,
@@ -98,6 +104,7 @@ function buildParticipantDto(row, currentUserId) {
 }
 
 function buildMessageDto(row, currentUserId) {
+  const messageType = row.message_type || row.attachment_kind || 'text';
   const sender = {
     user_id: Number(row.sender_user_id),
     display_name: displayNameFromRow(
@@ -114,9 +121,28 @@ function buildMessageDto(row, currentUserId) {
   return {
     id: Number(row.id),
     conversation_id: Number(row.conversation_id),
-    body: row.body,
+    message_type: messageType,
+    body: row.body || '',
     created_at: row.created_at,
     sender,
+    attachment: row.attachment_id
+      ? {
+          id: Number(row.attachment_id),
+          kind: row.attachment_kind || messageType,
+          bucket: row.attachment_bucket || null,
+          path: row.attachment_object_path || null,
+          url: row.attachment_signed_url || null,
+          mime_type: row.attachment_mime_type || null,
+          size_bytes: row.attachment_size_bytes
+            ? Number(row.attachment_size_bytes)
+            : null,
+          width: row.attachment_width ? Number(row.attachment_width) : null,
+          height: row.attachment_height ? Number(row.attachment_height) : null,
+          duration_seconds: row.attachment_duration_seconds
+            ? Number(row.attachment_duration_seconds)
+            : null,
+        }
+      : null,
     is_own: Number(row.sender_user_id) === Number(currentUserId),
   };
 }
@@ -261,7 +287,9 @@ function buildConversationDto(row, participants, unreadCount, currentUserId) {
     last_message: row.last_message_row_id
       ? {
           id: Number(row.last_message_row_id),
-          body: row.last_message_body,
+          conversation_id: Number(row.id),
+          message_type: row.last_message_type || 'text',
+          body: row.last_message_body || '',
           created_at: row.last_message_created_at,
           sender: {
             user_id: Number(row.last_message_sender_user_id),
@@ -275,6 +303,28 @@ function buildConversationDto(row, participants, unreadCount, currentUserId) {
             nombre: row.last_message_sender_nombre || null,
             avatar_url: row.last_message_sender_avatar_url || null,
           },
+          attachment: row.last_attachment_id
+            ? {
+                id: Number(row.last_attachment_id),
+                kind: row.last_attachment_kind || row.last_message_type,
+                bucket: row.last_attachment_bucket || null,
+                path: row.last_attachment_object_path || null,
+                url: null,
+                mime_type: row.last_attachment_mime_type || null,
+                size_bytes: row.last_attachment_size_bytes
+                  ? Number(row.last_attachment_size_bytes)
+                  : null,
+                width: row.last_attachment_width
+                  ? Number(row.last_attachment_width)
+                  : null,
+                height: row.last_attachment_height
+                  ? Number(row.last_attachment_height)
+                  : null,
+                duration_seconds: row.last_attachment_duration_seconds
+                  ? Number(row.last_attachment_duration_seconds)
+                  : null,
+              }
+            : null,
           is_own:
             Number(row.last_message_sender_user_id) === Number(currentUserId),
         }
@@ -282,7 +332,16 @@ function buildConversationDto(row, participants, unreadCount, currentUserId) {
   };
 }
 
-function buildPushPreview(body) {
+function buildPushPreview(body, messageType = 'text') {
+  if (messageType === 'image') {
+    const caption = String(body || '').replace(/\s+/g, ' ').trim();
+    return caption || 'Foto';
+  }
+
+  if (messageType === 'voice') {
+    return 'Nota de voz';
+  }
+
   const normalized = String(body || '').replace(/\s+/g, ' ').trim();
   if (normalized.length <= 120) {
     return normalized;
@@ -615,12 +674,22 @@ async function loadConversationRows(client, userId, conversationId = null) {
         me.last_read_at,
         me.joined_at AS my_joined_at,
         lm.id AS last_message_row_id,
+        lm.message_type AS last_message_type,
         lm.body AS last_message_body,
         lm.sender_user_id AS last_message_sender_user_id,
         lm.created_at AS last_message_created_at,
         lm_user.nombre AS last_message_sender_nombre,
         lm_profile.display_name AS last_message_sender_display_name,
         lm_profile.avatar_url AS last_message_sender_avatar_url,
+        lm_attachment.id AS last_attachment_id,
+        lm_attachment.kind AS last_attachment_kind,
+        lm_attachment.bucket AS last_attachment_bucket,
+        lm_attachment.object_path AS last_attachment_object_path,
+        lm_attachment.mime_type AS last_attachment_mime_type,
+        lm_attachment.size_bytes AS last_attachment_size_bytes,
+        lm_attachment.width AS last_attachment_width,
+        lm_attachment.height AS last_attachment_height,
+        lm_attachment.duration_seconds AS last_attachment_duration_seconds,
         cp.id AS event_id,
         cp.scheduled_date AS event_scheduled_date,
         cp.scheduled_time AS event_scheduled_time,
@@ -654,6 +723,8 @@ async function loadConversationRows(client, userId, conversationId = null) {
        AND me.user_id = $1
       LEFT JOIN app.padel_chat_messages lm
         ON lm.id = c.last_message_id
+      LEFT JOIN app.padel_chat_attachments lm_attachment
+        ON lm_attachment.message_id = lm.id
       LEFT JOIN app.users lm_user
         ON lm_user.id = lm.sender_user_id
       LEFT JOIN app.padel_player_profiles lm_profile
@@ -1728,16 +1799,28 @@ export async function listPadelChatMessages({
         SELECT
           message.id,
           message.conversation_id,
+          message.message_type,
           message.body,
           message.created_at,
           message.sender_user_id,
           sender.nombre AS sender_nombre,
           sender_profile.display_name AS sender_display_name,
-          sender_profile.avatar_url AS sender_avatar_url
+          sender_profile.avatar_url AS sender_avatar_url,
+          attachment.id AS attachment_id,
+          attachment.kind AS attachment_kind,
+          attachment.bucket AS attachment_bucket,
+          attachment.object_path AS attachment_object_path,
+          attachment.mime_type AS attachment_mime_type,
+          attachment.size_bytes AS attachment_size_bytes,
+          attachment.width AS attachment_width,
+          attachment.height AS attachment_height,
+          attachment.duration_seconds AS attachment_duration_seconds
         FROM app.padel_chat_messages message
         JOIN app.users sender ON sender.id = message.sender_user_id
         LEFT JOIN app.padel_player_profiles sender_profile
           ON sender_profile.user_id = sender.id
+        LEFT JOIN app.padel_chat_attachments attachment
+          ON attachment.message_id = message.id
         WHERE message.conversation_id = $1
           ${beforeClause}
         ORDER BY message.id DESC
@@ -1749,6 +1832,7 @@ export async function listPadelChatMessages({
     const hasMore = result.rows.length > limit;
     const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
     const messages = rows.reverse().map((row) => buildMessageDto(row, userId));
+    await addSignedUrlsToMessages(messages);
     const oldestMessage = messages[0] || null;
 
     return {
@@ -1771,14 +1855,15 @@ export async function sendPadelChatMessage({
   userId,
   conversationId,
   body,
+  messageType = 'text',
+  attachmentDataUrl = null,
+  attachmentDurationSeconds = null,
 }) {
   const client = await pool.connect();
   let transactionOpen = false;
+  let uploadedAttachment = null;
 
   try {
-    await client.query('BEGIN');
-    transactionOpen = true;
-
     const access = await ensureConversationReadyForUser(
       client,
       conversationId,
@@ -1796,14 +1881,84 @@ export async function sendPadelChatMessage({
       };
     }
 
+    const normalizedMessageType =
+      messageType === 'image' || messageType === 'voice'
+        ? messageType
+        : 'text';
+    const normalizedBody = String(body || '').trim();
+
+    if (normalizedMessageType !== 'text') {
+      uploadedAttachment = await prepareChatMediaAttachment({
+        userId,
+        conversationId,
+        messageType: normalizedMessageType,
+        attachmentDataUrl,
+        attachmentDurationSeconds,
+      });
+    }
+
+    await client.query('BEGIN');
+    transactionOpen = true;
+
     const insertResult = await client.query(
       `
-        INSERT INTO app.padel_chat_messages (conversation_id, sender_user_id, body)
-        VALUES ($1, $2, $3)
-        RETURNING id, conversation_id, body, created_at, sender_user_id
+        INSERT INTO app.padel_chat_messages (
+          conversation_id,
+          sender_user_id,
+          body,
+          message_type
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, conversation_id, message_type, body, created_at, sender_user_id
       `,
-      [conversationId, userId, body],
+      [conversationId, userId, normalizedBody, normalizedMessageType],
     );
+
+    let attachmentRow = null;
+    if (uploadedAttachment) {
+      const attachmentResult = await client.query(
+        `
+          INSERT INTO app.padel_chat_attachments (
+            message_id,
+            conversation_id,
+            uploader_user_id,
+            kind,
+            bucket,
+            object_path,
+            mime_type,
+            size_bytes,
+            width,
+            height,
+            duration_seconds
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          RETURNING
+            id AS attachment_id,
+            kind AS attachment_kind,
+            bucket AS attachment_bucket,
+            object_path AS attachment_object_path,
+            mime_type AS attachment_mime_type,
+            size_bytes AS attachment_size_bytes,
+            width AS attachment_width,
+            height AS attachment_height,
+            duration_seconds AS attachment_duration_seconds
+        `,
+        [
+          insertResult.rows[0].id,
+          conversationId,
+          userId,
+          uploadedAttachment.kind,
+          uploadedAttachment.bucket,
+          uploadedAttachment.objectPath,
+          uploadedAttachment.mimeType,
+          uploadedAttachment.sizeBytes,
+          uploadedAttachment.width,
+          uploadedAttachment.height,
+          uploadedAttachment.durationSeconds,
+        ],
+      );
+      attachmentRow = attachmentResult.rows[0] || null;
+    }
 
     const senderProfile = await loadSenderProfile(client, userId);
     const participantIds = await loadConversationParticipantIds(
@@ -1819,10 +1974,12 @@ export async function sendPadelChatMessage({
     const message = buildMessageDto(
       {
         ...insertResult.rows[0],
+        ...(attachmentRow || {}),
         ...senderProfile,
       },
       userId,
     );
+    await addSignedUrlsToMessages([message]);
 
     await client.query('COMMIT');
     transactionOpen = false;
@@ -1841,7 +1998,7 @@ export async function sendPadelChatMessage({
     sendPushToUsers({
       userIds: recipientIds,
       title: message.sender.display_name,
-      body: buildPushPreview(body),
+      body: buildPushPreview(normalizedBody, normalizedMessageType),
       data: {
         type: 'chat_message',
         conversation_id: conversationId,
@@ -1861,6 +2018,24 @@ export async function sendPadelChatMessage({
   } catch (error) {
     if (transactionOpen) {
       await client.query('ROLLBACK');
+    }
+    if (uploadedAttachment) {
+      await deleteChatMediaObjects([uploadedAttachment.objectPath]).catch(
+        (deleteError) => {
+          console.warn(
+            'No se pudo limpiar adjunto tras error de envio:',
+            deleteError,
+          );
+        },
+      );
+    }
+    if (error instanceof ChatMediaStorageError) {
+      return {
+        status: error.status,
+        body: {
+          error: error.message,
+        },
+      };
     }
     throw error;
   } finally {
@@ -1916,11 +2091,16 @@ export async function deletePadelChatMessages({
 
     const existingResult = await client.query(
       `
-        SELECT id, sender_user_id
-        FROM app.padel_chat_messages
-        WHERE conversation_id = $1
-          AND id = ANY($2::bigint[])
-        FOR UPDATE
+        SELECT
+          message.id,
+          message.sender_user_id,
+          attachment.object_path
+        FROM app.padel_chat_messages message
+        LEFT JOIN app.padel_chat_attachments attachment
+          ON attachment.message_id = message.id
+        WHERE message.conversation_id = $1
+          AND message.id = ANY($2::bigint[])
+        FOR UPDATE OF message
       `,
       [conversationId, ids],
     );
@@ -1963,6 +2143,9 @@ export async function deletePadelChatMessages({
     );
 
     const deletedMessageIds = deleteResult.rows.map((row) => Number(row.id));
+    const deletedObjectPaths = existingResult.rows
+      .map((row) => row.object_path)
+      .filter(Boolean);
 
     const lastMessageResult = await client.query(
       `
@@ -2010,6 +2193,12 @@ export async function deletePadelChatMessages({
       messageIds: deletedMessageIds,
       conversation,
     });
+
+    if (deletedObjectPaths.length > 0) {
+      deleteChatMediaObjects(deletedObjectPaths).catch((deleteError) => {
+        console.warn('No se pudo borrar algun adjunto de chat:', deleteError);
+      });
+    }
 
     return {
       status: 200,

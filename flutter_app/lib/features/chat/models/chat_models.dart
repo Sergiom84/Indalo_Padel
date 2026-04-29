@@ -251,11 +251,54 @@ class ChatSocialEventModel {
   }
 }
 
+class ChatMessageAttachmentModel {
+  final int id;
+  final String kind;
+  final String? bucket;
+  final String? path;
+  final String? url;
+  final String? mimeType;
+  final int? sizeBytes;
+  final int? width;
+  final int? height;
+  final int? durationSeconds;
+
+  const ChatMessageAttachmentModel({
+    required this.id,
+    required this.kind,
+    this.bucket,
+    this.path,
+    this.url,
+    this.mimeType,
+    this.sizeBytes,
+    this.width,
+    this.height,
+    this.durationSeconds,
+  });
+
+  factory ChatMessageAttachmentModel.fromJson(Map<String, dynamic> json) {
+    return ChatMessageAttachmentModel(
+      id: _asInt(json['id']),
+      kind: _asNullableString(json['kind']) ?? 'image',
+      bucket: _asNullableString(json['bucket']),
+      path: _asNullableString(json['path'] ?? json['object_path']),
+      url: _asNullableString(json['url'] ?? json['signed_url']),
+      mimeType: _asNullableString(json['mime_type']),
+      sizeBytes: _asNullableInt(json['size_bytes']),
+      width: _asNullableInt(json['width']),
+      height: _asNullableInt(json['height']),
+      durationSeconds: _asNullableInt(json['duration_seconds']),
+    );
+  }
+}
+
 class ChatMessageModel {
   final int id;
   final int conversationId;
   final ChatUserSummaryModel sender;
+  final String messageType;
   final String body;
+  final ChatMessageAttachmentModel? attachment;
   final DateTime? createdAt;
   final bool isOwn;
 
@@ -264,6 +307,8 @@ class ChatMessageModel {
     required this.conversationId,
     required this.sender,
     required this.body,
+    this.messageType = 'text',
+    this.attachment,
     this.createdAt,
     this.isOwn = false,
   });
@@ -271,6 +316,18 @@ class ChatMessageModel {
   int get senderId => sender.userId;
   String get senderName => sender.displayName;
   bool get isMine => isOwn;
+  bool get isText => messageType == 'text';
+  bool get isImage => messageType == 'image' || attachment?.kind == 'image';
+  bool get isVoice => messageType == 'voice' || attachment?.kind == 'voice';
+  String get previewText {
+    if (isImage) {
+      return body.trim().isEmpty ? 'Foto' : body.trim();
+    }
+    if (isVoice) {
+      return 'Nota de voz';
+    }
+    return body;
+  }
 
   factory ChatMessageModel.fromJson(Map<String, dynamic> json) {
     final senderJson = json['sender'];
@@ -280,12 +337,23 @@ class ChatMessageModel {
             ? ChatUserSummaryModel.fromJson(
                 Map<String, dynamic>.from(senderJson))
             : ChatUserSummaryModel.fromJson(json));
+    final attachmentJson = json['attachment'];
+    final attachment = attachmentJson is Map<String, dynamic>
+        ? ChatMessageAttachmentModel.fromJson(attachmentJson)
+        : (attachmentJson is Map
+            ? ChatMessageAttachmentModel.fromJson(
+                Map<String, dynamic>.from(attachmentJson),
+              )
+            : null);
 
     return ChatMessageModel(
       id: _asInt(json['id']),
       conversationId: _asInt(json['conversation_id']),
       sender: sender,
+      messageType:
+          _asNullableString(json['message_type']) ?? attachment?.kind ?? 'text',
       body: (json['body'] ?? '').toString(),
+      attachment: attachment,
       createdAt: _asDateTime(json['created_at']),
       isOwn: _asBool(json['is_own'] ?? json['is_mine']),
     );
@@ -338,7 +406,7 @@ class ChatConversationModel {
       (participants.length > 2 ? '${participants.length} participantes' : null);
   DateTime? get lastMessageAt =>
       lastMessage?.createdAt ?? updatedAt ?? createdAt;
-  String? get lastMessagePreview => lastMessage?.body;
+  String? get lastMessagePreview => lastMessage?.previewText;
 
   ChatConversationModel copyWith({
     int? unreadCount,

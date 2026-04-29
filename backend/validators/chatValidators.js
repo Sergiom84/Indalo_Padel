@@ -41,9 +41,47 @@ export const listConversationMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-export const sendChatMessageSchema = z.object({
-  body: z.string().trim().min(1).max(4000),
-});
+export const sendChatMessageSchema = z
+  .object({
+    message_type: z.enum(['text', 'image', 'voice']).optional().default('text'),
+    body: z.string().trim().max(4000).optional().default(''),
+    attachment_data_url: z.string().trim().max(10_000_000).optional(),
+    attachment_duration_seconds: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(60)
+      .optional()
+      .nullable(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.message_type === 'text' && !value.body.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['body'],
+        message: 'Escribe un mensaje',
+      });
+    }
+
+    if (value.message_type !== 'text' && !value.attachment_data_url) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['attachment_data_url'],
+        message: 'Adjunta un archivo',
+      });
+    }
+
+    if (
+      value.message_type === 'voice' &&
+      !value.attachment_duration_seconds
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['attachment_duration_seconds'],
+        message: 'La nota de voz no tiene duracion',
+      });
+    }
+  });
 
 export const deleteChatMessagesSchema = z.object({
   message_ids: z

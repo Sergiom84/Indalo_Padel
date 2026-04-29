@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../models/chat_models.dart';
 import '../providers/chat_provider.dart';
+import '../services/chat_image_picker.dart';
+import '../services/chat_voice_recorder.dart';
 import '../widgets/chat_composer.dart';
 import '../widgets/chat_event_card.dart';
 import '../widgets/chat_message_bubble.dart';
@@ -28,15 +31,25 @@ class ChatThreadScreen extends ConsumerStatefulWidget {
 class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
   final TextEditingController _composerController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ChatVoiceRecorder _voiceRecorder = ChatVoiceRecorder();
   final Set<int> _selectedMessageIds = <int>{};
   Timer? _dateBannerTimer;
+  Timer? _recordingTimer;
   bool _selectionMode = false;
   bool _showDateBanner = false;
+  bool _recordingVoice = false;
+  bool _voiceBusy = false;
+  int _recordingSeconds = 0;
   String? _dateBannerLabel;
 
   @override
   void dispose() {
     _dateBannerTimer?.cancel();
+    _recordingTimer?.cancel();
+    if (_recordingVoice) {
+      unawaited(_voiceRecorder.cancel());
+    }
+    unawaited(_voiceRecorder.dispose());
     _scrollController.dispose();
     _composerController.dispose();
     super.dispose();
@@ -189,6 +202,173 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
       _selectedMessageIds.clear();
       _selectionMode = false;
     });
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _showImageSourceSheet(ChatThreadController controller) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_outlined,
+                  color: AppColors.primary,
+                ),
+                title: const Text(
+                  'Galeria',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_camera_outlined,
+                  color: AppColors.primary,
+                ),
+                title: const Text(
+                  'Camara',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) {
+      return;
+    }
+
+    try {
+      final dataUrl = await pickChatImageAsDataUrl(source);
+      if (dataUrl == null) {
+        return;
+      }
+      final caption = _composerController.text.trim();
+      await controller.sendImage(dataUrl: dataUrl, caption: caption);
+      if (!mounted) {
+        return;
+      }
+      if (caption.isNotEmpty) {
+        _composerController.clear();
+      }
+    } catch (error) {
+      _showSnack(error.toString());
+    }
+  }
+
+  Future<void> _toggleVoiceRecording(ChatThreadController controller) async {
+    if (_recordingVoice) {
+      await _stopVoiceRecording(controller);
+      return;
+    }
+
+    await _startVoiceRecording(controller);
+  }
+
+  Future<void> _startVoiceRecording(ChatThreadController controller) async {
+    if (_voiceBusy) {
+      return;
+    }
+
+    _voiceBusy = true;
+    try {
+      final allowed = await _voiceRecorder.hasPermission();
+      if (!allowed) {
+        _showSnack('Activa el permiso de microfono para enviar notas de voz.');
+        return;
+      }
+
+      await _voiceRecorder.start();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _recordingVoice = true;
+        _recordingSeconds = 0;
+      });
+
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || !_recordingVoice) {
+          timer.cancel();
+          return;
+        }
+
+        if (_recordingSeconds + 1 >= chatVoiceMaxSeconds) {
+          setState(() => _recordingSeconds = chatVoiceMaxSeconds);
+          timer.cancel();
+          unawaited(_stopVoiceRecording(controller));
+          return;
+        }
+
+        setState(() => _recordingSeconds += 1);
+      });
+    } catch (error) {
+      _showSnack(error.toString());
+    } finally {
+      _voiceBusy = false;
+    }
+  }
+
+  Future<void> _stopVoiceRecording(ChatThreadController controller) async {
+    if (_voiceBusy) {
+      return;
+    }
+
+    _voiceBusy = true;
+    _recordingTimer?.cancel();
+    try {
+      final recording = await _voiceRecorder.stop();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _recordingVoice = false;
+        _recordingSeconds = 0;
+      });
+
+      if (recording == null) {
+        _showSnack('No se pudo crear la nota de voz.');
+        return;
+      }
+
+      await controller.sendVoice(
+        dataUrl: recording.dataUrl,
+        durationSeconds: recording.durationSeconds,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _recordingVoice = false;
+          _recordingSeconds = 0;
+        });
+      }
+      _showSnack(error.toString());
+    } finally {
+      _voiceBusy = false;
+    }
   }
 
   @override
@@ -382,6 +562,10 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
             ChatComposer(
               controller: _composerController,
               sending: state.sending,
+              recording: _recordingVoice,
+              recordingSeconds: _recordingSeconds,
+              onAttachPressed: () => _showImageSourceSheet(controller),
+              onVoicePressed: () => _toggleVoiceRecording(controller),
               onSend: () async {
                 final body = _composerController.text;
                 await controller.sendMessage(body);

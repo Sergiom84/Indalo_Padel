@@ -26,6 +26,7 @@ const migrationFiles = [
   path.join(__dirname, 'padel_chat.sql'),
   path.join(__dirname, 'padel_social_events.sql'),
   path.join(__dirname, 'padel_avatar_storage.sql'),
+  path.join(__dirname, 'padel_chat_media.sql'),
   path.join(__dirname, 'padel_supabase_auth_bridge.sql'),
 ];
 

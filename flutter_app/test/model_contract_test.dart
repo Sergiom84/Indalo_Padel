@@ -347,6 +347,55 @@ void main() {
   });
 
   group('Chat social agenda contract', () {
+    test('maps chat media attachment payloads', () {
+      final imageMessage = ChatMessageModel.fromJson({
+        'id': 44,
+        'conversation_id': 33,
+        'message_type': 'image',
+        'body': '',
+        'sender': {
+          'user_id': 1,
+          'display_name': 'Jugador Test',
+        },
+        'attachment': {
+          'id': 9,
+          'kind': 'image',
+          'url': 'https://example.test/signed-image',
+          'mime_type': 'image/webp',
+          'size_bytes': 120000,
+          'width': 1200,
+          'height': 900,
+        },
+      });
+
+      expect(imageMessage.isImage, isTrue);
+      expect(imageMessage.previewText, 'Foto');
+      expect(imageMessage.attachment?.mimeType, 'image/webp');
+
+      final voiceMessage = ChatMessageModel.fromJson({
+        'id': 45,
+        'conversation_id': 33,
+        'message_type': 'voice',
+        'body': '',
+        'sender': {
+          'user_id': 1,
+          'display_name': 'Jugador Test',
+        },
+        'attachment': {
+          'id': 10,
+          'kind': 'voice',
+          'url': 'https://example.test/signed-voice',
+          'mime_type': 'audio/mp4',
+          'size_bytes': 260000,
+          'duration_seconds': 60,
+        },
+      });
+
+      expect(voiceMessage.isVoice, isTrue);
+      expect(voiceMessage.previewText, 'Nota de voz');
+      expect(voiceMessage.attachment?.durationSeconds, 60);
+    });
+
     test('maps open social events and their chat conversation metadata', () {
       final event = ChatSocialEventModel.fromJson({
         'id': 7,
