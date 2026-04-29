@@ -671,6 +671,7 @@ router.get('/network', authenticateToken, async (req, res) => {
           pp.availability_preferences,
           pp.match_preferences,
           pp.bio,
+          pp.avatar_url,
           pp.matches_played,
           pp.matches_won,
           pp.is_available,

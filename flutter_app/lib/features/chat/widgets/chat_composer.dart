@@ -9,6 +9,7 @@ class ChatComposer extends StatelessWidget {
     required this.onSend,
     required this.onAttachPressed,
     required this.onVoicePressed,
+    this.focusNode,
     this.sending = false,
     this.recording = false,
     this.recordingSeconds = 0,
@@ -18,6 +19,7 @@ class ChatComposer extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onAttachPressed;
   final VoidCallback onVoicePressed;
+  final FocusNode? focusNode;
   final bool sending;
   final bool recording;
   final int recordingSeconds;
@@ -75,6 +77,7 @@ class ChatComposer extends StatelessWidget {
                     )
                   : TextField(
                       controller: controller,
+                      focusNode: focusNode,
                       minLines: 1,
                       maxLines: 4,
                       textCapitalization: TextCapitalization.sentences,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../models/chat_models.dart';
 import '../services/chat_voice_recorder.dart';
 
@@ -32,87 +33,109 @@ class ChatMessageBubble extends StatelessWidget {
         ? ''
         : DateFormat('HH:mm', 'es_ES').format(message.createdAt!.toLocal());
 
+    final bubbleContent = AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bubbleColor,
+        borderRadius: BorderRadius.circular(8),
+        border: selected ? Border.all(color: Colors.white, width: 2) : null,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!mine) ...[
+            Text(
+              message.senderName,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (message.isImage)
+            _ChatImageAttachment(message: message)
+          else if (message.isVoice)
+            _ChatVoiceAttachment(message: message, mine: mine)
+          else
+            Text(
+              message.body,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          if (message.isImage && message.body.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              message.body.trim(),
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+          if ((message.isImage || message.isVoice) &&
+              message.attachment?.url == null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Archivo no disponible',
+              style: TextStyle(
+                color: mine
+                    ? AppColors.dark.withValues(alpha: 0.75)
+                    : AppColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (timeLabel.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              timeLabel,
+              style: TextStyle(
+                color: mine
+                    ? AppColors.dark.withValues(alpha: 0.75)
+                    : AppColors.muted,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
     final bubble = Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.circular(8),
-          border: selected ? Border.all(color: Colors.white, width: 2) : null,
-        ),
-        child: Column(
-          crossAxisAlignment:
-              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (!mine) ...[
-              Text(
-                message.senderName,
-                style: const TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+      child: mine
+          ? bubbleContent
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: UserAvatar(
+                    displayName: message.senderName,
+                    avatarUrl: message.sender.avatarUrl,
+                    size: 30,
+                    fontSize: 12,
+                    backgroundColor: AppColors.surface,
+                    borderColor: AppColors.border,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-            ],
-            if (message.isImage)
-              _ChatImageAttachment(message: message)
-            else if (message.isVoice)
-              _ChatVoiceAttachment(message: message, mine: mine)
-            else
-              Text(
-                message.body,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            if (message.isImage && message.body.trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                message.body.trim(),
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-            if ((message.isImage || message.isVoice) &&
-                message.attachment?.url == null) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Archivo no disponible',
-                style: TextStyle(
-                  color: mine
-                      ? AppColors.dark.withValues(alpha: 0.75)
-                      : AppColors.muted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            if (timeLabel.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                timeLabel,
-                style: TextStyle(
-                  color: mine
-                      ? AppColors.dark.withValues(alpha: 0.75)
-                      : AppColors.muted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+                const SizedBox(width: 8),
+                Flexible(child: bubbleContent),
+              ],
+            ),
     );
 
     if (!selectionMode) {

@@ -11,7 +11,6 @@ import '../providers/chat_provider.dart';
 import '../services/chat_image_picker.dart';
 import '../services/chat_voice_recorder.dart';
 import '../widgets/chat_composer.dart';
-import '../widgets/chat_event_card.dart';
 import '../widgets/chat_message_bubble.dart';
 
 class ChatThreadScreen extends ConsumerStatefulWidget {
@@ -31,6 +30,7 @@ class ChatThreadScreen extends ConsumerStatefulWidget {
 class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
   final TextEditingController _composerController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _composerFocusNode = FocusNode();
   final ChatVoiceRecorder _voiceRecorder = ChatVoiceRecorder();
   final Set<int> _selectedMessageIds = <int>{};
   Timer? _dateBannerTimer;
@@ -41,6 +41,13 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
   bool _voiceBusy = false;
   int _recordingSeconds = 0;
   String? _dateBannerLabel;
+  int? _lastRenderedMessageId;
+
+  @override
+  void initState() {
+    super.initState();
+    _composerFocusNode.addListener(_handleComposerFocusChanged);
+  }
 
   @override
   void dispose() {
@@ -50,9 +57,41 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
       unawaited(_voiceRecorder.cancel());
     }
     unawaited(_voiceRecorder.dispose());
+    _composerFocusNode.removeListener(_handleComposerFocusChanged);
+    _composerFocusNode.dispose();
     _scrollController.dispose();
     _composerController.dispose();
     super.dispose();
+  }
+
+  void _handleComposerFocusChanged() {
+    if (!_composerFocusNode.hasFocus) {
+      return;
+    }
+
+    _scheduleScrollToLatest();
+    Future<void>.delayed(const Duration(milliseconds: 280), () {
+      if (mounted) {
+        _scheduleScrollToLatest();
+      }
+    });
+  }
+
+  void _scheduleScrollToLatest({bool animated = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) {
+        return;
+      }
+      if (animated) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        _scrollController.jumpTo(0);
+      }
+    });
   }
 
   String? _dateLabel(DateTime? dateTime) {
@@ -61,6 +100,26 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     }
     final local = dateTime.toLocal();
     return DateFormat('d MMMM yyyy', 'es_ES').format(local);
+  }
+
+  String _threadTitle(ChatConversationModel? conversation) {
+    if (conversation == null) {
+      return 'Chat';
+    }
+    if (conversation.isEvent) {
+      return conversation.event?.title ?? conversation.title;
+    }
+    return conversation.title;
+  }
+
+  String? _threadSubtitle(ChatConversationModel? conversation) {
+    if (conversation == null || conversation.isEvent) {
+      return null;
+    }
+    if (conversation.isGroup) {
+      return '${conversation.memberCount} participantes';
+    }
+    return 'Chat privado';
   }
 
   bool _shouldShowDateSeparator(
@@ -98,7 +157,9 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     final maxScroll = metrics.maxScrollExtent;
     final ratio =
         maxScroll <= 0 ? 1.0 : (metrics.pixels / maxScroll).clamp(0.0, 1.0);
-    final index = (ratio * (messages.length - 1)).round();
+    final chronologicalRatio =
+        metrics.axisDirection == AxisDirection.up ? 1 - ratio : ratio;
+    final index = (chronologicalRatio * (messages.length - 1)).round();
     return _dateLabel(messages[index].createdAt);
   }
 
@@ -425,6 +486,17 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     final state = ref.watch(chatThreadProvider(args));
     final controller = ref.read(chatThreadProvider(args).notifier);
     final conversation = state.conversation ?? widget.initialConversation;
+    final latestMessageId =
+        state.messages.isEmpty ? null : state.messages.last.id;
+    if (!state.loading && latestMessageId != _lastRenderedMessageId) {
+      final shouldAnimate = _lastRenderedMessageId != null;
+      _lastRenderedMessageId = latestMessageId;
+      if (latestMessageId != null) {
+        _scheduleScrollToLatest(animated: shouldAnimate);
+      }
+    }
+    final threadTitle = _threadTitle(conversation);
+    final threadSubtitle = _threadSubtitle(conversation);
 
     return Scaffold(
       backgroundColor: AppColors.dark,
@@ -441,17 +513,13 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    conversation?.title ?? 'Chat',
+                    threadTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (conversation != null)
+                  if (threadSubtitle != null)
                     Text(
-                      conversation.isEvent
-                          ? 'Evento local'
-                          : conversation.isGroup
-                              ? '${conversation.memberCount} participantes'
-                              : 'Chat privado',
+                      threadSubtitle,
                       style: const TextStyle(
                         color: AppColors.muted,
                         fontSize: 12,
@@ -499,19 +567,6 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
       body: Column(
         children: [
           if (_selectionMode) const _DeleteModeHint(),
-          if (conversation?.event != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: ChatEventCard(event: conversation!.event!),
-            ),
-          if (conversation?.kind == 'event' &&
-              conversation!.participants.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: _MatchParticipantsCard(
-                participants: conversation.participants,
-              ),
-            ),
           if (state.error != null && state.messages.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -561,18 +616,21 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                               ),
                               child: ListView.builder(
                                 controller: _scrollController,
+                                reverse: true,
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 8, 16, 0),
                                 itemCount: state.messages.length,
                                 itemBuilder: (context, index) {
-                                  final message = state.messages[index];
+                                  final messageIndex =
+                                      state.messages.length - 1 - index;
+                                  final message = state.messages[messageIndex];
                                   return Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
                                       if (_shouldShowDateSeparator(
                                         state.messages,
-                                        index,
+                                        messageIndex,
                                       ))
                                         _ThreadDateChip(
                                           label: _dateLabel(
@@ -620,6 +678,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
           if (!_selectionMode)
             ChatComposer(
               controller: _composerController,
+              focusNode: _composerFocusNode,
               sending: state.sending,
               recording: _recordingVoice,
               recordingSeconds: _recordingSeconds,
@@ -632,6 +691,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
                   return;
                 }
                 _composerController.clear();
+                _scheduleScrollToLatest();
               },
             ),
         ],
@@ -727,48 +787,6 @@ class _DeleteModeHint extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
-      ),
-    );
-  }
-}
-
-class _MatchParticipantsCard extends StatelessWidget {
-  const _MatchParticipantsCard({required this.participants});
-
-  final List<ChatParticipantModel> participants;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final participant in participants)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.surface2,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Text(
-                participant.displayName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }
