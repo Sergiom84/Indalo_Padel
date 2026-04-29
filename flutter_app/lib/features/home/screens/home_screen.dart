@@ -318,171 +318,166 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.dark,
-      body: RefreshIndicator(
-        color: AppColors.primary,
-        backgroundColor: AppColors.surface,
-        onRefresh: _fetchData,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 120),
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _headlineDate(),
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Hola, $greeting',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _NotificationBellButton(
-                  pendingCount: incomingRequests.length,
-                  loading: networkAsync.isLoading && incomingRequests.isEmpty,
-                  onTap: () => _openNotificationsDialog(
-                    incomingRequests,
-                    loading: networkAsync.isLoading && incomingRequests.isEmpty,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                _ChatBubbleButton(
-                  unreadCount: chatUnreadCount,
-                  onTap: () {
-                    appLightImpact();
-                    context.push('/players/chat');
-                  },
-                ),
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: () {
-                    appLightImpact();
-                    context.push('/profile');
-                  },
-                  child: UserAvatar(
-                    displayName: greeting,
-                    avatarUrl: avatarUrl,
-                    size: 56,
-                    fontSize: 20,
-                    backgroundColor: AppColors.surface,
-                    borderColor: AppColors.border,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          backgroundColor: AppColors.surface,
+          onRefresh: _fetchData,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
+            children: [
+              Row(
                 children: [
-                  const Text(
-                    'Sesión de hoy',
-                    style: TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _headlineDate(),
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Hola, $greeting',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Todo lo importante en una vista',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
+                  _NotificationBellButton(
+                    pendingCount: incomingRequests.length,
+                    loading: networkAsync.isLoading && incomingRequests.isEmpty,
+                    onTap: () => _openNotificationsDialog(
+                      incomingRequests,
+                      loading:
+                          networkAsync.isLoading && incomingRequests.isEmpty,
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _MetricTile(
-                          label: 'Clubes',
-                          value: _loadingVenues ? '—' : '${_venues.length}',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _MetricTile(
-                          label: 'Reservas',
-                          value: _loadingBookings
-                              ? '—'
-                              : '${upcomingBookings.length}',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _MetricTile(
-                          label: 'Partidos',
-                          value:
-                              _loadingMatches ? '—' : '${openMatches.length}',
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 10),
+                  _ChatBubbleButton(
+                    unreadCount: chatUnreadCount,
+                    onTap: () {
+                      appLightImpact();
+                      context.push('/players/chat');
+                    },
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: () {
+                      appLightImpact();
+                      context.push('/profile');
+                    },
+                    child: UserAvatar(
+                      displayName: greeting,
+                      avatarUrl: avatarUrl,
+                      size: 56,
+                      fontSize: 20,
+                      backgroundColor: AppColors.surface,
+                      borderColor: AppColors.border,
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 22),
-            _HomeSection(
-              title: 'Próximas reservas',
-              actionLabel: 'Ver calendario',
-              onAction: () => context.go('/calendar'),
-              child: _loadingBookings && upcomingBookings.isEmpty
-                  ? const LoadingSpinner()
-                  : upcomingBookings.isEmpty
-                      ? const _EmptyState(
-                          icon: Icons.calendar_today_outlined,
-                          message: 'No tienes reservas próximas.',
-                        )
-                      : Column(
-                          children: upcomingBookings
-                              .map((booking) =>
-                                  _BookingPreviewCard(booking: booking))
-                              .toList(),
+              const SizedBox(height: 22),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Sesión de hoy',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Clubes',
+                            value: _loadingVenues ? '—' : '${_venues.length}',
+                          ),
                         ),
-            ),
-            const SizedBox(height: 18),
-            const _HomeSection(
-              title: 'Clubes destacados',
-              actionLabel: 'Próximamente',
-              child: _EmptyState(
-                icon: Icons.sports_tennis_outlined,
-                message: 'Clubes disponible próximamente.',
-              ),
-            ),
-            if (loadingSummary)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Actualizando contenido...',
-                  style: TextStyle(color: AppColors.muted, fontSize: 12),
-                  textAlign: TextAlign.center,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Reservas',
+                            value: _loadingBookings
+                                ? '—'
+                                : '${upcomingBookings.length}',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Partidos',
+                            value:
+                                _loadingMatches ? '—' : '${openMatches.length}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-          ],
+              const SizedBox(height: 22),
+              _HomeSection(
+                title: 'Próximas reservas',
+                actionLabel: 'Ver calendario',
+                onAction: () => context.go('/calendar'),
+                child: _loadingBookings && upcomingBookings.isEmpty
+                    ? const LoadingSpinner()
+                    : upcomingBookings.isEmpty
+                        ? const _EmptyState(
+                            icon: Icons.calendar_today_outlined,
+                            message: 'No tienes reservas próximas.',
+                          )
+                        : Column(
+                            children: upcomingBookings
+                                .map((booking) =>
+                                    _BookingPreviewCard(booking: booking))
+                                .toList(),
+                          ),
+              ),
+              const SizedBox(height: 18),
+              const _HomeSection(
+                title: 'Clubes destacados',
+                actionLabel: 'Próximamente',
+                child: _EmptyState(
+                  icon: Icons.sports_tennis_outlined,
+                  message: 'Clubes disponible próximamente.',
+                ),
+              ),
+              if (loadingSummary)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Actualizando contenido...',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
