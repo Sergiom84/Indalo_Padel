@@ -12,7 +12,7 @@ Incluido en la app:
 - Preferencias visuales de nivel y horario (`Lunes a viernes`, `Fin de semana`, franjas), eliminación de cuenta y chat entre jugadores de Mi Red con grupos/eventos.
 - Push de chat con apertura directa de conversación, burbuja de mensajes en Inicio, contador ligero de no leídos y flechas de descubrimiento en la barra inferior scrollable.
 - Recordatorios externos de Google Calendar a 60 minutos por defecto, configurable con `GOOGLE_EVENT_REMINDER_MINUTES`.
-- Invitaciones de Google Calendar con lista de invitados oculta (`guestsCanSeeOtherGuests=false`) y descripciones con nombres visibles de la app, sin correos.
+- Eventos externos de Comunidad sin asistentes de Google por defecto, para evitar que Gmail/Calendar exponga correos en organizador, respuestas o lista de invitados. Las descripciones usan nombres visibles de la app, sin correos.
 
 Pendiente o parcial:
 - Verificar en producción/dispositivo real: permisos FCM, recepción foreground/background, tap de push y variable `GOOGLE_EVENT_REMINDER_MINUTES=60`.
@@ -116,6 +116,7 @@ El backend carga el `.env` de la raíz del proyecto.
 - `EMAIL_FROM`: remitente verificado en Resend, por ejemplo `Indalo Padel <no-reply@tu-dominio>`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`: sync con Google Calendar
 - `GOOGLE_CALENDAR_ID`: calendario destino (`primary` por defecto)
+- `GOOGLE_CALENDAR_SEND_COMMUNITY_INVITES`: si vale `true`, las convocatorias de Comunidad añaden asistentes reales al evento de Google y Google puede mostrar emails en sus correos automáticos; por defecto `false`.
 - `GOOGLE_EVENT_REMINDER_MINUTES`: minutos de antelación del recordatorio externo. Para producto usar `60`.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: service account para enviar push FCM desde backend
 - `CALENDAR_TIME_ZONE`: zona horaria de calendario, por defecto `Europe/Madrid`
@@ -125,6 +126,7 @@ Importante para producción:
 - Si falta esa configuración, la cuenta puede quedar creada pero el correo no se enviará hasta que el servicio de email vuelva a estar disponible.
 - Las push requieren `FIREBASE_SERVICE_ACCOUNT_JSON` en backend y configuración Firebase válida en la app móvil.
 - Los recordatorios externos de partidos/convocatorias dependen de que Google Calendar sync esté configurado y de que `GOOGLE_EVENT_REMINDER_MINUTES` sea `60`.
+- Para no exponer una cuenta personal como organizador de eventos de Google, usa una cuenta/calendario dedicado de Indalo Padel para `GOOGLE_REFRESH_TOKEN`, `GOOGLE_CALENDAR_ID` y `GOOGLE_ORGANIZER_EMAIL`.
 
 ## Notas de conexión Flutter
 

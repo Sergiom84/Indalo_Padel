@@ -32,6 +32,14 @@ const COMMUNITY_MODALITY_CAPACITY = {
   americana: 8,
 };
 
+function envFlag(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+function shouldSendCommunityCalendarInvites() {
+  return envFlag(process.env.GOOGLE_CALENDAR_SEND_COMMUNITY_INVITES);
+}
+
 function normalizeCommunityModality(value) {
   if (typeof value !== 'string') {
     return 'amistoso';
@@ -1140,31 +1148,33 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
     organizerEmail,
   );
   const seenAttendees = new Set();
-  const attendees = participants
-    .filter((participant) => participant.email)
-    .filter((participant) => {
-      const email = String(participant.email || '').toLowerCase().trim();
-      if (!email) {
-        return false;
-      }
+  const attendees = shouldSendCommunityCalendarInvites()
+    ? participants
+        .filter((participant) => participant.email)
+        .filter((participant) => {
+          const email = String(participant.email || '').toLowerCase().trim();
+          if (!email) {
+            return false;
+          }
 
-      if (excludeCalendarOwner && email === organizerEmail) {
-        return false;
-      }
+          if (excludeCalendarOwner && email === organizerEmail) {
+            return false;
+          }
 
-      if (seenAttendees.has(email)) {
-        return false;
-      }
+          if (seenAttendees.has(email)) {
+            return false;
+          }
 
-      seenAttendees.add(email);
-      return true;
-    })
-    .map((participant) => ({
-      email: participant.email,
-      displayName: participant.display_name || participant.nombre,
-      responseStatus: mapCommunityResponseStateToGoogle(participant.response_state),
-      optional: false,
-    }));
+          seenAttendees.add(email);
+          return true;
+        })
+        .map((participant) => ({
+          email: participant.email,
+          displayName: participant.display_name || participant.nombre || 'Jugador',
+          responseStatus: mapCommunityResponseStateToGoogle(participant.response_state),
+          optional: false,
+        }))
+    : [];
 
   const playersList = participants.length > 0
     ? participants
@@ -1196,6 +1206,7 @@ function buildCommunityReservationEventPayload({ plan, venue, participants }) {
       timeZone: APP_TIME_ZONE,
     },
     attendees,
+    visibility: 'private',
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     guestsCanSeeOtherGuests: false,

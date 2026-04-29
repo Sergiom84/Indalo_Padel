@@ -200,7 +200,7 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
     })
     .map((player) => ({
       email: player.email,
-      displayName: player.nombre || player.display_name || player.email,
+      displayName: player.nombre || player.display_name || 'Jugador',
       responseStatus: player.google_response_status || player.responseStatus || 'needsAction',
       optional: false,
     }));
@@ -226,6 +226,7 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
       timeZone: APP_TIME_ZONE,
     },
     attendees,
+    visibility: 'private',
     guestsCanModify: false,
     guestsCanInviteOthers: false,
     guestsCanSeeOtherGuests: false,
