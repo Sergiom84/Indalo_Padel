@@ -169,7 +169,8 @@ BEGIN
         'plan_cancelled',
         'plan_expired',
         'retry_timeout',
-        'conflict_warning'
+        'conflict_warning',
+        'result_ready'
       )
     );
 END;
