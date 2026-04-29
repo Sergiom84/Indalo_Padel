@@ -280,6 +280,10 @@ function buildConversationDto(row, participants, unreadCount, currentUserId) {
       ? Number(row.last_read_message_id)
       : null,
     last_read_at: row.last_read_at || null,
+    history_cleared_at: row.history_cleared_at || null,
+    history_cleared_before_message_id: row.history_cleared_before_message_id
+      ? Number(row.history_cleared_before_message_id)
+      : null,
     member_count: participants.length,
     participants,
     direct_peer: directPeer,
@@ -668,10 +672,12 @@ async function loadConversationRows(client, userId, conversationId = null) {
         c.last_message_id,
         c.last_message_at,
         c.created_at,
-        c.updated_at,
+        CASE WHEN lm.id IS NULL THEN c.created_at ELSE c.updated_at END AS updated_at,
         me.role AS my_role,
         me.last_read_message_id,
         me.last_read_at,
+        me.history_cleared_at,
+        me.history_cleared_before_message_id,
         me.joined_at AS my_joined_at,
         lm.id AS last_message_row_id,
         lm.message_type AS last_message_type,
@@ -721,8 +727,17 @@ async function loadConversationRows(client, userId, conversationId = null) {
       JOIN app.padel_chat_participants me
         ON me.conversation_id = c.id
        AND me.user_id = $1
-      LEFT JOIN app.padel_chat_messages lm
-        ON lm.id = c.last_message_id
+      LEFT JOIN LATERAL (
+        SELECT message.*
+        FROM app.padel_chat_messages message
+        WHERE message.conversation_id = c.id
+          AND (
+            me.history_cleared_before_message_id IS NULL
+            OR message.id > me.history_cleared_before_message_id
+          )
+        ORDER BY message.id DESC
+        LIMIT 1
+      ) lm ON TRUE
       LEFT JOIN app.padel_chat_attachments lm_attachment
         ON lm_attachment.message_id = lm.id
       LEFT JOIN app.users lm_user
@@ -748,8 +763,8 @@ async function loadConversationRows(client, userId, conversationId = null) {
           $2::int IS NOT NULL
           OR c.kind <> 'event'
           OR (
-            c.last_message_id IS NOT NULL
-            AND c.last_message_at >= NOW() - INTERVAL '10 days'
+            lm.id IS NOT NULL
+            AND lm.created_at >= NOW() - INTERVAL '10 days'
           )
           OR (
             cp.id IS NOT NULL
@@ -762,7 +777,7 @@ async function loadConversationRows(client, userId, conversationId = null) {
             ) >= (NOW() AT TIME ZONE $3)
           )
         )
-      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
+      ORDER BY COALESCE(lm.created_at, c.created_at) DESC, c.id DESC
     `,
     [userId, conversationId, APP_TIME_ZONE],
   );
@@ -838,6 +853,10 @@ async function loadUnreadCounts(client, userId, conversationIds) {
         AND (
           participant.last_read_message_id IS NULL
           OR message.id > participant.last_read_message_id
+        )
+        AND (
+          participant.history_cleared_before_message_id IS NULL
+          OR message.id > participant.history_cleared_before_message_id
         )
       GROUP BY participant.conversation_id
     `,
@@ -944,7 +963,11 @@ async function ensureConversationReadyForUser(client, conversationId, userId) {
 
   const membershipResult = await client.query(
     `
-      SELECT 1
+      SELECT
+        last_read_message_id,
+        last_read_at,
+        history_cleared_at,
+        history_cleared_before_message_id
       FROM app.padel_chat_participants
       WHERE conversation_id = $1
         AND user_id = $2
@@ -959,6 +982,15 @@ async function ensureConversationReadyForUser(client, conversationId, userId) {
 
   return {
     kind: conversation.kind,
+    last_read_message_id: membershipResult.rows[0].last_read_message_id
+      ? Number(membershipResult.rows[0].last_read_message_id)
+      : null,
+    last_read_at: membershipResult.rows[0].last_read_at || null,
+    history_cleared_at: membershipResult.rows[0].history_cleared_at || null,
+    history_cleared_before_message_id:
+      membershipResult.rows[0].history_cleared_before_message_id
+        ? Number(membershipResult.rows[0].history_cleared_before_message_id)
+        : null,
     event_plan_id: conversation.event_plan_id
       ? Number(conversation.event_plan_id)
       : null,
@@ -1015,6 +1047,10 @@ export async function getPadelChatUnreadCount(userId) {
           AND (
             participant.last_read_message_id IS NULL
             OR message.id > participant.last_read_message_id
+          )
+          AND (
+            participant.history_cleared_before_message_id IS NULL
+            OR message.id > participant.history_cleared_before_message_id
           )
       `,
       [userId],
@@ -1784,7 +1820,10 @@ export async function listPadelChatMessages({
       userId,
     );
 
-    const params = [conversationId];
+    const params = [
+      conversationId,
+      access.history_cleared_before_message_id || null,
+    ];
     let beforeClause = '';
 
     if (beforeMessageId) {
@@ -1822,6 +1861,10 @@ export async function listPadelChatMessages({
         LEFT JOIN app.padel_chat_attachments attachment
           ON attachment.message_id = message.id
         WHERE message.conversation_id = $1
+          AND (
+            $2::bigint IS NULL
+            OR message.id > $2::bigint
+          )
           ${beforeClause}
         ORDER BY message.id DESC
         LIMIT $${params.length}
@@ -2205,6 +2248,109 @@ export async function deletePadelChatMessages({
       body: {
         conversation,
         deleted_message_ids: deletedMessageIds,
+      },
+    };
+  } catch (error) {
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function clearPadelChatConversationHistory({
+  userId,
+  conversationId,
+}) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+
+    const access = await ensureConversationReadyForUser(
+      client,
+      conversationId,
+      userId,
+    );
+
+    if (!access) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 404,
+        body: {
+          error: 'Conversación no encontrada',
+        },
+      };
+    }
+
+    const lastMessageResult = await client.query(
+      `
+        SELECT id, created_at
+        FROM app.padel_chat_messages
+        WHERE conversation_id = $1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [conversationId],
+    );
+    const lastMessage = lastMessageResult.rows[0] || null;
+    const clearedBeforeMessageId = lastMessage ? Number(lastMessage.id) : null;
+    const clearedReadAt = lastMessage?.created_at || new Date().toISOString();
+
+    const participantResult = await client.query(
+      `
+        UPDATE app.padel_chat_participants
+        SET history_cleared_at = NOW(),
+            history_cleared_before_message_id = $3,
+            last_read_message_id = COALESCE($3, last_read_message_id),
+            last_read_at = $4,
+            updated_at = NOW()
+        WHERE conversation_id = $1
+          AND user_id = $2
+        RETURNING history_cleared_at
+      `,
+      [conversationId, userId, clearedBeforeMessageId, clearedReadAt],
+    );
+
+    if (participantResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return {
+        status: 404,
+        body: {
+          error: 'Conversación no encontrada',
+        },
+      };
+    }
+
+    const conversation = await loadConversationDtoById(
+      client,
+      conversationId,
+      userId,
+    );
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    emitPadelChatReadUpdated({
+      userIds: [Number(userId)],
+      conversationId,
+      userId,
+      messageId: clearedBeforeMessageId,
+      readAt: clearedReadAt,
+    });
+
+    return {
+      status: 200,
+      body: {
+        conversation,
+        cleared_before_message_id: clearedBeforeMessageId,
+        cleared_at: participantResult.rows[0].history_cleared_at,
       },
     };
   } catch (error) {

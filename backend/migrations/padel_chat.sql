@@ -23,11 +23,17 @@ CREATE TABLE IF NOT EXISTS app.padel_chat_participants (
   role VARCHAR(16) NOT NULL DEFAULT 'member',
   last_read_message_id BIGINT,
   last_read_at TIMESTAMPTZ,
+  history_cleared_at TIMESTAMPTZ,
+  history_cleared_before_message_id BIGINT,
   joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (conversation_id, user_id)
 );
+
+ALTER TABLE app.padel_chat_participants
+  ADD COLUMN IF NOT EXISTS history_cleared_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS history_cleared_before_message_id BIGINT;
 
 CREATE TABLE IF NOT EXISTS app.padel_chat_messages (
   id BIGSERIAL PRIMARY KEY,
@@ -160,6 +166,9 @@ CREATE INDEX IF NOT EXISTS idx_padel_chat_conversations_created_by
 
 CREATE INDEX IF NOT EXISTS idx_padel_chat_participants_user_id
   ON app.padel_chat_participants(user_id, conversation_id);
+
+CREATE INDEX IF NOT EXISTS idx_padel_chat_participants_history_cleared
+  ON app.padel_chat_participants(user_id, conversation_id, history_cleared_before_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_padel_chat_messages_conversation_id
   ON app.padel_chat_messages(conversation_id, id DESC);

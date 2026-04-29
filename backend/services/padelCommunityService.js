@@ -40,6 +40,8 @@ function shouldSendCommunityCalendarInvites() {
   return envFlag(process.env.GOOGLE_CALENDAR_SEND_COMMUNITY_INVITES);
 }
 
+const COMMUNITY_CALENDAR_MUTATION_OPTIONS = { sendUpdates: 'none' };
+
 function normalizeCommunityModality(value) {
   if (typeof value !== 'string') {
     return 'amistoso';
@@ -743,6 +745,143 @@ async function loadPlanBundle(client, planId, userId) {
   );
 }
 
+function formatCommunityNotificationDate(value) {
+  const normalized = normalizeDateValue(value, APP_TIME_ZONE);
+  if (!normalized) {
+    return '';
+  }
+
+  const [year, month, day] = normalized.split('-');
+  return year && month && day ? `${day}/${month}` : normalized;
+}
+
+function formatCommunityNotificationTime(value) {
+  const normalized = String(value || '').slice(0, 8);
+  return normalized.length >= 5 ? normalized.slice(0, 5) : '';
+}
+
+function formatCommunityNotificationVenue(plan) {
+  const venue = plan?.venue || {};
+  const location = [venue.address, venue.location]
+    .filter(Boolean)
+    .join(' - ');
+  return [venue.name, location].filter(Boolean).join(' - ');
+}
+
+function formatCommunityNotificationParticipants(participants = []) {
+  return participants
+    .map((participant) => participant.display_name || participant.nombre || 'Jugador')
+    .filter(Boolean)
+    .join(', ');
+}
+
+function buildCommunityNotificationDetails(plan) {
+  const date = formatCommunityNotificationDate(plan?.scheduled_date);
+  const time = formatCommunityNotificationTime(plan?.scheduled_time);
+  const details = [];
+
+  if (date || time) {
+    details.push([date, time ? `a las ${time}` : ''].filter(Boolean).join(' '));
+  }
+
+  const venue = formatCommunityNotificationVenue(plan);
+  if (venue) {
+    details.push(`Lugar: ${venue}`);
+  }
+
+  const players = formatCommunityNotificationParticipants(plan?.participants);
+  if (players) {
+    details.push(`Jugadores: ${players}`);
+  }
+
+  return details.join(' - ');
+}
+
+function buildCommunityNotificationMetadata(plan, actionType) {
+  return {
+    action_type: actionType,
+    scheduled_date: normalizeDateValue(plan?.scheduled_date, APP_TIME_ZONE),
+    scheduled_time: formatCommunityNotificationTime(plan?.scheduled_time),
+    venue_name: plan?.venue?.name || null,
+    participant_names: formatCommunityNotificationParticipants(plan?.participants),
+  };
+}
+
+function buildCommunityInvitationNotification(plan, { isUpdate = false } = {}) {
+  const organizerName = plan?.creator_name || 'El organizador';
+  const details = buildCommunityNotificationDetails(plan);
+  const intro = isUpdate
+    ? `${organizerName} ha actualizado la convocatoria`
+    : `${organizerName} te ha convocado a un partido`;
+
+  return {
+    title: isUpdate ? 'Convocatoria actualizada' : 'Nueva convocatoria',
+    message: details ? `${intro}. ${details}.` : `${intro}.`,
+    metadata: buildCommunityNotificationMetadata(plan, 'respond_invitation'),
+  };
+}
+
+function buildPlanReadyNotification(plan) {
+  const details = buildCommunityNotificationDetails(plan);
+  return {
+    title: 'Partido cerrado',
+    message: details
+      ? `Todos los jugadores han aceptado. ${details}.`
+      : 'Todos los jugadores han aceptado la convocatoria.',
+    metadata: buildCommunityNotificationMetadata(plan, 'review_plan'),
+  };
+}
+
+function buildReservationNotification(plan, {
+  confirmed,
+  handlerName,
+}) {
+  const details = buildCommunityNotificationDetails(plan);
+  if (confirmed) {
+    return {
+      title: 'Reserva confirmada',
+      message: details
+        ? `${handlerName} ha confirmado la reserva. ${details}.`
+        : `${handlerName} ha confirmado la reserva con el centro deportivo.`,
+      metadata: buildCommunityNotificationMetadata(plan, 'review_plan'),
+    };
+  }
+
+  return {
+    title: 'Seguimos intentando reservar',
+    message: details
+      ? `${handlerName} no ha conseguido la reserva todavía. Habrá un segundo intento. ${details}.`
+      : `${handlerName} no ha conseguido la reserva todavía. Habrá un segundo intento.`,
+    metadata: buildCommunityNotificationMetadata(plan, 'review_plan'),
+  };
+}
+
+async function loadUnreadCommunityNotificationCounts(client, userIds) {
+  const recipients = [...new Set((userIds || []).map((value) => Number(value)))]
+    .filter((value) => Number.isInteger(value));
+  if (!recipients.length) {
+    return new Map();
+  }
+
+  const result = await client.query(
+    `
+      SELECT user_id, COUNT(*) AS unread_count
+      FROM app.padel_community_notifications
+      WHERE user_id = ANY($1::int[])
+        AND is_read = false
+      GROUP BY user_id
+    `,
+    [recipients],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      Number(row.user_id),
+      Number.parseInt(row.unread_count, 10) || 1,
+    ]),
+  );
+}
+
 async function createNotifications(client, {
   planId,
   userIds,
@@ -773,13 +912,80 @@ async function createNotifications(client, {
     );
   }
 
+  const badgeCountByUser = await loadUnreadCommunityNotificationCounts(
+    client,
+    recipients,
+  );
+
   // Push notification (fire-and-forget, no interrumpe el flujo principal)
   sendPushToUsers({
     userIds: recipients,
     title,
     body: message,
     data: { planId: String(planId), type },
+    badgeCount: 1,
+    badgeCountByUser,
   }).catch(() => {});
+}
+
+async function notifyCommunityPlanInvitation(client, {
+  planId,
+  actorUserId,
+  recipientUserIds,
+  isUpdate = false,
+}) {
+  const bundle = await loadPlanBundle(client, planId, actorUserId);
+  if (!bundle) {
+    return;
+  }
+
+  const notification = buildCommunityInvitationNotification(bundle, { isUpdate });
+  await createNotifications(client, {
+    planId,
+    userIds: recipientUserIds,
+    excludeUserIds: [actorUserId],
+    type: 'plan_invitation',
+    title: notification.title,
+    message: notification.message,
+    metadata: notification.metadata,
+  });
+}
+
+async function notifyCommunityPlanReady(client, {
+  planId,
+  actorUserId,
+  previousInviteState,
+}) {
+  if (previousInviteState === 'ready') {
+    return;
+  }
+
+  const existingResult = await client.query(
+    `SELECT 1
+     FROM app.padel_community_notifications
+     WHERE plan_id = $1
+       AND type = 'plan_ready'
+     LIMIT 1`,
+    [planId],
+  );
+  if (existingResult.rows.length > 0) {
+    return;
+  }
+
+  const bundle = await loadPlanBundle(client, planId, actorUserId);
+  if (!bundle || bundle.invite_state !== 'ready') {
+    return;
+  }
+
+  const notification = buildPlanReadyNotification(bundle);
+  await createNotifications(client, {
+    planId,
+    userIds: bundle.participants.map((participant) => Number(participant.user_id)),
+    type: 'plan_ready',
+    title: notification.title,
+    message: notification.message,
+    metadata: notification.metadata,
+  });
 }
 
 async function updateInviteState(client, planId, nextState, extraUpdates = {}) {
@@ -1289,7 +1495,12 @@ async function syncCommunityCalendarEvent(client, plan, userId) {
     });
 
     if (plan.google_event_id) {
-      await updateCalendarEvent(plan.google_event_id, payload);
+      await updateCalendarEvent(
+        plan.google_event_id,
+        payload,
+        undefined,
+        COMMUNITY_CALENDAR_MUTATION_OPTIONS,
+      );
       await client.query(
         `UPDATE app.padel_community_plans
          SET calendar_sync_status = 'synced',
@@ -1301,7 +1512,11 @@ async function syncCommunityCalendarEvent(client, plan, userId) {
       return { google_event_id: plan.google_event_id, sync_error: null };
     }
 
-    const createdEvent = await createCalendarEvent(payload);
+    const createdEvent = await createCalendarEvent(
+      payload,
+      undefined,
+      COMMUNITY_CALENDAR_MUTATION_OPTIONS,
+    );
     const googleEventId = createdEvent?.id || null;
 
     if (googleEventId) {
@@ -1683,6 +1898,12 @@ export async function createCommunityPlan({
       );
     }
 
+    await notifyCommunityPlanInvitation(client, {
+      planId: plan.id,
+      actorUserId: userId,
+      recipientUserIds: participantPool.participantIds,
+    });
+
     await client.query('COMMIT');
 
     let calendarInfo = {
@@ -1943,6 +2164,13 @@ export async function updateCommunityPlan({
       );
     }
 
+    await notifyCommunityPlanInvitation(client, {
+      planId,
+      actorUserId: userId,
+      recipientUserIds: participantPool.participantIds,
+      isUpdate: true,
+    });
+
     await client.query('COMMIT');
 
     let calendarInfo = {
@@ -2144,7 +2372,14 @@ export async function respondToCommunityPlan({
         },
       });
     } else {
-      await recomputeInviteState(client, planId);
+      const nextInviteState = await recomputeInviteState(client, planId);
+      if (nextInviteState === 'ready') {
+        await notifyCommunityPlanReady(client, {
+          planId,
+          actorUserId: userId,
+          previousInviteState: plan.invite_state,
+        });
+      }
     }
 
     await client.query('COMMIT');
@@ -2431,25 +2666,25 @@ export async function updateCommunityReservationStatus({
       (row) => Number(row.user_id) === Number(handlerId),
     );
     const handlerName = displayNameFromRow(handler);
+    const updatedPlanBundle = await loadPlanBundle(client, planId, userId);
+    const reservationNotification = buildReservationNotification(updatedPlanBundle, {
+      confirmed,
+      handlerName,
+    });
 
     const notificationType = confirmed
       ? 'reservation_confirmed'
       : 'reservation_retry';
-    const notificationTitle = confirmed
-      ? 'Reserva confirmada'
-      : 'Seguimos intentando reservar';
-    const notificationMessage = confirmed
-      ? `${handlerName} ha confirmado la reserva con el centro deportivo.`
-      : `${handlerName} no ha conseguido la reserva todavía. Habrá un segundo intento.`;
 
     await createNotifications(client, {
       planId,
       userIds: participantIds,
       excludeUserIds: confirmed ? [] : [userId],
       type: notificationType,
-      title: notificationTitle,
-      message: notificationMessage,
+      title: reservationNotification.title,
+      message: reservationNotification.message,
       metadata: {
+        ...reservationNotification.metadata,
         handled_by_user_id: handlerId,
         handled_by_name: handlerName,
         reservation_state: confirmed ? 'confirmed' : 'retry',
@@ -2560,7 +2795,11 @@ export async function cancelCommunityPlan({
     let calendarSyncError = null;
     if (plan.google_event_id) {
       try {
-        await deleteCalendarEvent(plan.google_event_id);
+        await deleteCalendarEvent(
+          plan.google_event_id,
+          undefined,
+          COMMUNITY_CALENDAR_MUTATION_OPTIONS,
+        );
         await pool.query(
           `UPDATE app.padel_community_plans
            SET calendar_sync_status = 'synced',
@@ -2767,8 +3006,16 @@ async function createResultReadyNotificationsForFinishedPlans(client) {
       continue;
     }
 
+    const bundle = await loadPlanBundle(client, planId, missingIds[0]);
+    const details = buildCommunityNotificationDetails(bundle);
     const title = 'Resultado pendiente';
-    const message = 'El partido ya ha terminado. Registra el resultado para cerrar la convocatoria.';
+    const message = details
+      ? `El partido ya ha terminado. ${details}. Registra el resultado para cerrar la convocatoria.`
+      : 'El partido ya ha terminado. Registra el resultado para cerrar la convocatoria.';
+    const metadata = {
+      ...buildCommunityNotificationMetadata(bundle, 'submit_result'),
+      action_type: 'submit_result',
+    };
     const insertResult = await client.query(
       `
         WITH recipients AS (
@@ -2799,7 +3046,7 @@ async function createResultReadyNotificationsForFinishedPlans(client) {
         'result_ready',
         title,
         message,
-        JSON.stringify({ action_type: 'submit_result' }),
+        JSON.stringify(metadata),
       ],
     );
 
@@ -2811,11 +3058,17 @@ async function createResultReadyNotificationsForFinishedPlans(client) {
     }
 
     notifiedCount += notifiedUserIds.length;
+    const badgeCountByUser = await loadUnreadCommunityNotificationCounts(
+      client,
+      notifiedUserIds,
+    );
     sendPushToUsers({
       userIds: notifiedUserIds,
       title,
       body: message,
       data: { planId: String(planId), type: 'result_ready' },
+      badgeCount: 1,
+      badgeCountByUser,
     }).catch(() => {});
   }
 

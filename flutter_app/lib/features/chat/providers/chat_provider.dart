@@ -188,6 +188,21 @@ class ChatRepository {
     );
   }
 
+  Future<ChatConversationModel?> clearHistory({
+    required int conversationId,
+  }) async {
+    final data = await _api.delete(
+      '/padel/chat/conversations/$conversationId/history',
+      data: const {},
+    );
+    if (data is Map && data['conversation'] is Map) {
+      return ChatConversationModel.fromJson(
+        Map<String, dynamic>.from(data['conversation'] as Map),
+      );
+    }
+    return null;
+  }
+
   Future<void> markConversationRead(
     int conversationId, {
     int? messageId,
@@ -599,6 +614,34 @@ class ChatThreadController extends StateNotifier<ChatThreadState> {
         deleting: false,
         error: error.toString(),
       );
+    }
+  }
+
+  Future<bool> clearHistory() async {
+    if (state.deleting) {
+      return false;
+    }
+
+    state = state.copyWith(deleting: true, clearError: true);
+    try {
+      final repository = _ref.read(chatRepositoryProvider);
+      final conversation = await repository.clearHistory(
+        conversationId: _args.conversationId,
+      );
+      state = state.copyWith(
+        conversation: conversation ?? state.conversation,
+        messages: const [],
+        deleting: false,
+      );
+      _ref.invalidate(chatConversationsProvider);
+      _ref.invalidate(chatUnreadCountValueProvider);
+      return true;
+    } catch (error) {
+      state = state.copyWith(
+        deleting: false,
+        error: error.toString(),
+      );
+      return false;
     }
   }
 

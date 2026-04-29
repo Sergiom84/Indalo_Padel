@@ -251,6 +251,14 @@ async function loadCommunityInvitationAlerts(client, userId) {
         AND cpp.response_state IN ('pending', 'doubt')
         AND cp.invite_state NOT IN ('cancelled', 'expired')
         AND cp.reservation_state NOT IN ('confirmed', 'cancelled', 'expired')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM app.padel_community_notifications n
+          WHERE n.plan_id = cp.id
+            AND n.user_id = $1
+            AND n.type = 'plan_invitation'
+            AND n.is_read = false
+        )
       ORDER BY cp.scheduled_date ASC, cp.scheduled_time ASC, cp.id ASC
       LIMIT 20
     `,

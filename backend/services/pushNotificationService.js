@@ -64,6 +64,27 @@ async function getAccessToken() {
   return cachedToken;
 }
 
+function normalizeBadgeCount(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function resolveBadgeCountForUser(badgeCountByUser, userId, fallback) {
+  if (!badgeCountByUser) {
+    return normalizeBadgeCount(fallback);
+  }
+
+  if (badgeCountByUser instanceof Map) {
+    return normalizeBadgeCount(badgeCountByUser.get(Number(userId)) ?? fallback);
+  }
+
+  return normalizeBadgeCount(
+    badgeCountByUser[Number(userId)] ??
+      badgeCountByUser[String(userId)] ??
+      fallback,
+  );
+}
+
 /**
  * Registra o actualiza el token FCM de un dispositivo.
  */
@@ -93,14 +114,21 @@ export async function deleteFcmToken({ userId, token }) {
  * Envía push a todos los dispositivos activos de los usuarios indicados.
  * Fire-and-forget: no interrumpe el flujo principal si falla.
  */
-export async function sendPushToUsers({ userIds, title, body, data = {} }) {
+export async function sendPushToUsers({
+  userIds,
+  title,
+  body,
+  data = {},
+  badgeCount = null,
+  badgeCountByUser = null,
+}) {
   if (!userIds?.length) return;
 
   const sa = getServiceAccount();
   if (!sa) return;
 
   const { rows } = await pool.query(
-    'SELECT token FROM app.padel_fcm_tokens WHERE user_id = ANY($1)',
+    'SELECT user_id, token FROM app.padel_fcm_tokens WHERE user_id = ANY($1)',
     [userIds],
   );
   if (!rows.length) return;
@@ -118,7 +146,17 @@ export async function sendPushToUsers({ userIds, title, body, data = {} }) {
   const invalidTokens = [];
   let ok = 0;
 
-  await Promise.all(rows.map(async ({ token }) => {
+  await Promise.all(rows.map(async ({ user_id: rowUserId, token }) => {
+    const normalizedBadgeCount = resolveBadgeCountForUser(
+      badgeCountByUser,
+      rowUserId,
+      badgeCount,
+    );
+    const payloadData = {
+      ...data,
+      ...(normalizedBadgeCount ? { badge_count: normalizedBadgeCount } : {}),
+    };
+
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -131,12 +169,29 @@ export async function sendPushToUsers({ userIds, title, body, data = {} }) {
             token,
             notification: { title, body },
             data: Object.fromEntries(
-              Object.entries(data).map(([k, v]) => [k, String(v)]),
+              Object.entries(payloadData).map(([k, v]) => [k, String(v)]),
             ),
             android: {
               priority: 'high',
-              notification: { channel_id: 'indalo_alerts' },
+              notification: {
+                channel_id: 'indalo_alerts',
+                ...(normalizedBadgeCount
+                  ? { notification_count: normalizedBadgeCount }
+                  : {}),
+              },
             },
+            ...(normalizedBadgeCount
+              ? {
+                  apns: {
+                    payload: {
+                      aps: {
+                        badge: normalizedBadgeCount,
+                        sound: 'default',
+                      },
+                    },
+                  },
+                }
+              : {}),
           },
         }),
       });

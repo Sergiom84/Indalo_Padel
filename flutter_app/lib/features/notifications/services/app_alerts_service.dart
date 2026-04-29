@@ -45,12 +45,8 @@ class AppAlertsService {
         .where((alert) => !previousKeys.contains(alert.uniqueKey))
         .toList(growable: false);
 
-    final localAlerts = newAlerts
-        .where((alert) => alert.scope == AppAlertScope.players)
-        .toList(growable: false);
-
-    if (localAlerts.isNotEmpty) {
-      await LocalNotificationService.instance.showAlerts(localAlerts);
+    if (newAlerts.isNotEmpty) {
+      await LocalNotificationService.instance.showAlerts(newAlerts);
     }
 
     await _saveStoredKeys(currentKeys);

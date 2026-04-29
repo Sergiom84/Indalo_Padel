@@ -204,6 +204,51 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
     });
   }
 
+  Future<void> _confirmClearHistory(ChatThreadController controller) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text(
+          'Vaciar historial',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Se vaciará el historial de este chat solo para ti. El resto de participantes conservará sus mensajes.',
+          style: TextStyle(color: AppColors.light),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Vaciar historial'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    final cleared = await controller.clearHistory();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedMessageIds.clear();
+      _selectionMode = false;
+    });
+    if (cleared) {
+      _showSnack('Historial vaciado.');
+    }
+  }
+
   void _showSnack(String message) {
     if (!mounted) {
       return;
@@ -429,6 +474,20 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> {
               onPressed: _selectedMessageIds.isEmpty || state.deleting
                   ? null
                   : () => _confirmDeleteSelected(controller),
+            ),
+          if (!_selectionMode)
+            IconButton(
+              tooltip: 'Vaciar historial',
+              icon: state.deleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_sweep_outlined),
+              onPressed: state.messages.isEmpty || state.deleting
+                  ? null
+                  : () => _confirmClearHistory(controller),
             ),
           IconButton(
             tooltip: _selectionMode ? 'Cancelar selección' : 'Editar mensajes',

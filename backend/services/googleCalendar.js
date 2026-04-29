@@ -70,6 +70,13 @@ export function isGoogleCalendarConfigured() {
   );
 }
 
+function normalizeMutationSendUpdates(value) {
+  const normalized = String(value || 'all').trim();
+  return ['all', 'externalOnly', 'none'].includes(normalized)
+    ? normalized
+    : 'all';
+}
+
 async function getAccessToken() {
   if (!isGoogleCalendarConfigured()) {
     throw new Error('Google Calendar no está configurado');
@@ -243,31 +250,44 @@ export function buildBookingEventPayload({ booking, venue, court, players = [], 
   };
 }
 
-export async function createCalendarEvent(eventPayload, calendarId = buildCalendarId()) {
+export async function createCalendarEvent(
+  eventPayload,
+  calendarId = buildCalendarId(),
+  options = {},
+) {
   return requestCalendar(`/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
     query: {
-      sendUpdates: 'all',
+      sendUpdates: normalizeMutationSendUpdates(options.sendUpdates),
     },
     body: eventPayload,
   });
 }
 
-export async function updateCalendarEvent(eventId, eventPayload, calendarId = buildCalendarId()) {
+export async function updateCalendarEvent(
+  eventId,
+  eventPayload,
+  calendarId = buildCalendarId(),
+  options = {},
+) {
   return requestCalendar(`/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
     method: 'PATCH',
     query: {
-      sendUpdates: 'all',
+      sendUpdates: normalizeMutationSendUpdates(options.sendUpdates),
     },
     body: eventPayload,
   });
 }
 
-export async function deleteCalendarEvent(eventId, calendarId = buildCalendarId()) {
+export async function deleteCalendarEvent(
+  eventId,
+  calendarId = buildCalendarId(),
+  options = {},
+) {
   return requestCalendar(`/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
     method: 'DELETE',
     query: {
-      sendUpdates: 'all',
+      sendUpdates: normalizeMutationSendUpdates(options.sendUpdates),
     },
   });
 }

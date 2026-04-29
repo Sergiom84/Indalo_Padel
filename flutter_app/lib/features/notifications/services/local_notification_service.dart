@@ -102,8 +102,9 @@ class LocalNotificationService {
         : 'Tienes ${alerts.length} nuevas notificaciones';
     final body =
         alerts.length == 1 ? alerts.first.body : _buildSummaryBody(alerts);
+    final notificationCount = alerts.length;
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
         _channelId,
         _channelName,
@@ -111,16 +112,19 @@ class LocalNotificationService {
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_launcher',
+        number: notificationCount,
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        badgeNumber: notificationCount,
       ),
       macOS: DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        badgeNumber: notificationCount,
       ),
     );
 

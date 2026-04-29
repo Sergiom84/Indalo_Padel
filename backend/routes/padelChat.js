@@ -3,6 +3,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
+  clearPadelChatConversationHistory,
   createPadelGroupConversation,
   createPadelSocialEvent,
   deletePadelChatMessages,
@@ -172,6 +173,24 @@ router.get(
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error('Error obteniendo conversación de chat:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  },
+);
+
+router.delete(
+  '/conversations/:id/history',
+  authenticateToken,
+  validate(conversationParamsSchema, 'params'),
+  async (req, res) => {
+    try {
+      const result = await clearPadelChatConversationHistory({
+        userId: req.user.userId,
+        conversationId: req.params.id,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error('Error vaciando historial de chat:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   },

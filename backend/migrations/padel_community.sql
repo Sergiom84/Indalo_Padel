@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS app.padel_community_notifications (
   plan_id INTEGER NOT NULL REFERENCES app.padel_community_plans(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
   type VARCHAR(32) NOT NULL
-    CHECK (type IN ('member_declined', 'reschedule_proposed', 'reservation_retry', 'reservation_confirmed')),
+    CHECK (type IN ('member_declined', 'reschedule_proposed', 'reservation_retry', 'reservation_confirmed', 'plan_invitation', 'plan_ready')),
   title TEXT NOT NULL,
   message TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,

@@ -164,6 +164,8 @@ BEGIN
         'reschedule_proposed',
         'reservation_retry',
         'reservation_confirmed',
+        'plan_invitation',
+        'plan_ready',
         'plan_cancelled',
         'plan_expired',
         'retry_timeout',
