@@ -679,58 +679,6 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
   }
 }
 
-class _NetworkSection extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final List<Widget> children;
-  final String emptyMessage;
-
-  const _NetworkSection({
-    required this.title,
-    required this.subtitle,
-    required this.children,
-    required this.emptyMessage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
-          if (children.isEmpty)
-            _EmptyPlayersState(
-              icon: Icons.inbox_outlined,
-              message: emptyMessage,
-            )
-          else
-            ...children,
-        ],
-      ),
-    );
-  }
-}
-
 class _PlayerConnectionCard extends StatelessWidget {
   final PlayerModel player;
   final VoidCallback onTap;

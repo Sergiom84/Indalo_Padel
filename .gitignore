@@ -8,5 +8,7 @@ flutter_app/.flutter-plugins-dependencies
 flutter_app/.packages
 .env
 *.log
+.DS_Store
+.codex/
 .claude/
 .puro/
