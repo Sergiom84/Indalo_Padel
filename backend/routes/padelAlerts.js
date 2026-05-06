@@ -341,6 +341,7 @@ async function loadCommunityNotificationAlerts(client, userId) {
       SELECT
         n.id,
         n.plan_id,
+        n.type,
         n.title,
         n.message,
         n.metadata,
@@ -362,6 +363,7 @@ async function loadCommunityNotificationAlerts(client, userId) {
     const metadata = row.metadata || {};
     const alert = {
       unique_key: `community-notification:${row.id}`,
+      kind: row.type || '',
       title: row.title || 'Aviso de comunidad',
       body: row.message || '',
     };
@@ -445,15 +447,17 @@ async function loadPendingResultPlans(client, userId) {
         cp.created_at,
         cp.updated_at,
         v.name AS venue_name,
-        mine.response_state AS my_response_state,
+        CASE
+          WHEN cp.created_by = $1 THEN 'accepted'
+          ELSE mine.response_state
+        END AS my_response_state,
         COALESCE(accepted.accepted_count, 0) AS accepted_count,
         mr.status AS result_status,
         my_submission.id AS my_submission_id
       FROM app.padel_community_plans cp
-      JOIN app.padel_community_plan_players mine
+      LEFT JOIN app.padel_community_plan_players mine
         ON mine.plan_id = cp.id
        AND mine.user_id = $1
-       AND mine.response_state = 'accepted'
       JOIN app.users creator ON creator.id = cp.created_by
       LEFT JOIN app.padel_player_profiles creator_profile
         ON creator_profile.user_id = cp.created_by
@@ -463,13 +467,27 @@ async function loadPendingResultPlans(client, userId) {
         ON my_submission.plan_id = cp.id
        AND my_submission.user_id = $1
       LEFT JOIN (
-        SELECT plan_id, COUNT(*) AS accepted_count
-        FROM app.padel_community_plan_players
-        WHERE response_state = 'accepted'
+        SELECT plan_id, COUNT(DISTINCT user_id) AS accepted_count
+        FROM (
+          SELECT cpp.plan_id, cpp.user_id
+          FROM app.padel_community_plan_players cpp
+          JOIN app.padel_community_plans cp2 ON cp2.id = cpp.plan_id
+          WHERE cpp.response_state = 'accepted'
+             OR cpp.user_id = cp2.created_by
+
+          UNION ALL
+
+          SELECT id AS plan_id, created_by AS user_id
+          FROM app.padel_community_plans
+        ) accepted_members
         GROUP BY plan_id
       ) accepted ON accepted.plan_id = cp.id
       WHERE cp.reservation_state = 'confirmed'
         AND cp.invite_state NOT IN ('cancelled', 'expired')
+        AND (
+          cp.created_by = $1
+          OR mine.response_state = 'accepted'
+        )
         AND my_submission.id IS NULL
         AND COALESCE(mr.status, '') <> 'consensuado'
       ORDER BY cp.scheduled_date DESC, cp.scheduled_time DESC, cp.id DESC
@@ -495,24 +513,61 @@ async function loadPendingResultPlans(client, userId) {
   const planIds = rows.map((row) => Number(row.id));
   const participantResult = await client.query(
     `
+      WITH plan_members AS (
+        SELECT
+          cpp.plan_id,
+          cpp.user_id,
+          CASE
+            WHEN cpp.user_id = cp.created_by THEN 'organizer'
+            ELSE cpp.role
+          END AS role,
+          CASE
+            WHEN cpp.user_id = cp.created_by THEN 'accepted'
+            ELSE cpp.response_state
+          END AS response_state,
+          CASE
+            WHEN cpp.user_id = cp.created_by
+              THEN COALESCE(cpp.responded_at, cpp.created_at)
+            ELSE cpp.responded_at
+          END AS responded_at
+        FROM app.padel_community_plan_players cpp
+        JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
+        WHERE cpp.plan_id = ANY($1::int[])
+
+        UNION ALL
+
+        SELECT
+          cp.id AS plan_id,
+          cp.created_by AS user_id,
+          'organizer' AS role,
+          'accepted' AS response_state,
+          cp.created_at AS responded_at
+        FROM app.padel_community_plans cp
+        WHERE cp.id = ANY($1::int[])
+          AND NOT EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players cpp
+            WHERE cpp.plan_id = cp.id
+              AND cpp.user_id = cp.created_by
+          )
+      )
       SELECT
-        cpp.plan_id,
-        cpp.user_id,
+        pm.plan_id,
+        pm.user_id,
         COALESCE(NULLIF(pp.display_name, ''), u.nombre, 'Jugador') AS display_name,
         u.nombre,
         pp.numeric_level,
         pp.main_level,
         pp.sub_level,
-        cpp.role,
-        cpp.response_state,
-        cpp.responded_at
-      FROM app.padel_community_plan_players cpp
-      JOIN app.users u ON u.id = cpp.user_id
-      LEFT JOIN app.padel_player_profiles pp ON pp.user_id = cpp.user_id
-      WHERE cpp.plan_id = ANY($1::int[])
+        pm.role,
+        pm.response_state,
+        pm.responded_at
+      FROM plan_members pm
+      JOIN app.users u ON u.id = pm.user_id
+      LEFT JOIN app.padel_player_profiles pp ON pp.user_id = pm.user_id
       ORDER BY
-        cpp.plan_id ASC,
-        CASE WHEN cpp.role = 'organizer' THEN 0 ELSE 1 END,
+        pm.plan_id ASC,
+        CASE WHEN pm.role = 'organizer' THEN 0 ELSE 1 END,
         u.nombre ASC
     `,
     [planIds],

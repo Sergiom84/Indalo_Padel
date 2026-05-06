@@ -11,13 +11,16 @@ class AppAlertsService {
   static final AppAlertsService instance = AppAlertsService._();
 
   static const _storagePrefix = 'padel_notified_alerts_';
+  static const _seenStoragePrefix = 'padel_seen_alerts_';
   static const _ratingSeenStoragePrefix = 'padel_seen_rating_alerts_';
 
   final ApiClient _api = ApiClient();
 
   Future<AppAlertsState> refresh({bool notifyOnNew = true}) async {
     final fetchedState = await _fetchAlertsSnapshot();
-    final state = await _filterSeenRatingAlerts(fetchedState);
+    final state = await _filterSeenRatingAlerts(
+      await _filterSeenAlerts(fetchedState),
+    );
     if (notifyOnNew) {
       await _notifyNewAlerts(state);
     }
@@ -28,6 +31,10 @@ class AppAlertsService {
     final key = await _storageKey(_storagePrefix);
     if (key != null) {
       await SecureStorage.deleteValue(key);
+    }
+    final seenKey = await _storageKey(_seenStoragePrefix);
+    if (seenKey != null) {
+      await SecureStorage.deleteValue(seenKey);
     }
     final ratingSeenKey = await _storageKey(_ratingSeenStoragePrefix);
     if (ratingSeenKey != null) {
@@ -44,10 +51,28 @@ class AppAlertsService {
 
     final currentKeys = await _loadStoredKeys(_ratingSeenStoragePrefix);
     final mergedKeys = <String>{
-      ...currentKeys,
       ...alerts.map((alert) => alert.uniqueKey),
+      ...currentKeys,
     }.toList(growable: false);
     await _saveStoredKeys(_ratingSeenStoragePrefix, mergedKeys);
+  }
+
+  Future<void> markAlertsSeen(AppAlertsState state) async {
+    final keys = state.visibleAlertKeys.toList(growable: false);
+    if (keys.isEmpty) {
+      return;
+    }
+
+    await _markCommunityNotificationsRead(keys);
+
+    final currentKeys = await _loadStoredKeys(_seenStoragePrefix);
+    final mergedKeys =
+        <String>{...keys, ...currentKeys}.toList(growable: false);
+    await _saveStoredKeys(_seenStoragePrefix, mergedKeys);
+
+    if (state.profileRatingAlerts.isNotEmpty) {
+      await markProfileRatingAlertsSeen(state.profileRatingAlerts);
+    }
   }
 
   Future<AppAlertsState> _fetchAlertsSnapshot() async {
@@ -76,6 +101,39 @@ class AppAlertsService {
           .where((alert) => !seenSet.contains(alert.uniqueKey))
           .toList(growable: false),
     );
+  }
+
+  Future<AppAlertsState> _filterSeenAlerts(AppAlertsState state) async {
+    final seenKeys = await _loadStoredKeys(_seenStoragePrefix);
+    if (seenKeys.isEmpty) {
+      return state;
+    }
+
+    return state.withoutAlertKeys(seenKeys.toSet());
+  }
+
+  Future<void> _markCommunityNotificationsRead(List<String> keys) async {
+    final notificationIds = keys
+        .map(_communityNotificationIdFromKey)
+        .whereType<int>()
+        .toSet()
+        .toList(growable: false);
+
+    for (final id in notificationIds) {
+      try {
+        await _api.post('/padel/community/notifications/$id/read', data: {});
+      } catch (_) {
+        // La lectura local evita que la campana siga mostrando un aviso ya visto.
+      }
+    }
+  }
+
+  int? _communityNotificationIdFromKey(String key) {
+    const prefix = 'community-notification:';
+    if (!key.startsWith(prefix)) {
+      return null;
+    }
+    return int.tryParse(key.substring(prefix.length));
   }
 
   Future<void> _notifyNewAlerts(AppAlertsState state) async {
@@ -120,7 +178,7 @@ class AppAlertsService {
       return;
     }
 
-    final trimmed = keys.take(60).toList(growable: false);
+    final trimmed = keys.take(120).toList(growable: false);
     await SecureStorage.writeValue(key, jsonEncode(trimmed));
   }
 

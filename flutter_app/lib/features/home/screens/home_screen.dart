@@ -305,7 +305,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return all;
   }
 
-  List<dynamic> get _upcomingBookings => _allUpcomingBookings.take(3).toList();
+  List<Map<String, dynamic>> get _featuredVenues => _venues
+      .whereType<Map>()
+      .map((venue) => Map<String, dynamic>.from(venue))
+      .take(3)
+      .toList(growable: false);
 
   int _dashboardMetric(String key, int fallback) =>
       _asInt(_metrics[key]) ?? fallback;
@@ -338,15 +342,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final avatarUrl = profile?['avatar_url']?.toString();
     final loadingSummary =
         _loadingVenues || _loadingBookings || _loadingMatches;
-    final upcomingBookings = _upcomingBookings;
-    final upcomingBookingsCount = _dashboardMetric(
+    final allUpcomingBookings = _allUpcomingBookings;
+    final upcomingBookings = allUpcomingBookings.take(3).toList();
+    final dashboardUpcomingBookingsCount = _dashboardMetric(
       'upcoming_bookings',
-      _allUpcomingBookings.length,
+      allUpcomingBookings.length,
     );
+    final upcomingBookingsCount =
+        dashboardUpcomingBookingsCount > allUpcomingBookings.length
+            ? dashboardUpcomingBookingsCount
+            : allUpcomingBookings.length;
     final openMatchesCount = _dashboardMetric(
       'open_matches',
       _allOpenMatches.length,
     );
+    final featuredVenues = _featuredVenues;
     final notificationsCount =
         _notificationCount(alerts, fallbackRequests: incomingRequests.length);
     final notificationsLoading = (alerts.loading && notificationsCount == 0) ||
@@ -498,13 +508,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
               ),
               const SizedBox(height: 18),
-              const _HomeSection(
+              _HomeSection(
                 title: 'Clubes destacados',
-                actionLabel: 'Próximamente',
-                child: _EmptyState(
-                  icon: Icons.sports_tennis_outlined,
-                  message: 'Clubes disponible próximamente.',
-                ),
+                actionLabel: 'Ver clubes',
+                onAction:
+                    featuredVenues.isEmpty ? null : () => context.go('/venues'),
+                child: _loadingVenues && featuredVenues.isEmpty
+                    ? const LoadingSpinner()
+                    : featuredVenues.isEmpty
+                        ? const _EmptyState(
+                            icon: Icons.sports_tennis_outlined,
+                            message: 'No hay clubes destacados.',
+                          )
+                        : Column(
+                            children: featuredVenues
+                                .map((venue) => _VenuePreviewCard(venue: venue))
+                                .toList(),
+                          ),
               ),
               if (loadingSummary)
                 const Padding(
@@ -765,6 +785,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       },
     );
+
+    if (mounted && alerts.hasHomeNotifications) {
+      await ref.read(appAlertsProvider.notifier).markAlertsSeen(alerts);
+    }
   }
 
   AppAlertItem _alertFromPendingPlan(CommunityPlanModel plan) {
@@ -774,7 +798,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ].whereType<String>().where((item) => item.isNotEmpty).join(' · ');
 
     return AppAlertItem(
-      uniqueKey: 'pending-result:${plan.id}',
+      uniqueKey: pendingResultAlertKey(plan),
       scope: AppAlertScope.communityPlanner,
       kind: 'pending_result',
       title: 'Resultado pendiente',
@@ -1092,6 +1116,151 @@ class _HomeSection extends StatelessWidget {
           const SizedBox(height: 10),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _VenuePreviewCard extends StatelessWidget {
+  final Map<String, dynamic> venue;
+
+  const _VenuePreviewCard({required this.venue});
+
+  String get _name => (venue['name'] ?? venue['nombre'] ?? 'Club').toString();
+
+  String get _location =>
+      (venue['location'] ?? venue['ubicacion'] ?? venue['address'] ?? '')
+          .toString();
+
+  int? get _id {
+    final raw = venue['id'];
+    if (raw is int) {
+      return raw;
+    }
+    if (raw is num) {
+      return raw.toInt();
+    }
+    if (raw is String) {
+      return int.tryParse(raw);
+    }
+    return null;
+  }
+
+  bool get _isComingSoon {
+    final status = (venue['booking_status'] ?? '').toString();
+    if (status == 'coming_soon') {
+      return true;
+    }
+    final raw = venue['is_bookable'];
+    if (raw is bool) {
+      return !raw;
+    }
+    if (raw is num) {
+      return raw == 0;
+    }
+    if (raw is String) {
+      final normalized = raw.trim().toLowerCase();
+      return normalized == 'false' || normalized == '0';
+    }
+    return false;
+  }
+
+  String? get _hoursLabel {
+    final opening = venue['opening_time']?.toString();
+    final closing = venue['closing_time']?.toString();
+    if (opening == null ||
+        opening.trim().isEmpty ||
+        closing == null ||
+        closing.trim().isEmpty) {
+      return null;
+    }
+
+    return '${_shortTime(opening)} - ${_shortTime(closing)}';
+  }
+
+  String _shortTime(String raw) => raw.length >= 5 ? raw.substring(0, 5) : raw;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = _id;
+    final isComingSoon = _isComingSoon;
+    final statusColor = isComingSoon ? AppColors.warning : AppColors.success;
+    final hours = _hoursLabel;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: id == null || isComingSoon
+          ? null
+          : () {
+              appLightImpact();
+              context.go('/venues/$id');
+            },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                isComingSoon ? Icons.lock_clock_outlined : Icons.sports_tennis,
+                color: statusColor,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (_location.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ],
+                  if (hours != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      hours,
+                      style:
+                          const TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            PadelBadge(
+              label: isComingSoon ? 'Próximamente' : 'Disponible',
+              variant: isComingSoon
+                  ? PadelBadgeVariant.warning
+                  : PadelBadgeVariant.success,
+            ),
+          ],
+        ),
       ),
     );
   }

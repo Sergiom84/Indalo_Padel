@@ -146,6 +146,7 @@ class CommunityPlanModel {
   final bool? canSubmitResultFlag;
   final bool? needsResultNotificationFlag;
   final MatchResultSubmissionModel? myResultSubmission;
+  final String? resultStatus;
   final bool? needsRatingFlag;
 
   const CommunityPlanModel({
@@ -192,6 +193,7 @@ class CommunityPlanModel {
     this.canSubmitResultFlag,
     this.needsResultNotificationFlag,
     this.myResultSubmission,
+    this.resultStatus,
     this.needsRatingFlag,
   });
 
@@ -340,6 +342,7 @@ class CommunityPlanModel {
                   ),
                 )
               : null),
+      resultStatus: _asNullableString(json['result_status']),
       needsRatingFlag: json.containsKey('needs_rating')
           ? _asBool(json['needs_rating'])
           : null,

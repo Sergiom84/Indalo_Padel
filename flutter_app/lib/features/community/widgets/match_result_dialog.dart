@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -73,6 +74,14 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
       for (var i = 0; i < existing.sets.length && i < _sets.length; i++) {
         _sets[i].aController.text = existing.sets[i].a.toString();
         _sets[i].bController.text = existing.sets[i].b.toString();
+        final tieBreakA = existing.sets[i].tieBreakA;
+        final tieBreakB = existing.sets[i].tieBreakB;
+        if (tieBreakA != null) {
+          _sets[i].tieBreakAController.text = tieBreakA.toString();
+        }
+        if (tieBreakB != null) {
+          _sets[i].tieBreakBController.text = tieBreakB.toString();
+        }
       }
     }
 
@@ -140,10 +149,32 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
     for (final s in _sets) {
       final a = int.tryParse(s.aController.text.trim());
       final b = int.tryParse(s.bController.text.trim());
-      if (a == null && b == null) continue;
+      final tieBreakA = int.tryParse(s.tieBreakAController.text.trim());
+      final tieBreakB = int.tryParse(s.tieBreakBController.text.trim());
+      if (a == null && b == null) {
+        if (tieBreakA != null || tieBreakB != null) {
+          return const [];
+        }
+        continue;
+      }
       if (a == null || b == null) return const [];
-      if (a < 0 || b < 0 || a > 7 || b > 7) return const [];
-      result.add(SetScore(a: a, b: b));
+      if (a < 0 || b < 0 || a > 99 || b > 99) return const [];
+      if ((tieBreakA == null) != (tieBreakB == null)) return const [];
+      if (tieBreakA != null &&
+          (tieBreakA < 0 ||
+              tieBreakB! < 0 ||
+              tieBreakA > 99 ||
+              tieBreakB > 99)) {
+        return const [];
+      }
+      result.add(
+        SetScore(
+          a: a,
+          b: b,
+          tieBreakA: tieBreakA,
+          tieBreakB: tieBreakB,
+        ),
+      );
     }
     return result;
   }
@@ -422,31 +453,81 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Mi equipo / Equipo rival. Deja el tercer set vacío si no se jugó.',
+          'Mi equipo / Equipo rival. Deja el tercer set vacío si no se jugó. El tie-break es opcional y admite dos dígitos.',
           style: TextStyle(color: AppColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 12),
         for (var i = 0; i < _sets.length; i++)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
+            child: Column(
               children: [
-                SizedBox(
-                  width: 56,
-                  child: Text(
-                    'Set ${i + 1}',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 13,
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      child: Text(
+                        'Set ${i + 1}',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
-                  ),
+                    Expanded(
+                      child: _setField(
+                        _sets[i].aController,
+                        'Mi equipo',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      '-',
+                      style: TextStyle(color: AppColors.muted, fontSize: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _setField(
+                        _sets[i].bController,
+                        'Rival',
+                      ),
+                    ),
+                  ],
                 ),
-                Expanded(child: _setField(_sets[i].aController, 'Mi equipo')),
-                const SizedBox(width: 8),
-                const Text('-',
-                    style: TextStyle(color: AppColors.muted, fontSize: 16)),
-                const SizedBox(width: 8),
-                Expanded(child: _setField(_sets[i].bController, 'Rival')),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 56,
+                      child: Text(
+                        'Tie-break',
+                        style: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: _setField(
+                        _sets[i].tieBreakAController,
+                        'TB mi equipo',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      '-',
+                      style: TextStyle(color: AppColors.muted, fontSize: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _setField(
+                        _sets[i].tieBreakBController,
+                        'TB rival',
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -459,7 +540,8 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
       controller: controller,
       keyboardType: TextInputType.number,
       textAlign: TextAlign.center,
-      maxLength: 1,
+      maxLength: 2,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
         hintText: hint,
@@ -484,10 +566,14 @@ class _MatchResultDialogState extends ConsumerState<_MatchResultDialog> {
 class _SetInput {
   final TextEditingController aController = TextEditingController();
   final TextEditingController bController = TextEditingController();
+  final TextEditingController tieBreakAController = TextEditingController();
+  final TextEditingController tieBreakBController = TextEditingController();
 
   void dispose() {
     aController.dispose();
     bController.dispose();
+    tieBreakAController.dispose();
+    tieBreakBController.dispose();
   }
 }
 

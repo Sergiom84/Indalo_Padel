@@ -260,7 +260,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final authUser = ref.watch(authProvider).user;
     final alerts = ref.watch(appAlertsProvider);
-    final profile = _profile ?? <String, dynamic>{};
+    final providerProfile = ref.watch(currentProfileProvider).valueOrNull;
+    final profile = providerProfile ?? _profile ?? <String, dynamic>{};
     final preferences = PlayerPreferencesModel.fromJson(profile);
     final displayName = (profile['display_name'] ??
             profile['nombre'] ??

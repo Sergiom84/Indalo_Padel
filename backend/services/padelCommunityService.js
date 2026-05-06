@@ -22,6 +22,8 @@ import {
 const MAX_ACTIVE_PLANS = 3;
 const COMMUNITY_RECOVERY_BUFFER_MINUTES = 45;
 const RESULT_READY_GRACE_MINUTES = 1;
+const MATCH_REMINDER_MINUTES = 60;
+const MATCH_REMINDER_WINDOW_MINUTES = 15;
 const TERMINAL_INVITE_STATES = new Set(['cancelled', 'expired']);
 const TERMINAL_RESERVATION_STATES = new Set(['confirmed', 'cancelled', 'expired']);
 const SERIOUS_RESPONSE_STATES = new Set(['accepted']);
@@ -107,6 +109,17 @@ function isPlanFinishedBySchedule(planLike, referenceNow = nowInAppZone()) {
 
   return endAt.plus({ minutes: RESULT_READY_GRACE_MINUTES }).toMillis()
     <= referenceNow.toMillis();
+}
+
+function isPlanInReminderWindow(planLike, referenceNow = nowInAppZone()) {
+  const { startAt } = getPlanScheduleContext(planLike);
+  if (!startAt) {
+    return false;
+  }
+
+  const minutesUntilStart = startAt.diff(referenceNow, 'minutes').minutes;
+  return minutesUntilStart <= MATCH_REMINDER_MINUTES
+    && minutesUntilStart > MATCH_REMINDER_MINUTES - MATCH_REMINDER_WINDOW_MINUTES;
 }
 
 function shouldPlanAppearInHistory(planLike, referenceNow = nowInAppZone()) {
@@ -391,6 +404,7 @@ function buildPlanDto(row, participants, currentUserId, extras = {}) {
     can_submit_result: canSubmitResult,
     needs_result_notification: needsResultNotification,
     my_result_submission: myResultSubmission,
+    result_status: resultRow?.status || null,
     needs_rating: needsRating,
   };
 }
@@ -513,7 +527,7 @@ async function loadPlanRowsForUser(client, userId) {
         closed_user.nombre as closed_by_name,
         closed_profile.display_name as closed_by_display_name
       FROM app.padel_community_plans cp
-      JOIN app.padel_community_plan_players membership
+      LEFT JOIN app.padel_community_plan_players membership
         ON membership.plan_id = cp.id
        AND membership.user_id = $1
       LEFT JOIN app.padel_venues v ON v.id = cp.venue_id
@@ -532,6 +546,8 @@ async function loadPlanRowsForUser(client, userId) {
       LEFT JOIN app.users closed_user ON closed_user.id = cp.closed_by
       LEFT JOIN app.padel_player_profiles closed_profile
         ON closed_profile.user_id = closed_user.id
+      WHERE cp.created_by = $1
+         OR membership.user_id IS NOT NULL
       ORDER BY
         CASE
           WHEN cp.reservation_state IN ('confirmed', 'cancelled', 'expired')
@@ -555,12 +571,50 @@ async function loadParticipantsForPlans(client, planIds, currentUserId) {
 
   const result = await client.query(
     `
+      WITH plan_members AS (
+        SELECT
+          cpp.plan_id,
+          cpp.user_id,
+          CASE
+            WHEN cpp.user_id = cp.created_by THEN 'organizer'
+            ELSE cpp.role
+          END AS role,
+          CASE
+            WHEN cpp.user_id = cp.created_by THEN 'accepted'
+            ELSE cpp.response_state
+          END AS response_state,
+          CASE
+            WHEN cpp.user_id = cp.created_by
+              THEN COALESCE(cpp.responded_at, cpp.created_at)
+            ELSE cpp.responded_at
+          END AS responded_at
+        FROM app.padel_community_plan_players cpp
+        JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
+        WHERE cpp.plan_id = ANY($1::int[])
+
+        UNION ALL
+
+        SELECT
+          cp.id AS plan_id,
+          cp.created_by AS user_id,
+          'organizer' AS role,
+          'accepted' AS response_state,
+          cp.created_at AS responded_at
+        FROM app.padel_community_plans cp
+        WHERE cp.id = ANY($1::int[])
+          AND NOT EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players cpp
+            WHERE cpp.plan_id = cp.id
+              AND cpp.user_id = cp.created_by
+          )
+      )
       SELECT
-        cpp.plan_id,
-        cpp.user_id,
-        cpp.role,
-        cpp.response_state,
-        cpp.responded_at,
+        pm.plan_id,
+        pm.user_id,
+        pm.role,
+        pm.response_state,
+        pm.responded_at,
         u.nombre,
         u.email,
         pp.display_name,
@@ -572,13 +626,12 @@ async function loadParticipantsForPlans(client, planIds, currentUserId) {
         pp.availability_preferences,
         pp.match_preferences,
         pp.is_available
-      FROM app.padel_community_plan_players cpp
-      JOIN app.users u ON u.id = cpp.user_id
-      LEFT JOIN app.padel_player_profiles pp ON pp.user_id = cpp.user_id
-      WHERE cpp.plan_id = ANY($1::int[])
+      FROM plan_members pm
+      JOIN app.users u ON u.id = pm.user_id
+      LEFT JOIN app.padel_player_profiles pp ON pp.user_id = pm.user_id
       ORDER BY
-        cpp.plan_id ASC,
-        CASE WHEN cpp.role = 'organizer' THEN 0 ELSE 1 END,
+        pm.plan_id ASC,
+        CASE WHEN pm.role = 'organizer' THEN 0 ELSE 1 END,
         u.nombre ASC
     `,
     [planIds],
@@ -698,10 +751,14 @@ async function loadPlanForMember(client, planId, userId) {
     `
       SELECT cp.*
       FROM app.padel_community_plans cp
-      JOIN app.padel_community_plan_players membership
+      LEFT JOIN app.padel_community_plan_players membership
         ON membership.plan_id = cp.id
        AND membership.user_id = $2
       WHERE cp.id = $1
+        AND (
+          cp.created_by = $2
+          OR membership.user_id IS NOT NULL
+        )
       LIMIT 1
     `,
     [planId, userId],
@@ -853,6 +910,17 @@ function buildReservationNotification(plan, {
       ? `${handlerName} no ha conseguido la reserva todavía. Habrá un segundo intento. ${details}.`
       : `${handlerName} no ha conseguido la reserva todavía. Habrá un segundo intento.`,
     metadata: buildCommunityNotificationMetadata(plan, 'review_plan'),
+  };
+}
+
+function buildMatchReminderNotification(plan) {
+  const details = buildCommunityNotificationDetails(plan);
+  return {
+    title: 'Tu partido empieza en 1 hora',
+    message: details
+      ? `Recuerda que tu partido empieza en 1 hora. ${details}.`
+      : 'Recuerda que tu partido empieza en 1 hora.',
+    metadata: buildCommunityNotificationMetadata(plan, 'match_reminder'),
   };
 }
 
@@ -2596,20 +2664,49 @@ export async function updateCommunityReservationStatus({
 
     const participantResult = await client.query(
       `
+        WITH plan_members AS (
+          SELECT
+            cpp.user_id,
+            CASE
+              WHEN cpp.user_id = cp.created_by THEN 'organizer'
+              ELSE cpp.role
+            END AS role,
+            CASE
+              WHEN cpp.user_id = cp.created_by THEN 'accepted'
+              ELSE cpp.response_state
+            END AS response_state
+          FROM app.padel_community_plan_players cpp
+          JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
+          WHERE cpp.plan_id = $1
+
+          UNION ALL
+
+          SELECT
+            cp.created_by AS user_id,
+            'organizer' AS role,
+            'accepted' AS response_state
+          FROM app.padel_community_plans cp
+          WHERE cp.id = $1
+            AND NOT EXISTS (
+              SELECT 1
+              FROM app.padel_community_plan_players cpp
+              WHERE cpp.plan_id = cp.id
+                AND cpp.user_id = cp.created_by
+            )
+        )
         SELECT
-          cpp.user_id,
-          cpp.role,
-          cpp.response_state,
+          pm.user_id,
+          pm.role,
+          pm.response_state,
           u.nombre,
           u.email,
           pp.display_name,
           pp.numeric_level,
           pp.is_available,
           pp.avatar_url
-        FROM app.padel_community_plan_players cpp
-        JOIN app.users u ON u.id = cpp.user_id
-        LEFT JOIN app.padel_player_profiles pp ON pp.user_id = cpp.user_id
-        WHERE cpp.plan_id = $1
+        FROM plan_members pm
+        JOIN app.users u ON u.id = pm.user_id
+        LEFT JOIN app.padel_player_profiles pp ON pp.user_id = pm.user_id
       `,
       [planId],
     );
@@ -3075,6 +3172,96 @@ async function createResultReadyNotificationsForFinishedPlans(client) {
   return notifiedCount;
 }
 
+async function createMatchReminderNotificationsForUpcomingPlans(client) {
+  const planResult = await client.query(
+    `
+      SELECT id, scheduled_date, scheduled_time, duration_minutes
+      FROM app.padel_community_plans
+      WHERE reservation_state = 'confirmed'
+        AND invite_state NOT IN ('cancelled', 'expired')
+        AND reservation_state NOT IN ('cancelled', 'expired')
+    `,
+  );
+
+  let notifiedCount = 0;
+  const now = nowInAppZone();
+
+  for (const row of planResult.rows) {
+    const planId = Number(row.id);
+    if (!isPlanInReminderWindow(row, now)) {
+      continue;
+    }
+
+    const acceptedIds = [...await loadAcceptedPlayerIds(client, planId)];
+    if (acceptedIds.length !== 2 && acceptedIds.length !== 4) {
+      continue;
+    }
+
+    const bundle = await loadPlanBundle(client, planId, acceptedIds[0]);
+    if (!bundle) {
+      continue;
+    }
+
+    const notification = buildMatchReminderNotification(bundle);
+    const insertResult = await client.query(
+      `
+        WITH recipients AS (
+          SELECT UNNEST($2::int[]) AS user_id
+        )
+        INSERT INTO app.padel_community_notifications (
+          plan_id,
+          user_id,
+          type,
+          title,
+          message,
+          metadata
+        )
+        SELECT
+          $1::int,
+          recipients.user_id,
+          $3::varchar,
+          $4::varchar,
+          $5::text,
+          $6::jsonb
+        FROM recipients
+        ON CONFLICT DO NOTHING
+        RETURNING user_id
+      `,
+      [
+        planId,
+        acceptedIds,
+        'match_reminder',
+        notification.title,
+        notification.message,
+        JSON.stringify(notification.metadata),
+      ],
+    );
+
+    const notifiedUserIds = insertResult.rows.map((notificationRow) =>
+      Number(notificationRow.user_id),
+    );
+    if (!notifiedUserIds.length) {
+      continue;
+    }
+
+    notifiedCount += notifiedUserIds.length;
+    const badgeCountByUser = await loadUnreadCommunityNotificationCounts(
+      client,
+      notifiedUserIds,
+    );
+    sendPushToUsers({
+      userIds: notifiedUserIds,
+      title: notification.title,
+      body: notification.message,
+      data: { planId: String(planId), type: 'match_reminder' },
+      badgeCount: 1,
+      badgeCountByUser,
+    }).catch(() => {});
+  }
+
+  return notifiedCount;
+}
+
 async function retryPendingCommunityCalendarSyncs() {
   const client = await pool.connect();
   try {
@@ -3108,6 +3295,8 @@ export async function runCommunityLifecycleMaintenance() {
     await client.query('BEGIN');
     const expired = await expirePastCommunityPlans(client);
     const retryCancelled = await cancelTimedOutRetryPlans(client);
+    const matchReminderNotified =
+      await createMatchReminderNotificationsForUpcomingPlans(client);
     const resultReadyNotified = await createResultReadyNotificationsForFinishedPlans(client);
     await client.query('COMMIT');
 
@@ -3115,6 +3304,7 @@ export async function runCommunityLifecycleMaintenance() {
     return {
       expired,
       retry_cancelled: retryCancelled,
+      match_reminder_notified: matchReminderNotified,
       result_ready_notified: resultReadyNotified,
       synced,
     };
@@ -3134,10 +3324,23 @@ function normalizeSetsPayload(sets) {
   if (!Array.isArray(sets)) {
     return null;
   }
-  return sets.map((set) => ({
-    a: Number(set?.a ?? 0),
-    b: Number(set?.b ?? 0),
-  }));
+  return sets.map((set) => {
+    const normalized = {
+      a: Number(set?.a ?? 0),
+      b: Number(set?.b ?? 0),
+    };
+    const tieBreakA = Number(
+      set?.tie_break_a ?? set?.tiebreak_a ?? set?.tieBreakA,
+    );
+    const tieBreakB = Number(
+      set?.tie_break_b ?? set?.tiebreak_b ?? set?.tieBreakB,
+    );
+    if (Number.isFinite(tieBreakA) && Number.isFinite(tieBreakB)) {
+      normalized.tie_break_a = tieBreakA;
+      normalized.tie_break_b = tieBreakB;
+    }
+    return normalized;
+  });
 }
 
 function setsEqual(a, b) {
@@ -3146,6 +3349,12 @@ function setsEqual(a, b) {
   for (let i = 0; i < a.length; i += 1) {
     if (Number(a[i]?.a) !== Number(b[i]?.a)) return false;
     if (Number(a[i]?.b) !== Number(b[i]?.b)) return false;
+    const leftTieBreakA = a[i]?.tie_break_a;
+    const rightTieBreakA = b[i]?.tie_break_a;
+    const leftTieBreakB = a[i]?.tie_break_b;
+    const rightTieBreakB = b[i]?.tie_break_b;
+    if ((leftTieBreakA ?? null) !== (rightTieBreakA ?? null)) return false;
+    if ((leftTieBreakB ?? null) !== (rightTieBreakB ?? null)) return false;
   }
   return true;
 }
@@ -3202,10 +3411,24 @@ function reconcileWinnerAndSets(submissions, partition) {
     }
 
     const mySets = Array.isArray(s.sets) ? s.sets : [];
-    const normalized = mySets.map((set) => ({
-      a: inA ? Number(set?.a ?? 0) : Number(set?.b ?? 0),
-      b: inA ? Number(set?.b ?? 0) : Number(set?.a ?? 0),
-    }));
+    const normalized = mySets.map((set) => {
+      const normalizedSet = {
+        a: inA ? Number(set?.a ?? 0) : Number(set?.b ?? 0),
+        b: inA ? Number(set?.b ?? 0) : Number(set?.a ?? 0),
+      };
+      if (
+        set?.tie_break_a != null &&
+        set?.tie_break_b != null
+      ) {
+        normalizedSet.tie_break_a = inA
+          ? Number(set.tie_break_a)
+          : Number(set.tie_break_b);
+        normalizedSet.tie_break_b = inA
+          ? Number(set.tie_break_b)
+          : Number(set.tie_break_a);
+      }
+      return normalizedSet;
+    });
     if (canonicalSets === null) {
       canonicalSets = normalized;
     } else if (!setsEqual(canonicalSets, normalized)) {
@@ -3222,10 +3445,23 @@ function reconcileWinnerAndSets(submissions, partition) {
 async function loadAcceptedPlayerIds(client, planId) {
   const result = await client.query(
     `
-      SELECT user_id
-      FROM app.padel_community_plan_players
-      WHERE plan_id = $1
-        AND response_state = 'accepted'
+      SELECT DISTINCT user_id
+      FROM (
+        SELECT cpp.user_id
+        FROM app.padel_community_plan_players cpp
+        JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
+        WHERE cpp.plan_id = $1
+          AND (
+            cpp.response_state = 'accepted'
+            OR cpp.user_id = cp.created_by
+          )
+
+        UNION ALL
+
+        SELECT created_by AS user_id
+        FROM app.padel_community_plans
+        WHERE id = $1
+      ) accepted_members
     `,
     [planId],
   );

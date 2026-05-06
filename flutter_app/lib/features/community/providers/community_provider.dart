@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../notifications/providers/app_alerts_provider.dart';
+import '../../profile/providers/current_profile_provider.dart';
 import '../models/community_model.dart';
 import '../models/match_result_model.dart';
 
@@ -21,9 +22,8 @@ final communityClubOptionsProvider = FutureProvider<List<CommunityVenueModel>>((
 ) async {
   final api = ref.watch(apiClientProvider);
   final data = await api.get('/padel/venues');
-  final list = data is Map<String, dynamic>
-      ? data['venues']
-      : (data as Map)['venues'];
+  final list =
+      data is Map<String, dynamic> ? data['venues'] : (data as Map)['venues'];
   if (list is! List) {
     return const [];
   }
@@ -48,7 +48,7 @@ class CommunityActions {
 
   CommunityActions(this._api, this._ref);
 
-  Future<void> createPlan({
+  Future<CommunityPlanModel?> createPlan({
     required String scheduledDate,
     required String scheduledTime,
     required List<int> participantUserIds,
@@ -59,7 +59,7 @@ class CommunityActions {
     String? notes,
     bool forceSend = false,
   }) async {
-    await _api.post('/padel/community', data: {
+    final response = await _api.post('/padel/community', data: {
       'scheduled_date': scheduledDate,
       'scheduled_time': scheduledTime,
       'participant_user_ids': participantUserIds,
@@ -72,6 +72,12 @@ class CommunityActions {
     });
     _ref.invalidate(communityDashboardProvider);
     _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
+    if (response is Map && response['plan'] is Map) {
+      return CommunityPlanModel.fromJson(
+        Map<String, dynamic>.from(response['plan'] as Map),
+      );
+    }
+    return null;
   }
 
   Future<void> updatePlan({
@@ -217,7 +223,25 @@ class CommunityActions {
         : Map<String, dynamic>.from(response as Map);
     _ref.invalidate(communityDashboardProvider);
     _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
+    await _ref.read(currentProfileProvider.notifier).refresh();
     return MatchResultModel.fromPayload(planId: planId, payload: json);
+  }
+
+  Future<void> ratePlayerInPlan({
+    required int planId,
+    required int playerId,
+    required int rating,
+    String? comment,
+  }) async {
+    await _api.post('/padel/players/$playerId/rate', data: {
+      'plan_id': planId,
+      'rating': rating,
+      if (comment != null && comment.trim().isNotEmpty)
+        'comment': comment.trim(),
+    });
+    _ref.invalidate(communityDashboardProvider);
+    _ref.read(appAlertsProvider.notifier).refresh(notifyOnNew: false);
+    await _ref.read(currentProfileProvider.notifier).refresh();
   }
 
   Future<void> markNotificationRead(

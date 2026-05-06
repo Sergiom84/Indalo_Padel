@@ -69,6 +69,14 @@ router.get('/', authenticateToken, async (req, res) => {
         ? calendar.agenda.history
         : [],
     };
+    const confirmedCommunityBookingsCount = Array.isArray(community?.active_plans)
+      ? community.active_plans.filter(
+        (plan) =>
+          plan?.reservation_state === 'confirmed' &&
+          plan?.is_upcoming === true &&
+          plan?.is_finished !== true,
+      ).length
+      : 0;
 
     res.json({
       venues: venuesResult.rows,
@@ -77,7 +85,8 @@ router.get('/', authenticateToken, async (req, res) => {
       community,
       metrics: {
         venues: venuesResult.rows.length,
-        upcoming_bookings: bookings.upcoming.length,
+        upcoming_bookings:
+          bookings.upcoming.length + confirmedCommunityBookingsCount,
         open_matches: Number(matchCountResult.rows[0]?.total) || 0,
         community_active_plans: Array.isArray(community?.active_plans)
           ? community.active_plans.length

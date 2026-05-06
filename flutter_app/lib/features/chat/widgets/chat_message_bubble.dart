@@ -30,104 +30,87 @@ class ChatMessageBubble extends StatelessWidget {
     final mine = message.isMine;
     final bubbleColor = mine ? AppColors.primary : AppColors.surface2;
     final textColor = mine ? AppColors.dark : Colors.white;
-    final maxBubbleWidth = message.isImage ? 270.0 : 320.0;
+    const maxBubbleWidth = 320.0;
     final timeLabel = message.createdAt == null
         ? ''
         : DateFormat('HH:mm', 'es_ES').format(message.createdAt!.toLocal());
     final metaColor =
         mine ? AppColors.dark.withValues(alpha: 0.75) : AppColors.muted;
+    final hasMeta = timeLabel.isNotEmpty || (mine && readByOthers);
 
-    final bubbleContent = AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
-      constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: BorderRadius.circular(8),
-        border: selected ? Border.all(color: Colors.white, width: 2) : null,
-      ),
-      child: Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          if (!mine) ...[
-            Text(
-              message.senderName,
-              style: const TextStyle(
-                color: AppColors.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
+    final bubbleContent = message.isImage
+        ? _ImageMessageBubbleContent(
+            message: message,
+            mine: mine,
+            selected: selected,
+            textColor: textColor,
+            bubbleColor: bubbleColor,
+            timeLabel: timeLabel,
+            readByOthers: readByOthers,
+            maxWidth: maxBubbleWidth,
+          )
+        : AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            constraints: const BoxConstraints(maxWidth: maxBubbleWidth),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: bubbleColor,
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  selected ? Border.all(color: Colors.white, width: 2) : null,
             ),
-            const SizedBox(height: 4),
-          ],
-          if (message.isImage)
-            _ChatImageAttachment(message: message)
-          else if (message.isVoice)
-            _ChatVoiceAttachment(message: message, mine: mine)
-          else
-            Text(
-              message.body,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          if (message.isImage && message.body.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              message.body.trim(),
-              style: TextStyle(
-                color: textColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-          if ((message.isImage || message.isVoice) &&
-              message.attachment?.url == null) ...[
-            const SizedBox(height: 6),
-            Text(
-              'Archivo no disponible',
-              style: TextStyle(
-                color: mine
-                    ? AppColors.dark.withValues(alpha: 0.75)
-                    : AppColors.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          if (timeLabel.isNotEmpty || (mine && readByOthers)) ...[
-            const SizedBox(height: 6),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Column(
+              crossAxisAlignment:
+                  mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                if (timeLabel.isNotEmpty)
+                if (!mine) ...[
                   Text(
-                    timeLabel,
+                    message.senderName,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                if (message.isVoice)
+                  _ChatVoiceAttachment(message: message, mine: mine)
+                else
+                  Text(
+                    message.body,
                     style: TextStyle(
-                      color: metaColor,
-                      fontSize: 10,
+                      color: textColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                if (message.isVoice && message.attachment?.url == null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Archivo no disponible',
+                    style: TextStyle(
+                      color: mine
+                          ? AppColors.dark.withValues(alpha: 0.75)
+                          : AppColors.muted,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                if (mine && readByOthers) ...[
-                  if (timeLabel.isNotEmpty) const SizedBox(width: 4),
-                  const Icon(
-                    Icons.done_all_rounded,
-                    size: 14,
-                    color: AppColors.info,
+                ],
+                if (hasMeta) ...[
+                  const SizedBox(height: 6),
+                  _MessageMeta(
+                    timeLabel: timeLabel,
+                    mine: mine,
+                    readByOthers: readByOthers,
+                    color: metaColor,
                   ),
                 ],
               ],
             ),
-          ],
-        ],
-      ),
-    );
+          );
 
     final bubble = Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -182,10 +165,120 @@ class ChatMessageBubble extends StatelessWidget {
   }
 }
 
-class _ChatImageAttachment extends StatelessWidget {
-  const _ChatImageAttachment({required this.message});
+class _ImageMessageBubbleContent extends StatelessWidget {
+  const _ImageMessageBubbleContent({
+    required this.message,
+    required this.mine,
+    required this.selected,
+    required this.textColor,
+    required this.bubbleColor,
+    required this.timeLabel,
+    required this.readByOthers,
+    required this.maxWidth,
+  });
 
   final ChatMessageModel message;
+  final bool mine;
+  final bool selected;
+  final Color textColor;
+  final Color bubbleColor;
+  final String timeLabel;
+  final bool readByOthers;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final caption = message.body.trim();
+    final url = message.attachment?.url;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.zero,
+      decoration: selected
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white, width: 2),
+            )
+          : null,
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!mine) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 4),
+              child: Text(
+                message.senderName,
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+          _ChatImageAttachment(
+            message: message,
+            meta: _ImageMetaPill(
+              timeLabel: timeLabel,
+              mine: mine,
+              readByOthers: readByOthers,
+            ),
+          ),
+          if (caption.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                caption,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          if (url == null || url.isEmpty) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Archivo no disponible',
+                style: TextStyle(
+                  color: mine
+                      ? AppColors.dark.withValues(alpha: 0.75)
+                      : AppColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatImageAttachment extends StatelessWidget {
+  const _ChatImageAttachment({
+    required this.message,
+    required this.meta,
+  });
+
+  final ChatMessageModel message;
+  final Widget meta;
 
   @override
   Widget build(BuildContext context) {
@@ -202,39 +295,124 @@ class _ChatImageAttachment extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: AspectRatio(
-        aspectRatio: aspectRatio.clamp(0.75, 1.6),
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) {
-              return child;
-            }
+        aspectRatio: aspectRatio.clamp(0.6, 1.8),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              url,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                }
 
-            return const ColoredBox(
-              color: AppColors.surface,
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) {
-            return const ColoredBox(
-              color: AppColors.surface,
-              child: Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: AppColors.muted,
-                ),
-              ),
-            );
-          },
+                return const ColoredBox(
+                  color: AppColors.surface,
+                  child: Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return const ColoredBox(
+                  color: AppColors.surface,
+                  child: Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: meta,
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _ImageMetaPill extends StatelessWidget {
+  const _ImageMetaPill({
+    required this.timeLabel,
+    required this.mine,
+    required this.readByOthers,
+  });
+
+  final String timeLabel;
+  final bool mine;
+  final bool readByOthers;
+
+  @override
+  Widget build(BuildContext context) {
+    if (timeLabel.isEmpty && !(mine && readByOthers)) {
+      return const SizedBox.shrink();
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        child: _MessageMeta(
+          timeLabel: timeLabel,
+          mine: mine,
+          readByOthers: readByOthers,
+          color: Colors.white.withValues(alpha: 0.92),
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageMeta extends StatelessWidget {
+  const _MessageMeta({
+    required this.timeLabel,
+    required this.mine,
+    required this.readByOthers,
+    required this.color,
+  });
+
+  final String timeLabel;
+  final bool mine;
+  final bool readByOthers;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (timeLabel.isNotEmpty)
+          Text(
+            timeLabel,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        if (mine && readByOthers) ...[
+          if (timeLabel.isNotEmpty) const SizedBox(width: 4),
+          const Icon(
+            Icons.done_all_rounded,
+            size: 14,
+            color: AppColors.info,
+          ),
+        ],
+      ],
     );
   }
 }

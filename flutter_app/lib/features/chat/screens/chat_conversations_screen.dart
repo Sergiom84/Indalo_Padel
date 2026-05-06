@@ -22,6 +22,7 @@ class _ChatConversationsScreenState
     extends ConsumerState<ChatConversationsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  bool _didApplyInitialUnreadTab = false;
 
   @override
   void initState() {
@@ -47,6 +48,10 @@ class _ChatConversationsScreenState
     );
     final hasMatchUnread = _visibleMatchConversations(conversations).any(
       (conversation) => conversation.hasUnread,
+    );
+    _applyInitialUnreadTab(
+      hasChatUnread: hasChatUnread,
+      hasMatchUnread: hasMatchUnread,
     );
 
     return Scaffold(
@@ -115,6 +120,22 @@ class _ChatConversationsScreenState
       backgroundColor: Colors.transparent,
       builder: (_) => const _CreateSocialEventSheet(),
     );
+  }
+
+  void _applyInitialUnreadTab({
+    required bool hasChatUnread,
+    required bool hasMatchUnread,
+  }) {
+    if (_didApplyInitialUnreadTab || !hasMatchUnread || hasChatUnread) {
+      return;
+    }
+
+    _didApplyInitialUnreadTab = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tabController.index == 0) {
+        _tabController.animateTo(1);
+      }
+    });
   }
 }
 
@@ -287,6 +308,7 @@ List<ChatConversationModel> _visibleMatchConversations(
 ) {
   final now = DateTime.now();
   final activeMatches = <ChatConversationModel>[];
+  final unreadPastMatches = <ChatConversationModel>[];
   final recentPastMatches = <ChatConversationModel>[];
 
   for (final conversation in conversations) {
@@ -304,6 +326,11 @@ List<ChatConversationModel> _visibleMatchConversations(
     final endsAt = startsAt.add(Duration(minutes: durationMinutes));
     if (!endsAt.isBefore(now)) {
       activeMatches.add(conversation);
+      continue;
+    }
+
+    if (conversation.hasUnread) {
+      unreadPastMatches.add(conversation);
       continue;
     }
 
@@ -338,10 +365,12 @@ List<ChatConversationModel> _visibleMatchConversations(
   }
 
   activeMatches.sort(compareByStartAsc);
+  unreadPastMatches.sort(compareByStartDesc);
   recentPastMatches.sort(compareByStartDesc);
 
   return <ChatConversationModel>[
     ...activeMatches,
+    ...unreadPastMatches,
     ...recentPastMatches.take(5),
   ];
 }
@@ -393,15 +422,25 @@ class _MatchConversationTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    venueName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          venueName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      if (conversation.hasUnread) ...[
+                        const SizedBox(width: 7),
+                        const NotificationDot(visible: true, size: 8),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 5),
                   Text(

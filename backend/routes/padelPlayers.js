@@ -88,6 +88,134 @@ function buildPlayerRow(row) {
   };
 }
 
+function applyMatchStatsToRow(row, statsMap) {
+  const stats = statsMap.get(Number(row.user_id)) || {
+    matches_played: 0,
+    matches_won: 0,
+  };
+  return {
+    ...row,
+    matches_played: Math.max(
+      Number.parseInt(row.matches_played, 10) || 0,
+      stats.matches_played,
+    ),
+    matches_won: Math.max(
+      Number.parseInt(row.matches_won, 10) || 0,
+      stats.matches_won,
+    ),
+  };
+}
+
+async function loadPlayerMatchStats(client, userIds) {
+  const ids = [...new Set(
+    (Array.isArray(userIds) ? userIds : [userIds])
+      .map((id) => Number.parseInt(id, 10))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  )];
+
+  if (!ids.length) {
+    return new Map();
+  }
+
+  const result = await client.query(
+    `
+      WITH target_users AS (
+        SELECT UNNEST($1::int[]) AS user_id
+      ),
+      community_members AS (
+        SELECT DISTINCT cpp.plan_id, cpp.user_id
+        FROM app.padel_community_plan_players cpp
+        JOIN app.padel_community_plans cp ON cp.id = cpp.plan_id
+        WHERE cpp.response_state = 'accepted'
+           OR cpp.user_id = cp.created_by
+
+        UNION
+
+        SELECT id AS plan_id, created_by AS user_id
+        FROM app.padel_community_plans
+      ),
+      finished_community_plans AS (
+        SELECT id
+        FROM app.padel_community_plans
+        WHERE reservation_state = 'confirmed'
+          AND invite_state NOT IN ('cancelled', 'expired')
+          AND reservation_state NOT IN ('cancelled', 'expired')
+          AND (
+            scheduled_date::timestamp
+            + scheduled_time
+            + make_interval(mins => COALESCE(duration_minutes, 90))
+            + INTERVAL '1 minute'
+          ) <= (NOW() AT TIME ZONE 'Europe/Madrid')
+      ),
+      community_played AS (
+        SELECT cm.user_id, COUNT(DISTINCT cm.plan_id)::int AS total
+        FROM community_members cm
+        JOIN finished_community_plans fcp ON fcp.id = cm.plan_id
+        JOIN target_users tu ON tu.user_id = cm.user_id
+        GROUP BY cm.user_id
+      ),
+      legacy_played AS (
+        SELECT mp.user_id, COUNT(DISTINCT m.id)::int AS total
+        FROM app.padel_match_players mp
+        JOIN app.padel_matches m ON m.id = mp.match_id
+        JOIN target_users tu ON tu.user_id = mp.user_id
+        WHERE mp.status <> 'abandonado'
+          AND m.status = 'finalizado'
+        GROUP BY mp.user_id
+      ),
+      community_winners AS (
+        SELECT DISTINCT mr.plan_id, winners.user_id
+        FROM app.padel_match_results mr
+        CROSS JOIN LATERAL UNNEST(
+          CASE
+            WHEN mr.winner_team = 1 THEN mr.team_a_user_ids
+            WHEN mr.winner_team = 2 THEN mr.team_b_user_ids
+            ELSE ARRAY[]::int[]
+          END
+        ) AS winners(user_id)
+        JOIN target_users tu ON tu.user_id = winners.user_id
+        WHERE mr.status = 'consensuado'
+      ),
+      community_won AS (
+        SELECT user_id, COUNT(DISTINCT plan_id)::int AS total
+        FROM community_winners
+        GROUP BY user_id
+      )
+      SELECT
+        tu.user_id,
+        (
+          COALESCE(cp.total, 0)
+          + COALESCE(lp.total, 0)
+        )::int AS matches_played,
+        COALESCE(cw.total, 0)::int AS matches_won
+      FROM target_users tu
+      LEFT JOIN community_played cp ON cp.user_id = tu.user_id
+      LEFT JOIN legacy_played lp ON lp.user_id = tu.user_id
+      LEFT JOIN community_won cw ON cw.user_id = tu.user_id
+    `,
+    [ids],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      Number(row.user_id),
+      {
+        matches_played: Number(row.matches_played) || 0,
+        matches_won: Number(row.matches_won) || 0,
+      },
+    ]),
+  );
+}
+
+async function buildPlayerRowsWithMatchStats(client, rows) {
+  const statsMap = await loadPlayerMatchStats(
+    client,
+    rows.map((row) => row.user_id),
+  );
+
+  return rows.map((row) => buildPlayerRow(applyMatchStatsToRow(row, statsMap)));
+}
+
 function buildDeletedEmail(userId) {
   return `deleted+${userId}+${Date.now()}@deleted.indalo.local`;
 }
@@ -155,18 +283,30 @@ async function resolveCommunityPlanForRating(client, {
             AND pr.community_plan_id = cp.id
         ) AS already_rated
       FROM app.padel_community_plans cp
-      JOIN app.padel_community_plan_players rater_membership
-        ON rater_membership.plan_id = cp.id
-       AND rater_membership.user_id = $1
-       AND rater_membership.response_state = 'accepted'
-      JOIN app.padel_community_plan_players rated_membership
-        ON rated_membership.plan_id = cp.id
-       AND rated_membership.user_id = $2
-       AND rated_membership.response_state = 'accepted'
       LEFT JOIN app.padel_match_results mr ON mr.plan_id = cp.id
       WHERE cp.reservation_state = 'confirmed'
         AND cp.invite_state NOT IN ('cancelled', 'expired')
         AND ($3::int IS NULL OR cp.id = $3)
+        AND (
+          cp.created_by = $1
+          OR EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players rater_membership
+            WHERE rater_membership.plan_id = cp.id
+              AND rater_membership.user_id = $1
+              AND rater_membership.response_state = 'accepted'
+          )
+        )
+        AND (
+          cp.created_by = $2
+          OR EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players rated_membership
+            WHERE rated_membership.plan_id = cp.id
+              AND rated_membership.user_id = $2
+              AND rated_membership.response_state = 'accepted'
+          )
+        )
       ORDER BY
         cp.scheduled_date DESC,
         cp.scheduled_time DESC,
@@ -243,14 +383,6 @@ async function loadRatingContextsForPlayer(client, { raterId, ratedId }) {
         pr.rating AS existing_rating,
         pr.comment AS existing_comment
       FROM app.padel_community_plans cp
-      JOIN app.padel_community_plan_players rater_membership
-        ON rater_membership.plan_id = cp.id
-       AND rater_membership.user_id = $1
-       AND rater_membership.response_state = 'accepted'
-      JOIN app.padel_community_plan_players rated_membership
-        ON rated_membership.plan_id = cp.id
-       AND rated_membership.user_id = $2
-       AND rated_membership.response_state = 'accepted'
       LEFT JOIN app.padel_venues v ON v.id = cp.venue_id
       LEFT JOIN app.padel_match_results mr ON mr.plan_id = cp.id
       LEFT JOIN app.padel_player_ratings pr
@@ -259,6 +391,26 @@ async function loadRatingContextsForPlayer(client, { raterId, ratedId }) {
        AND pr.community_plan_id = cp.id
       WHERE cp.reservation_state = 'confirmed'
         AND cp.invite_state NOT IN ('cancelled', 'expired')
+        AND (
+          cp.created_by = $1
+          OR EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players rater_membership
+            WHERE rater_membership.plan_id = cp.id
+              AND rater_membership.user_id = $1
+              AND rater_membership.response_state = 'accepted'
+          )
+        )
+        AND (
+          cp.created_by = $2
+          OR EXISTS (
+            SELECT 1
+            FROM app.padel_community_plan_players rated_membership
+            WHERE rated_membership.plan_id = cp.id
+              AND rated_membership.user_id = $2
+              AND rated_membership.response_state = 'accepted'
+          )
+        )
       ORDER BY cp.scheduled_date DESC, cp.scheduled_time DESC, cp.id DESC
       LIMIT 20
     `,
@@ -405,10 +557,12 @@ router.get('/profile', authenticateToken, async (req, res) => {
       'SELECT COALESCE(AVG(rating), 0) as avg_rating, COUNT(*) as total_ratings FROM app.padel_player_ratings WHERE rated_id = $1',
       [req.user.userId]
     );
+    const statsMap = await loadPlayerMatchStats(pool, [req.user.userId]);
+    const profileRow = applyMatchStatsToRow(result.rows[0], statsMap);
 
     res.json({
       profile: {
-        ...result.rows[0],
+        ...profileRow,
         avg_rating: parseFloat(ratingResult.rows[0].avg_rating).toFixed(1),
         total_ratings: parseInt(ratingResult.rows[0].total_ratings)
       }
@@ -574,7 +728,8 @@ router.put('/profile', authenticateToken, validate(updateProfileSchema), async (
       });
     }
 
-    res.json({ profile: result.rows[0] });
+    const statsMap = await loadPlayerMatchStats(client, [req.user.userId]);
+    res.json({ profile: applyMatchStatsToRow(result.rows[0], statsMap) });
   } catch (error) {
     await client.query('ROLLBACK');
     if (!committed && uploadedAvatarUrl) {
@@ -777,8 +932,10 @@ router.get('/network', authenticateToken, async (req, res) => {
     const incomingRequests = [];
     const outgoingRequests = [];
 
-    for (const row of result.rows) {
-      const player = buildPlayerRow(row);
+    const players = await buildPlayerRowsWithMatchStats(pool, result.rows);
+
+    for (const player of players) {
+      const row = player;
 
       if (row.status === 'accepted') {
         companions.push(player);
@@ -1038,7 +1195,8 @@ router.get(
     query += ' ORDER BY pp.numeric_level DESC, u.nombre ASC LIMIT 50';
 
     const result = await pool.query(query, params);
-    res.json({ players: result.rows.map(buildPlayerRow) });
+    const players = await buildPlayerRowsWithMatchStats(pool, result.rows);
+    res.json({ players });
   } catch (error) {
     console.error('Error buscando jugadores:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -1050,7 +1208,7 @@ router.get('/favorites', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-        pp.user_id,
+        COALESCE(pp.user_id, f.favorite_id) AS user_id,
         pp.display_name,
         pp.main_level,
         pp.sub_level,
@@ -1065,7 +1223,8 @@ router.get('/favorites', authenticateToken, async (req, res) => {
         pp.matches_won,
         pp.is_available,
         u.nombre,
-        COALESCE((SELECT AVG(rating) FROM app.padel_player_ratings WHERE rated_id = pp.user_id), 0) as avg_rating,
+        COALESCE((SELECT AVG(rating) FROM app.padel_player_ratings WHERE rated_id = f.favorite_id), 0) as avg_rating,
+        true AS is_favorited,
         f.created_at as favorited_at
        FROM app.padel_favorites f
        JOIN app.users u ON f.favorite_id = u.id AND u.deleted_at IS NULL
@@ -1075,7 +1234,8 @@ router.get('/favorites', authenticateToken, async (req, res) => {
       [req.user.userId]
     );
 
-    res.json({ favorites: result.rows });
+    const favorites = await buildPlayerRowsWithMatchStats(pool, result.rows);
+    res.json({ favorites });
   } catch (error) {
     console.error('Error obteniendo favoritos:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -1108,6 +1268,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Jugador no encontrado' });
     }
+    const statsMap = await loadPlayerMatchStats(pool, [req.params.id]);
 
     // Recent ratings
     const ratings = await pool.query(
@@ -1128,7 +1289,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       });
 
     res.json({
-      player: buildPlayerRow(result.rows[0]),
+      player: buildPlayerRow(applyMatchStatsToRow(result.rows[0], statsMap)),
       ratings: ratings.rows,
       rating_contexts: ratingContexts,
     });

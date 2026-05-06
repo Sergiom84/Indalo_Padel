@@ -68,6 +68,21 @@ class AppAlertsController extends StateNotifier<AppAlertsState> {
     state = state.copyWith(profileRatingAlerts: const []);
   }
 
+  Future<void> markAlertsSeen(AppAlertsState alerts) async {
+    if (!alerts.hasHomeNotifications) {
+      return;
+    }
+
+    final keys = alerts.visibleAlertKeys;
+    state = state.withoutAlertKeys(keys);
+    try {
+      await AppAlertsService.instance.markAlertsSeen(alerts);
+    } catch (_) {
+      // El estado visual ya se limpió; el siguiente refresh volverá a traerlo
+      // solo si no se pudo persistir la lectura.
+    }
+  }
+
   void _startPolling() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(minutes: 5), (_) {

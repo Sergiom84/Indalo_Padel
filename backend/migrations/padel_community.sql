@@ -35,12 +35,48 @@ CREATE TABLE IF NOT EXISTS app.padel_community_plan_players (
   UNIQUE (plan_id, user_id)
 );
 
+INSERT INTO app.padel_community_plan_players (
+  plan_id,
+  user_id,
+  role,
+  response_state,
+  responded_at
+)
+SELECT
+  cp.id,
+  cp.created_by,
+  'organizer',
+  'accepted',
+  COALESCE(cp.created_at, NOW())
+FROM app.padel_community_plans cp
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM app.padel_community_plan_players cpp
+  WHERE cpp.plan_id = cp.id
+    AND cpp.user_id = cp.created_by
+)
+ON CONFLICT (plan_id, user_id) DO NOTHING;
+
+UPDATE app.padel_community_plan_players cpp
+SET role = 'organizer',
+    response_state = 'accepted',
+    responded_at = COALESCE(cpp.responded_at, cpp.created_at, NOW()),
+    updated_at = NOW()
+FROM app.padel_community_plans cp
+WHERE cpp.plan_id = cp.id
+  AND cpp.user_id = cp.created_by
+  AND (
+    cpp.role <> 'organizer'
+    OR cpp.response_state <> 'accepted'
+    OR cpp.responded_at IS NULL
+  );
+
 CREATE TABLE IF NOT EXISTS app.padel_community_notifications (
   id SERIAL PRIMARY KEY,
   plan_id INTEGER NOT NULL REFERENCES app.padel_community_plans(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
   type VARCHAR(32) NOT NULL
-    CHECK (type IN ('member_declined', 'reschedule_proposed', 'reservation_retry', 'reservation_confirmed', 'plan_invitation', 'plan_ready')),
+    CHECK (type IN ('member_declined', 'reschedule_proposed', 'reservation_retry', 'reservation_confirmed', 'plan_invitation', 'plan_ready', 'match_reminder')),
   title TEXT NOT NULL,
   message TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,

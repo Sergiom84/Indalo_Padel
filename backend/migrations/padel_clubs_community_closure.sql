@@ -170,6 +170,7 @@ BEGIN
         'plan_expired',
         'retry_timeout',
         'conflict_warning',
+        'match_reminder',
         'result_ready'
       )
     );

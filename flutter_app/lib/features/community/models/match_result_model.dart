@@ -1,15 +1,61 @@
 class SetScore {
   final int a;
   final int b;
+  final int? tieBreakA;
+  final int? tieBreakB;
 
-  const SetScore({required this.a, required this.b});
+  const SetScore({
+    required this.a,
+    required this.b,
+    this.tieBreakA,
+    this.tieBreakB,
+  });
 
   factory SetScore.fromJson(Map<String, dynamic> json) => SetScore(
         a: (json['a'] as num?)?.toInt() ?? 0,
         b: (json['b'] as num?)?.toInt() ?? 0,
+        tieBreakA: _asNullableInt(
+          json['tie_break_a'] ??
+              json['tiebreak_a'] ??
+              json['tieBreakA'] ??
+              _asMap(json['tie_break'])?['a'],
+        ),
+        tieBreakB: _asNullableInt(
+          json['tie_break_b'] ??
+              json['tiebreak_b'] ??
+              json['tieBreakB'] ??
+              _asMap(json['tie_break'])?['b'],
+        ),
       );
 
-  Map<String, dynamic> toJson() => {'a': a, 'b': b};
+  bool get hasTieBreak => tieBreakA != null && tieBreakB != null;
+
+  int get winnerSide {
+    if (a > b) return 1;
+    if (b > a) return 2;
+    if (hasTieBreak) {
+      if (tieBreakA! > tieBreakB!) return 1;
+      if (tieBreakB! > tieBreakA!) return 2;
+    }
+    return 0;
+  }
+
+  String get displayLabel {
+    final base = '$a-$b';
+    if (!hasTieBreak) {
+      return base;
+    }
+    return '$base ($tieBreakA-$tieBreakB)';
+  }
+
+  Map<String, dynamic> toJson() => {
+        'a': a,
+        'b': b,
+        if (hasTieBreak) ...{
+          'tie_break_a': tieBreakA,
+          'tie_break_b': tieBreakB,
+        },
+      };
 }
 
 class MatchResultSubmissionModel {
@@ -150,4 +196,30 @@ DateTime? _parseDate(dynamic value) {
   if (value == null) return null;
   if (value is DateTime) return value;
   return DateTime.tryParse(value.toString());
+}
+
+Map<String, dynamic>? _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return null;
+}
+
+int? _asNullableInt(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value);
+  }
+  return null;
 }

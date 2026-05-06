@@ -110,10 +110,17 @@ export const updateCommunityReservationSchema = z.object({
   updated_at: optionalUpdatedAtSchema,
 });
 
-const setScoreSchema = z.object({
-  a: z.number().int().min(0).max(7),
-  b: z.number().int().min(0).max(7),
-});
+const setScoreSchema = z
+  .object({
+    a: z.number().int().min(0).max(99),
+    b: z.number().int().min(0).max(99),
+    tie_break_a: z.number().int().min(0).max(99).optional().nullable(),
+    tie_break_b: z.number().int().min(0).max(99).optional().nullable(),
+  })
+  .refine(
+    (set) => (set.tie_break_a == null) === (set.tie_break_b == null),
+    'Indica ambos valores del tie-break',
+  );
 
 export const submitMatchResultSchema = z.object({
   partner_user_id: z.number().int().positive().optional().nullable(),

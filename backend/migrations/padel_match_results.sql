@@ -99,6 +99,7 @@ BEGIN
         'plan_expired',
         'retry_timeout',
         'conflict_warning',
+        'match_reminder',
         'result_ready'
       )
     );
@@ -132,3 +133,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_padel_player_ratings_community_plan
 CREATE UNIQUE INDEX IF NOT EXISTS ux_padel_community_notifications_result_ready
   ON app.padel_community_notifications(plan_id, user_id, type)
   WHERE type = 'result_ready';
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_padel_community_notifications_match_reminder
+  ON app.padel_community_notifications(plan_id, user_id, type)
+  WHERE type = 'match_reminder';

@@ -153,6 +153,9 @@ class AppAlertsState {
   bool get hasPlayersBadge => playerInvitationAlerts.isNotEmpty;
   bool get hasProfileBadge => profileRatingAlerts.isNotEmpty;
 
+  bool get hasHomeNotifications =>
+      allAlerts.isNotEmpty || pendingResultPlans.isNotEmpty;
+
   List<AppAlertItem> get allAlerts => [
         ...bookingInvitationAlerts,
         ...communityPlannerAlerts,
@@ -160,4 +163,33 @@ class AppAlertsState {
         ...playerInvitationAlerts,
         ...profileRatingAlerts,
       ];
+
+  Set<String> get visibleAlertKeys => {
+        ...allAlerts.map((alert) => alert.uniqueKey),
+        ...pendingResultPlans.map(pendingResultAlertKey),
+      };
+
+  AppAlertsState withoutAlertKeys(Set<String> keys) {
+    if (keys.isEmpty) {
+      return this;
+    }
+
+    List<AppAlertItem> filterAlerts(List<AppAlertItem> alerts) => alerts
+        .where((alert) => !keys.contains(alert.uniqueKey))
+        .toList(growable: false);
+
+    return copyWith(
+      bookingInvitationAlerts: filterAlerts(bookingInvitationAlerts),
+      communityPlannerAlerts: filterAlerts(communityPlannerAlerts),
+      communityInvitationAlerts: filterAlerts(communityInvitationAlerts),
+      playerInvitationAlerts: filterAlerts(playerInvitationAlerts),
+      profileRatingAlerts: filterAlerts(profileRatingAlerts),
+      pendingResultPlans: pendingResultPlans
+          .where((plan) => !keys.contains(pendingResultAlertKey(plan)))
+          .toList(growable: false),
+    );
+  }
 }
+
+String pendingResultAlertKey(CommunityPlanModel plan) =>
+    'pending-result:${plan.id}';

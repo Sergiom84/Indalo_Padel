@@ -109,6 +109,17 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return _planById(dashboard, _selectedPlanId);
   }
 
+  CommunityPlanModel? _firstOrganizerActivePlan(
+    CommunityDashboardModel dashboard,
+  ) {
+    for (final plan in dashboard.activePlans) {
+      if (plan.isOrganizer) {
+        return plan;
+      }
+    }
+    return null;
+  }
+
   int get _draftCapacity => _draftModality == 'americana' ? 8 : 4;
 
   int get _maxInvitedParticipants => _draftCapacity - 1;
@@ -181,18 +192,16 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       return;
     }
 
-    if (_selectedPlanId == null &&
-        !_forceNewDraft &&
-        dashboard.activePlan != null &&
-        dashboard.activePlan!.isOrganizer) {
+    final organizerPlan = _firstOrganizerActivePlan(dashboard);
+    if (_selectedPlanId == null && !_forceNewDraft && organizerPlan != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
           return;
         }
         setState(() {
           _applyPlanToDraftInternal(
-            dashboard.activePlan!,
-            token: _planToken(dashboard.activePlan!),
+            organizerPlan,
+            token: _planToken(organizerPlan),
           );
         });
       });
@@ -602,6 +611,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     final actions = ref.read(communityActionsProvider);
 
     try {
+      CommunityPlanModel? createdPlan;
       final shouldContinue = await _confirmConflictsIfNeeded(selectedPlan);
       if (!shouldContinue) {
         if (mounted) {
@@ -629,7 +639,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         }
         _showMessage('Convocatoria actualizada para tu red.');
       } else {
-        await actions.createPlan(
+        createdPlan = await actions.createPlan(
           scheduledDate: _formatApiDate(_draftDate),
           scheduledTime: _formatApiTime(_draftTime),
           participantUserIds: _selectedParticipantIds.toList(growable: false),
@@ -650,7 +660,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
         _busy = false;
         _draftDirty = false;
         _forceNewDraft = false;
-        _selectedPlanId = selectedPlan?.id;
+        _selectedPlanId = selectedPlan?.id ?? createdPlan?.id;
       });
     } catch (error) {
       if (!mounted) {
@@ -921,39 +931,43 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     );
   }
 
-  List<CommunityPlanModel> _finishedAcceptedPlans(
+  bool _isAcceptedParticipant(CommunityParticipantModel participant) {
+    return participant.responseState == 'accepted' || participant.isOrganizer;
+  }
+
+  List<CommunityPlanModel> _partidoPlans(
     CommunityDashboardModel dashboard,
   ) {
+    final now = DateTime.now();
     final uniquePlans = <int, CommunityPlanModel>{};
 
     for (final plan in [...dashboard.activePlans, ...dashboard.historyPlans]) {
       uniquePlans[plan.id] = plan;
     }
 
-    return _resultReadyPlans(uniquePlans.values);
-  }
-
-  List<CommunityPlanModel> _resultReadyPlans(
-    Iterable<CommunityPlanModel> plans,
-  ) {
-    final now = DateTime.now();
     final result = <CommunityPlanModel>[];
-
-    for (final plan in plans) {
+    for (final plan in uniquePlans.values) {
       final accepted = plan.myResponseState == 'accepted' || plan.isOrganizer;
-      if (!accepted) {
+      final acceptedCount =
+          plan.participants.where(_isAcceptedParticipant).length;
+      final validAcceptedCount = acceptedCount == 2 || acceptedCount == 4;
+      final canWorkOnMatch = plan.reservationConfirmed &&
+          !plan.isCancelled &&
+          !plan.isExpired &&
+          accepted &&
+          validAcceptedCount &&
+          plan.canCaptureResult(reference: now);
+
+      if (!canWorkOnMatch) {
         continue;
       }
 
-      if (!plan.needsResultNotification) {
-        continue;
-      }
+      final waitingForConsensus =
+          plan.myResultSubmission != null && plan.resultStatus != 'consensuado';
 
-      if (!plan.canCaptureResult(reference: now)) {
-        continue;
+      if (plan.canSubmitResult || waitingForConsensus || plan.needsRating) {
+        result.add(plan);
       }
-
-      result.add(plan);
     }
 
     result.sort((a, b) {
@@ -1004,10 +1018,126 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
       return;
     }
 
-    await showMatchResultDialog(
+    final resultSaved = await showMatchResultDialog(
       context,
       plan: plan,
       existingSubmission: existingSubmission,
+    );
+    await _refreshDashboard();
+    if (resultSaved == true && mounted) {
+      await _promptRatingsAfterResult(plan);
+    }
+  }
+
+  bool _isRatingTarget(CommunityParticipantModel participant) {
+    return (participant.responseState == 'accepted' ||
+            participant.isOrganizer) &&
+        !participant.isCurrentUser;
+  }
+
+  List<CommunityParticipantModel> _ratingTargetsForPlan(
+    CommunityPlanModel plan,
+  ) {
+    return plan.participants.where(_isRatingTarget).toList(growable: false);
+  }
+
+  Future<bool> _showPlayerRatingSheet(
+    CommunityPlanModel plan,
+    CommunityParticipantModel player, {
+    bool refreshAfterSave = true,
+    bool showSuccess = true,
+  }) async {
+    final request = await showModalBottomSheet<_PlayerRatingRequest>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _PlayerRatingSheet(
+        playerName: player.displayName,
+        venueName: plan.venue?.name ?? 'Partido',
+        scheduledDate: _formatDisplayDate(plan.scheduledDate),
+        scheduledTime: _formatDisplayTime(plan.scheduledTime),
+      ),
+    );
+
+    if (request == null || !mounted) {
+      return false;
+    }
+
+    try {
+      await ref.read(communityActionsProvider).ratePlayerInPlan(
+            planId: plan.id,
+            playerId: player.userId,
+            rating: request.rating,
+            comment: request.comment,
+          );
+      if (!mounted) {
+        return false;
+      }
+      if (showSuccess) {
+        _showMessage('Valoración guardada.');
+      }
+      if (refreshAfterSave) {
+        await _refreshDashboard();
+      }
+      return true;
+    } catch (error) {
+      if (!mounted) {
+        return false;
+      }
+      _showMessage(error.toString(), isError: true);
+      return false;
+    }
+  }
+
+  Future<void> _ratePlanParticipant(
+    CommunityPlanModel plan,
+    CommunityParticipantModel player,
+  ) async {
+    await _showPlayerRatingSheet(plan, player);
+  }
+
+  Future<void> _promptRatingsAfterResult(CommunityPlanModel plan) async {
+    final targets = _ratingTargetsForPlan(plan);
+    if (targets.isEmpty) {
+      return;
+    }
+
+    final shouldRate = await showModalBottomSheet<bool>(
+      context: context,
+      useRootNavigator: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _PostResultRatingPromptSheet(players: targets),
+    );
+    if (shouldRate != true || !mounted) {
+      return;
+    }
+
+    var savedCount = 0;
+    for (final player in targets) {
+      if (!mounted) {
+        return;
+      }
+
+      final saved = await _showPlayerRatingSheet(
+        plan,
+        player,
+        refreshAfterSave: false,
+        showSuccess: false,
+      );
+      if (!saved) {
+        break;
+      }
+      savedCount += 1;
+    }
+
+    if (!mounted || savedCount == 0) {
+      return;
+    }
+    _showMessage(
+      savedCount == 1 ? 'Valoración guardada.' : 'Valoraciones guardadas.',
     );
     await _refreshDashboard();
   }
@@ -1095,9 +1225,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
           _maybeSyncDashboard(dashboard);
           final selectedPlan = _effectivePlan(dashboard);
           final reservationVenue = selectedPlan?.venue ?? dashboard.venue;
-          final finishedPlans = alerts.loading
-              ? _finishedAcceptedPlans(dashboard)
-              : _resultReadyPlans(alerts.pendingResultPlans);
+          final partidoPlans = _partidoPlans(dashboard);
 
           return TabBarView(
             controller: _tabController,
@@ -1135,7 +1263,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
                 color: AppColors.primary,
                 backgroundColor: AppColors.surface,
                 onRefresh: _refreshDashboard,
-                child: _buildPartidoTab(finishedPlans),
+                child: _buildPartidoTab(partidoPlans),
               ),
               // ── Pestaña 4: Historial ──────────────────────────────────
               RefreshIndicator(
@@ -1225,6 +1353,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
     return _CommunityPartidoTab(
       plans: plans,
       onOpenPlan: _openResultDialog,
+      onRatePlayer: _ratePlanParticipant,
       formatDate: _formatDisplayDate,
     );
   }
@@ -2742,11 +2871,16 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen>
 class _CommunityPartidoTab extends StatelessWidget {
   final List<CommunityPlanModel> plans;
   final Future<void> Function(CommunityPlanModel plan) onOpenPlan;
+  final Future<void> Function(
+    CommunityPlanModel plan,
+    CommunityParticipantModel player,
+  ) onRatePlayer;
   final String Function(String) formatDate;
 
   const _CommunityPartidoTab({
     required this.plans,
     required this.onOpenPlan,
+    required this.onRatePlayer,
     required this.formatDate,
   });
 
@@ -2774,6 +2908,34 @@ class _CommunityPartidoTab extends StatelessWidget {
     } catch (_) {
       return plan.scheduledTime;
     }
+  }
+
+  bool _isAcceptedParticipant(CommunityParticipantModel participant) {
+    return participant.responseState == 'accepted' || participant.isOrganizer;
+  }
+
+  String _statusLabel(CommunityPlanModel plan) {
+    if (plan.needsRating) {
+      return 'Pendiente de valorar';
+    }
+    if (plan.myResultSubmission != null) {
+      return plan.resultStatus == 'disputa'
+          ? 'Resultado en disputa'
+          : 'Resultado enviado';
+    }
+    return 'Resultado pendiente';
+  }
+
+  String _statusDetail(CommunityPlanModel plan) {
+    if (plan.needsRating) {
+      return 'Valora a los jugadores de este partido.';
+    }
+    if (plan.myResultSubmission != null) {
+      return plan.resultStatus == 'disputa'
+          ? 'Hay versiones distintas. Revisa o corrige tu resultado.'
+          : 'Esperando confirmación del resto. También puedes valorar jugadores.';
+    }
+    return 'Registra el resultado para cerrar el partido.';
   }
 
   @override
@@ -2809,66 +2971,486 @@ class _CommunityPartidoTab extends StatelessWidget {
         final date = formatDate(plan.scheduledDate);
         final timeRange = _timeRange(plan);
 
-        return InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () async => onOpenPlan(plan),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface2,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(14),
+        final acceptedPlayers = plan.participants
+            .where(_isAcceptedParticipant)
+            .toList(growable: false);
+        final ratingTargets = acceptedPlayers
+            .where((participant) => !participant.isCurrentUser)
+            .toList(growable: false);
+        final canRatePlayers =
+            plan.myResultSubmission != null || plan.needsRating;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.emoji_events_outlined,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
                   ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.emoji_events_outlined,
-                    color: AppColors.primary,
-                    size: 22,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          venueName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$date · $timeRange',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  PadelBadge(
+                    label: _statusLabel(plan),
+                    variant: plan.needsRating
+                        ? PadelBadgeVariant.warning
+                        : plan.myResultSubmission != null
+                            ? PadelBadgeVariant.info
+                            : PadelBadgeVariant.danger,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _statusDetail(plan),
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async => onOpenPlan(plan),
+                  icon: const Icon(Icons.edit_note_outlined, size: 18),
+                  label: Text(
+                    plan.myResultSubmission != null
+                        ? 'Editar resultado'
+                        : 'Registrar resultado',
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
+              ),
+              if (canRatePlayers && ratingTargets.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                const Divider(color: AppColors.border, height: 1),
+                const SizedBox(height: 12),
+                const Text(
+                  'Valorar jugadores',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ...ratingTargets.map(
+                  (player) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _PartidoRatingTile(
+                      player: player,
+                      onRate: () => onRatePlayer(plan, player),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PartidoRatingTile extends StatelessWidget {
+  final CommunityParticipantModel player;
+  final VoidCallback onRate;
+
+  const _PartidoRatingTile({
+    required this.player,
+    required this.onRate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            player.isOrganizer ? Icons.star_rounded : Icons.person_outline,
+            color: player.isOrganizer ? AppColors.primary : AppColors.muted,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              player.displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onRate,
+            icon: const Icon(Icons.star_rate_rounded, size: 18),
+            label: const Text('Valorar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostResultRatingPromptSheet extends StatelessWidget {
+  final List<CommunityParticipantModel> players;
+
+  const _PostResultRatingPromptSheet({
+    required this.players,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.star_rate_rounded,
+                  color: AppColors.primary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Valorar jugadores',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'El resultado ya está guardado. Puedes valorar ahora a los jugadores de este partido.',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          ...players.map(
+            (player) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    player.isOrganizer
+                        ? Icons.star_rounded
+                        : Icons.person_outline,
+                    color: player.isOrganizer
+                        ? AppColors.primary
+                        : AppColors.muted,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      player.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Más tarde'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  icon: const Icon(Icons.star_rate_rounded, size: 18),
+                  label: const Text('Valorar ahora'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerRatingRequest {
+  final int rating;
+  final String? comment;
+
+  const _PlayerRatingRequest({
+    required this.rating,
+    this.comment,
+  });
+}
+
+class _PlayerRatingSheet extends StatefulWidget {
+  final String playerName;
+  final String venueName;
+  final String scheduledDate;
+  final String scheduledTime;
+
+  const _PlayerRatingSheet({
+    required this.playerName,
+    required this.venueName,
+    required this.scheduledDate,
+    required this.scheduledTime,
+  });
+
+  @override
+  State<_PlayerRatingSheet> createState() => _PlayerRatingSheetState();
+}
+
+class _PlayerRatingSheetState extends State<_PlayerRatingSheet> {
+  final TextEditingController _commentController = TextEditingController();
+  int _rating = 0;
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final availableHeight =
+        mediaQuery.size.height - bottomInset - mediaQuery.padding.top - 24;
+    final maxSheetHeight = availableHeight <= 0
+        ? mediaQuery.size.height * 0.82
+        : availableHeight.clamp(320.0, mediaQuery.size.height * 0.9).toDouble();
+    final detail = [
+      widget.venueName,
+      widget.scheduledDate,
+      widget.scheduledTime,
+    ].where((item) => item.trim().isNotEmpty).join(' · ');
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxSheetHeight),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Valorar jugador',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Text(
-                        venueName,
+                        widget.playerName,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$date · $timeRange',
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 13,
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          detail,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (index) {
+                          final value = index + 1;
+                          return IconButton(
+                            onPressed: () => setState(() => _rating = value),
+                            icon: Icon(
+                              value <= _rating
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              color: value <= _rating
+                                  ? Colors.amber
+                                  : AppColors.muted,
+                              size: 34,
+                            ),
+                            tooltip: '$value estrellas',
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _commentController,
+                        keyboardType: TextInputType.multiline,
+                        minLines: 3,
+                        maxLines: 5,
+                        maxLength: 220,
+                        scrollPadding: const EdgeInsets.only(bottom: 120),
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Comentario opcional',
+                          labelStyle: const TextStyle(color: AppColors.muted),
+                          filled: true,
+                          fillColor: AppColors.surface2,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: AppColors.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: AppColors.border),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: AppColors.primary),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                const Icon(
-                  Icons.chevron_right,
-                  color: AppColors.muted,
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  8,
+                  20,
+                  mediaQuery.padding.bottom + 20,
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _rating == 0
+                            ? null
+                            : () => Navigator.of(context).pop(
+                                  _PlayerRatingRequest(
+                                    rating: _rating,
+                                    comment:
+                                        _commentController.text.trim().isEmpty
+                                            ? null
+                                            : _commentController.text.trim(),
+                                  ),
+                                ),
+                        child: const Text('Guardar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -4063,8 +4645,8 @@ class _ConsensusView extends StatelessWidget {
     final winner = result.winnerTeam;
     final teamAName = _namesFor(result.teamAUserIds);
     final teamBName = _namesFor(result.teamBUserIds);
-    final setsAWon = result.sets.where((s) => s.a > s.b).length;
-    final setsBWon = result.sets.where((s) => s.b > s.a).length;
+    final setsAWon = result.sets.where((s) => s.winnerSide == 1).length;
+    final setsBWon = result.sets.where((s) => s.winnerSide == 2).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4107,7 +4689,7 @@ class _ConsensusView extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    result.sets.map((s) => '${s.a}-${s.b}').join(' · '),
+                    result.sets.map((s) => s.displayLabel).join(' · '),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,

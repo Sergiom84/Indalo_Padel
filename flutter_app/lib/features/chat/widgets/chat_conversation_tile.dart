@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../models/chat_models.dart';
 import 'chat_event_card.dart';
@@ -58,6 +59,11 @@ class ChatConversationTile extends StatelessWidget {
                     children: [
                       Row(
                         children: [
+                          NotificationDot(
+                            visible: conversation.hasUnread,
+                            size: 8,
+                          ),
+                          if (conversation.hasUnread) const SizedBox(width: 7),
                           Expanded(
                             child: Text(
                               conversation.title,
