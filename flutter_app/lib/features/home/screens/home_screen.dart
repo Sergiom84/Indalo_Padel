@@ -6,6 +6,7 @@ import '../../../core/platform/platform_helper.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/utils/chronology.dart';
 import '../../../shared/widgets/loading_spinner.dart';
+import '../../../shared/widgets/notification_dot.dart';
 import '../../../shared/widgets/padel_badge.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -27,12 +28,12 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _loadingVenues = true;
   bool _loadingBookings = true;
-  bool _loadingMatches = true;
   List<dynamic> _venues = [];
-  Map<String, dynamic> _bookings = {'upcoming': [], 'past': []};
   List<dynamic> _matches = [];
+  Map<String, dynamic> _bookings = {'upcoming': [], 'past': []};
   Map<String, dynamic> _metrics = {};
   List<Map<String, dynamic>> _confirmedCommunityPlans = [];
+  List<Map<String, dynamic>> _upcomingCommunityMatches = [];
 
   @override
   void initState() {
@@ -46,12 +47,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() {
         _loadingVenues = true;
         _loadingBookings = true;
-        _loadingMatches = true;
       });
     }
 
     try {
+      final profileRefresh =
+          ref.read(currentProfileProvider.notifier).refresh();
       final result = await api.get('/padel/dashboard');
+      await profileRefresh;
       final json = _asMap(result);
 
       if (!mounted) {
@@ -67,15 +70,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       setState(() {
         _venues = _asList(json?['venues']);
-        _bookings = bookings;
         _matches = _asList(json?['matches']);
+        _bookings = bookings;
         _metrics = _asMap(json?['metrics']) ?? const {};
-        _confirmedCommunityPlans = community == null
-            ? const []
-            : _buildCommunityBookingsFromDashboard(community);
+        if (community == null) {
+          _confirmedCommunityPlans = const [];
+          _upcomingCommunityMatches = const [];
+        } else {
+          _confirmedCommunityPlans =
+              _buildCommunityBookingsFromDashboard(community);
+          _upcomingCommunityMatches =
+              _buildCommunityMatchesFromDashboard(community);
+        }
         _loadingVenues = false;
         _loadingBookings = false;
-        _loadingMatches = false;
       });
     } catch (_) {
       if (!mounted) {
@@ -84,7 +92,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() {
         _loadingVenues = false;
         _loadingBookings = false;
-        _loadingMatches = false;
       });
     }
   }
@@ -153,6 +160,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }).toList(growable: false);
   }
 
+  List<Map<String, dynamic>> _buildCommunityMatchesFromDashboard(
+    dynamic payload,
+  ) {
+    final json = _asMap(payload);
+    if (json == null) {
+      return const [];
+    }
+
+    final plans = [
+      ..._asMapList(json['active_plans']),
+      ..._asMapList(json['history_plans']),
+    ];
+
+    return plans.where(_isUpcomingCommunityMatchPlan).map((plan) {
+      final venue = _asMap(plan['venue']);
+      final participants = _asMapList(plan['participants']);
+      final acceptedPlayers = participants.where((participant) {
+        final state = participant['response_state']?.toString();
+        return state == 'accepted' || _asBool(participant['is_organizer']);
+      }).length;
+      final startTime = plan['scheduled_time']?.toString() ?? '';
+      final reservationState = plan['reservation_state']?.toString() ?? '';
+
+      return <String, dynamic>{
+        '_type': 'community',
+        'id': plan['id'],
+        'venue_name': venue?['name']?.toString() ?? 'Partido',
+        'match_date': plan['scheduled_date']?.toString() ?? '',
+        'start_time':
+            startTime.length >= 5 ? startTime.substring(0, 5) : startTime,
+        'status':
+            reservationState == 'confirmed' ? 'confirmado' : 'convocatoria',
+        'player_count': acceptedPlayers,
+        'max_players': _asInt(plan['capacity']) ?? 4,
+      };
+    }).toList(growable: false);
+  }
+
   bool _isUpcomingConfirmedCommunityPlan(Map<String, dynamic> plan) {
     if (plan['reservation_state']?.toString() != 'confirmed') {
       return false;
@@ -165,6 +210,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     return !_hasPlanEnded(plan);
+  }
+
+  bool _isUpcomingCommunityMatchPlan(Map<String, dynamic> plan) {
+    final inviteState = plan['invite_state']?.toString().toLowerCase();
+    final reservationState =
+        plan['reservation_state']?.toString().toLowerCase();
+    if (inviteState == 'cancelled' ||
+        inviteState == 'expired' ||
+        reservationState == 'cancelled' ||
+        reservationState == 'expired') {
+      return false;
+    }
+
+    final hasBackendFlags =
+        plan.containsKey('is_upcoming') || plan.containsKey('is_finished');
+    if (hasBackendFlags &&
+        (!_asBool(plan['is_upcoming']) || _asBool(plan['is_finished']))) {
+      return false;
+    }
+
+    if (!hasBackendFlags && _hasPlanEnded(plan)) {
+      return false;
+    }
+
+    if (_asBool(plan['is_organizer'])) {
+      return true;
+    }
+
+    final myResponseState = plan['my_response_state']?.toString();
+    if (myResponseState == 'accepted') {
+      return true;
+    }
+
+    return _asMapList(plan['participants']).any((participant) {
+      return _asBool(participant['is_current_user']) &&
+          (participant['response_state']?.toString() == 'accepted' ||
+              _asBool(participant['is_organizer']));
+    });
   }
 
   bool _hasPlanEnded(Map<String, dynamic> plan) {
@@ -247,33 +330,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return null;
   }
 
-  List<dynamic> get _allOpenMatches {
-    final matches = _matches
-        .whereType<Map>()
-        .map((match) => Map<String, dynamic>.from(match))
-        .where((match) =>
-            match['status'] == 'buscando' ||
-            match['status'] == 'abierto' ||
-            match['status'] == 'completo' ||
-            match['status'] == 'en_juego')
-        .toList();
+  double? _asDouble(dynamic value) {
+    if (value is double) {
+      return value;
+    }
 
-    matches.sort((left, right) {
-      final comparison = compareChronology(
-        leftDate: left['match_date']?.toString(),
-        leftTime: left['start_time']?.toString() ?? left['hora']?.toString(),
-        rightDate: right['match_date']?.toString(),
-        rightTime: right['start_time']?.toString() ?? right['hora']?.toString(),
-      );
-      if (comparison != 0) {
-        return comparison;
-      }
-      final leftId = (left['id'] as num?)?.toInt() ?? 0;
-      final rightId = (right['id'] as num?)?.toInt() ?? 0;
-      return leftId.compareTo(rightId);
-    });
+    if (value is num) {
+      return value.toDouble();
+    }
 
-    return matches;
+    if (value is String) {
+      return double.tryParse(value.replaceAll(',', '.'));
+    }
+
+    return null;
   }
 
   List<dynamic> get _allUpcomingBookings {
@@ -305,6 +375,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return all;
   }
 
+  List<Map<String, dynamic>> get _allUpcomingMatches {
+    final matches = _matches
+        .whereType<Map>()
+        .map((match) => Map<String, dynamic>.from(match))
+        .where(_isUpcomingMatch)
+        .toList();
+
+    final all = [...matches, ..._upcomingCommunityMatches];
+
+    all.sort((left, right) {
+      final comparison = compareChronology(
+        leftDate: left['match_date']?.toString() ??
+            left['scheduled_date']?.toString(),
+        leftTime: left['start_time']?.toString() ??
+            left['scheduled_time']?.toString(),
+        rightDate: right['match_date']?.toString() ??
+            right['scheduled_date']?.toString(),
+        rightTime: right['start_time']?.toString() ??
+            right['scheduled_time']?.toString(),
+      );
+      if (comparison != 0) {
+        return comparison;
+      }
+      final leftId = (left['id'] as num?)?.toInt() ?? 0;
+      final rightId = (right['id'] as num?)?.toInt() ?? 0;
+      return leftId.compareTo(rightId);
+    });
+
+    return all;
+  }
+
+  bool _isUpcomingMatch(Map<String, dynamic> match) {
+    final status = match['status']?.toString().toLowerCase();
+    if (status == 'finalizado' ||
+        status == 'cancelado' ||
+        status == 'cancelada' ||
+        status == 'cancelled') {
+      return false;
+    }
+
+    final dateTime = chronologyDateTime(
+      match['match_date']?.toString() ?? match['scheduled_date']?.toString(),
+      match['start_time']?.toString() ?? match['scheduled_time']?.toString(),
+    );
+    if (dateTime == null) {
+      return true;
+    }
+
+    return !dateTime.isBefore(
+      DateTime.now().subtract(const Duration(minutes: 1)),
+    );
+  }
+
   List<Map<String, dynamic>> get _featuredVenues => _venues
       .whereType<Map>()
       .map((venue) => Map<String, dynamic>.from(venue))
@@ -313,6 +436,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   int _dashboardMetric(String key, int fallback) =>
       _asInt(_metrics[key]) ?? fallback;
+
+  String _profileRatingValue(Map<String, dynamic>? profile) {
+    return (_asDouble(profile?['avg_rating']) ?? 0).toStringAsFixed(1);
+  }
+
+  String _rankingValue(Map<String, dynamic>? profile) {
+    final position = _asInt(profile?['ranking_position']);
+    if (position != null && position > 0) {
+      return '#$position';
+    }
+
+    final points = _asInt(profile?['ranking_points']);
+    if (points != null) {
+      return '$points pts';
+    }
+
+    return 'Ver';
+  }
+
+  String _profileRatingsRoute() =>
+      '/profile?ratings=${DateTime.now().millisecondsSinceEpoch}';
+
+  void _openProfileRatings() {
+    appLightImpact();
+    context.go(_profileRatingsRoute());
+  }
+
+  void _openRanking() {
+    appLightImpact();
+    context.go('/players/ranking');
+  }
+
+  void _openMatches() {
+    appLightImpact();
+    context.go('/matches');
+  }
 
   int _notificationCount(
     AppAlertsState alerts, {
@@ -328,7 +487,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
-    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final profileAsync = ref.watch(currentProfileProvider);
+    final profile = profileAsync.valueOrNull;
     final networkAsync = ref.watch(networkProvider);
     final alerts = ref.watch(appAlertsProvider);
     final incomingRequests =
@@ -340,22 +500,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             'Jugador')
         .toString();
     final avatarUrl = profile?['avatar_url']?.toString();
-    final loadingSummary =
-        _loadingVenues || _loadingBookings || _loadingMatches;
+    final loadingSummary = _loadingVenues || _loadingBookings;
     final allUpcomingBookings = _allUpcomingBookings;
     final upcomingBookings = allUpcomingBookings.take(3).toList();
-    final dashboardUpcomingBookingsCount = _dashboardMetric(
-      'upcoming_bookings',
-      allUpcomingBookings.length,
+    final allUpcomingMatches = _allUpcomingMatches;
+    final upcomingMatches = allUpcomingMatches.take(3).toList();
+    final listedCommunityMatchesCount = _upcomingCommunityMatches.length;
+    final listedLegacyMatchesCount =
+        allUpcomingMatches.length - listedCommunityMatchesCount;
+    final dashboardLegacyMatchesCount = _dashboardMetric(
+      'upcoming_matches',
+      listedLegacyMatchesCount,
     );
-    final upcomingBookingsCount =
-        dashboardUpcomingBookingsCount > allUpcomingBookings.length
-            ? dashboardUpcomingBookingsCount
-            : allUpcomingBookings.length;
-    final openMatchesCount = _dashboardMetric(
-      'open_matches',
-      _allOpenMatches.length,
-    );
+    final upcomingMatchesCount =
+        (dashboardLegacyMatchesCount > listedLegacyMatchesCount
+                ? dashboardLegacyMatchesCount
+                : listedLegacyMatchesCount) +
+            listedCommunityMatchesCount;
+    final ratingLoading = profileAsync.isLoading && profile == null;
+    final rankingLoading = ratingLoading;
     final featuredVenues = _featuredVenues;
     final notificationsCount =
         _notificationCount(alerts, fallbackRequests: incomingRequests.length);
@@ -463,24 +626,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       children: [
                         Expanded(
                           child: _MetricTile(
-                            label: 'Clubes',
-                            value: _loadingVenues ? '—' : '${_venues.length}',
+                            label: 'Valoración',
+                            value: ratingLoading
+                                ? '—'
+                                : _profileRatingValue(profile),
+                            showDot: alerts.hasProfileBadge,
+                            onTap: _openProfileRatings,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _MetricTile(
-                            label: 'Reservas',
-                            value: _loadingBookings
-                                ? '—'
-                                : '$upcomingBookingsCount',
+                            label: 'Ranking',
+                            value:
+                                rankingLoading ? '—' : _rankingValue(profile),
+                            onTap: _openRanking,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _MetricTile(
                             label: 'Partidos',
-                            value: _loadingMatches ? '—' : '$openMatchesCount',
+                            value: _loadingBookings
+                                ? '—'
+                                : '$upcomingMatchesCount',
+                            onTap: _openMatches,
                           ),
                         ),
                       ],
@@ -489,6 +659,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 22),
+              _HomeSection(
+                title: 'Próximos partidos a jugar',
+                actionLabel: 'Ver partidos',
+                onAction: _openMatches,
+                child: _loadingBookings && upcomingMatches.isEmpty
+                    ? const LoadingSpinner()
+                    : upcomingMatches.isEmpty
+                        ? const _EmptyState(
+                            icon: Icons.sports_tennis_outlined,
+                            message: 'No tienes partidos próximos.',
+                          )
+                        : Column(
+                            children: upcomingMatches
+                                .map((match) => _MatchPreviewCard(match: match))
+                                .toList(),
+                          ),
+              ),
+              const SizedBox(height: 18),
               _HomeSection(
                 title: 'Próximas reservas',
                 actionLabel: 'Ver calendario',
@@ -769,9 +957,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           (alert) => _AlertDialogCard(
                                             alert: alert,
                                             icon: Icons.star_border,
-                                            actionLabel: 'Ver perfil',
-                                            onAction: () =>
-                                                closeAndGo('/profile'),
+                                            actionLabel: 'Ver valoraciones',
+                                            onAction: () => closeAndGo(
+                                              _profileRatingsRoute(),
+                                            ),
                                           ),
                                         )
                                         .toList(growable: false),
@@ -1038,33 +1227,85 @@ class _NotificationBellButton extends StatelessWidget {
 class _MetricTile extends StatelessWidget {
   final String label;
   final String value;
+  final bool showDot;
+  final VoidCallback? onTap;
 
-  const _MetricTile({required this.label, required this.value});
+  const _MetricTile({
+    required this.label,
+    required this.value,
+    this.showDot = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppColors.surface2,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
+    final borderRadius = BorderRadius.circular(18);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: borderRadius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: borderRadius,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 82),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surface2,
+                borderRadius: borderRadius,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    height: 28,
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        value,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 30,
+                    child: Center(
+                      child: Text(
+                        label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-        ],
+            if (showDot)
+              const Positioned(
+                top: 8,
+                right: 8,
+                child: NotificationDot(visible: true, size: 9),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1337,6 +1578,181 @@ class _BookingPreviewCard extends StatelessWidget {
       default:
         return PadelBadgeVariant.neutral;
     }
+  }
+}
+
+class _MatchPreviewCard extends StatelessWidget {
+  final Map<String, dynamic> match;
+
+  const _MatchPreviewCard({required this.match});
+
+  int? get _id {
+    final raw = match['id'];
+    if (raw is int) {
+      return raw;
+    }
+    if (raw is num) {
+      return raw.toInt();
+    }
+    if (raw is String) {
+      return int.tryParse(raw);
+    }
+    return null;
+  }
+
+  bool get _isCommunityMatch => match['_type']?.toString() == 'community';
+
+  String get _venueName =>
+      (match['venue_name'] ?? match['venue'] ?? 'Partido').toString();
+
+  String get _date => (match['match_date'] ??
+          match['scheduled_date'] ??
+          match['booking_date'] ??
+          '')
+      .toString();
+
+  String get _time =>
+      (match['start_time'] ?? match['scheduled_time'] ?? '').toString();
+
+  int get _playerCount => _asInt(match['player_count'] ??
+      match['current_players'] ??
+      match['accepted_players'] ??
+      0);
+
+  int get _maxPlayers => _asInt(match['max_players'] ?? match['capacity'] ?? 4);
+
+  String get _status => (match['status'] ?? 'convocatoria').toString();
+
+  static int _asInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  String _shortDate(String raw) =>
+      raw.length >= 10 ? raw.substring(0, 10) : raw;
+
+  String _shortTime(String raw) => raw.length >= 5 ? raw.substring(0, 5) : raw;
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'buscando':
+        return 'Buscando';
+      case 'completo':
+        return 'Completo';
+      case 'en_juego':
+        return 'En juego';
+      case 'confirmado':
+        return 'Confirmado';
+      case 'convocatoria':
+        return 'Convocatoria';
+      default:
+        return status;
+    }
+  }
+
+  PadelBadgeVariant _statusVariant(String status) {
+    switch (status) {
+      case 'buscando':
+      case 'convocatoria':
+        return PadelBadgeVariant.warning;
+      case 'completo':
+      case 'confirmado':
+        return PadelBadgeVariant.success;
+      case 'en_juego':
+        return PadelBadgeVariant.info;
+      case 'cancelado':
+      case 'cancelada':
+        return PadelBadgeVariant.danger;
+      default:
+        return PadelBadgeVariant.neutral;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final id = _id;
+    final date = _shortDate(_date);
+    final time = _shortTime(_time);
+    final details = [
+      if (date.isNotEmpty) date,
+      if (time.isNotEmpty) time,
+      '$_playerCount/$_maxPlayers jugadores',
+    ].join(' · ');
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () {
+        appLightImpact();
+        if (_isCommunityMatch || id == null) {
+          context.go('/community');
+        } else {
+          context.go('/matches/$id');
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.sports_tennis_outlined,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _venueName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    details,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            PadelBadge(
+              label: _statusLabel(_status),
+              variant: _statusVariant(_status),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

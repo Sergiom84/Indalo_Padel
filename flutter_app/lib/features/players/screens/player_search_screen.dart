@@ -261,6 +261,16 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen>
         ),
         backgroundColor: AppColors.surface,
         actions: [
+          TextButton.icon(
+            onPressed: () => context.push('/players/ranking'),
+            icon: const Icon(Icons.emoji_events_outlined, size: 18),
+            label: const Text('Ranking'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
           IconButton(
             tooltip: 'Chat',
             onPressed: () => context.push('/players/chat'),

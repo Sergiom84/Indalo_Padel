@@ -284,6 +284,24 @@ void main() {
       expect(model.connectionRequestedAt, '2026-04-13T10:00:00.000Z');
     });
 
+    test('maps ranking fields from API payloads', () {
+      final model = PlayerModel.fromJson({
+        'user_id': 18,
+        'display_name': 'Ranking player',
+        'matches_played': 12,
+        'matches_won': 7,
+        'matches_lost': 5,
+        'ranking_points': 26,
+        'ranking_position': 2,
+      });
+
+      expect(model.matchesPlayed, 12);
+      expect(model.matchesWon, 7);
+      expect(model.matchesLost, 5);
+      expect(model.rankingPoints, 26);
+      expect(model.rankingPosition, 2);
+    });
+
     test('maps rating context payload for per-match ratings', () {
       final context = RatingContextModel.fromJson({
         'context_type': 'community_plan',

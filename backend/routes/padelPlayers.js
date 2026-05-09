@@ -27,6 +27,8 @@ import {
 } from '../services/supabaseAuthService.js';
 
 const router = express.Router();
+const RANKING_WIN_POINTS = 3;
+const RANKING_LOSS_POINTS = 1;
 
 const basePlayerColumns = `
   pp.user_id,
@@ -42,6 +44,8 @@ const basePlayerColumns = `
   pp.avatar_url,
   pp.matches_played,
   pp.matches_won,
+  COALESCE(pp.matches_lost, 0) AS matches_lost,
+  COALESCE(pp.ranking_points, 0) AS ranking_points,
   pp.is_available,
   pp.gender,
   pp.birth_date,
@@ -85,24 +89,128 @@ function buildPlayerRow(row) {
   return {
     ...row,
     avg_rating: Number(row.avg_rating ?? 0),
+    matches_lost: Number(row.matches_lost ?? 0),
+    ranking_points: Number(row.ranking_points ?? 0),
+    ranking_position:
+      row.ranking_position == null
+        ? null
+        : Number.parseInt(row.ranking_position, 10) || null,
   };
+}
+
+function compareRankingPlayers(left, right) {
+  const pointComparison =
+    (Number(right.ranking_points) || 0) - (Number(left.ranking_points) || 0);
+  if (pointComparison !== 0) {
+    return pointComparison;
+  }
+
+  const winsComparison =
+    (Number(right.matches_won) || 0) - (Number(left.matches_won) || 0);
+  if (winsComparison !== 0) {
+    return winsComparison;
+  }
+
+  const lossesComparison =
+    (Number(left.matches_lost) || 0) - (Number(right.matches_lost) || 0);
+  if (lossesComparison !== 0) {
+    return lossesComparison;
+  }
+
+  const ratingComparison =
+    (Number(right.avg_rating) || 0) - (Number(left.avg_rating) || 0);
+  if (ratingComparison !== 0) {
+    return ratingComparison;
+  }
+
+  const totalRatingsComparison =
+    (Number(right.total_ratings) || 0) - (Number(left.total_ratings) || 0);
+  if (totalRatingsComparison !== 0) {
+    return totalRatingsComparison;
+  }
+
+  const playedComparison =
+    (Number(right.matches_played) || 0) - (Number(left.matches_played) || 0);
+  if (playedComparison !== 0) {
+    return playedComparison;
+  }
+
+  return (left.display_name || left.nombre || '').localeCompare(
+    right.display_name || right.nombre || '',
+    'es',
+    { sensitivity: 'base' },
+  );
+}
+
+function withRankingPositions(players) {
+  return [...players]
+    .sort(compareRankingPlayers)
+    .map((player, index) => ({
+      ...player,
+      ranking_position: index + 1,
+    }));
+}
+
+async function loadPlayerRankingSummary(client, userId) {
+  const result = await client.query(
+    `
+      WITH ratings AS (
+        SELECT
+          rated_id,
+          AVG(rating) AS avg_rating,
+          COUNT(*)::int AS total_ratings
+        FROM app.padel_player_ratings
+        GROUP BY rated_id
+      )
+      SELECT
+        ${basePlayerColumns},
+        COALESCE(r.total_ratings, 0) AS total_ratings
+      FROM app.padel_player_profiles pp
+      JOIN app.users u ON pp.user_id = u.id AND u.deleted_at IS NULL
+      LEFT JOIN ratings r ON r.rated_id = pp.user_id
+    `,
+  );
+
+  const players = withRankingPositions(
+    await buildPlayerRowsWithMatchStats(client, result.rows),
+  );
+  return players.find((player) => Number(player.user_id) === Number(userId)) ||
+    null;
 }
 
 function applyMatchStatsToRow(row, statsMap) {
   const stats = statsMap.get(Number(row.user_id)) || {
     matches_played: 0,
     matches_won: 0,
+    matches_lost: 0,
+    ranking_points: 0,
   };
+  const matchesWon = Math.max(
+    Number.parseInt(row.matches_won, 10) || 0,
+    stats.matches_won,
+  );
+  const matchesLost = Math.max(
+    Number.parseInt(row.matches_lost, 10) || 0,
+    stats.matches_lost,
+  );
+  const matchesPlayed = Math.max(
+    Number.parseInt(row.matches_played, 10) || 0,
+    stats.matches_played,
+    matchesWon + matchesLost,
+  );
+  const rankingPoints = Math.max(
+    Number.parseInt(row.ranking_points, 10) || 0,
+    stats.ranking_points,
+    (matchesWon * RANKING_WIN_POINTS) +
+      (matchesLost * RANKING_LOSS_POINTS),
+  );
+
   return {
     ...row,
-    matches_played: Math.max(
-      Number.parseInt(row.matches_played, 10) || 0,
-      stats.matches_played,
-    ),
-    matches_won: Math.max(
-      Number.parseInt(row.matches_won, 10) || 0,
-      stats.matches_won,
-    ),
+    matches_played: matchesPlayed,
+    matches_won: matchesWon,
+    matches_lost: matchesLost,
+    ranking_points: rankingPoints,
   };
 }
 
@@ -180,6 +288,47 @@ async function loadPlayerMatchStats(client, userIds) {
         SELECT user_id, COUNT(DISTINCT plan_id)::int AS total
         FROM community_winners
         GROUP BY user_id
+      ),
+      result_members AS (
+        SELECT DISTINCT
+          mr.plan_id,
+          winners.user_id,
+          TRUE AS won
+        FROM app.padel_match_results mr
+        CROSS JOIN LATERAL UNNEST(
+          CASE
+            WHEN mr.winner_team = 1 THEN mr.team_a_user_ids
+            WHEN mr.winner_team = 2 THEN mr.team_b_user_ids
+            ELSE ARRAY[]::int[]
+          END
+        ) AS winners(user_id)
+        JOIN target_users tu ON tu.user_id = winners.user_id
+        WHERE mr.status = 'consensuado'
+
+        UNION
+
+        SELECT DISTINCT
+          mr.plan_id,
+          losers.user_id,
+          FALSE AS won
+        FROM app.padel_match_results mr
+        CROSS JOIN LATERAL UNNEST(
+          CASE
+            WHEN mr.winner_team = 1 THEN mr.team_b_user_ids
+            WHEN mr.winner_team = 2 THEN mr.team_a_user_ids
+            ELSE ARRAY[]::int[]
+          END
+        ) AS losers(user_id)
+        JOIN target_users tu ON tu.user_id = losers.user_id
+        WHERE mr.status = 'consensuado'
+      ),
+      result_stats AS (
+        SELECT
+          user_id,
+          COUNT(DISTINCT plan_id) FILTER (WHERE won)::int AS matches_won,
+          COUNT(DISTINCT plan_id) FILTER (WHERE NOT won)::int AS matches_lost
+        FROM result_members
+        GROUP BY user_id
       )
       SELECT
         tu.user_id,
@@ -187,11 +336,17 @@ async function loadPlayerMatchStats(client, userIds) {
           COALESCE(cp.total, 0)
           + COALESCE(lp.total, 0)
         )::int AS matches_played,
-        COALESCE(cw.total, 0)::int AS matches_won
+        COALESCE(cw.total, 0)::int AS matches_won,
+        COALESCE(rs.matches_lost, 0)::int AS matches_lost,
+        (
+          COALESCE(cw.total, 0) * ${RANKING_WIN_POINTS}
+          + COALESCE(rs.matches_lost, 0) * ${RANKING_LOSS_POINTS}
+        )::int AS ranking_points
       FROM target_users tu
       LEFT JOIN community_played cp ON cp.user_id = tu.user_id
       LEFT JOIN legacy_played lp ON lp.user_id = tu.user_id
       LEFT JOIN community_won cw ON cw.user_id = tu.user_id
+      LEFT JOIN result_stats rs ON rs.user_id = tu.user_id
     `,
     [ids],
   );
@@ -202,6 +357,8 @@ async function loadPlayerMatchStats(client, userIds) {
       {
         matches_played: Number(row.matches_played) || 0,
         matches_won: Number(row.matches_won) || 0,
+        matches_lost: Number(row.matches_lost) || 0,
+        ranking_points: Number(row.ranking_points) || 0,
       },
     ]),
   );
@@ -552,17 +709,20 @@ router.get('/profile', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Perfil no encontrado' });
     }
 
-    // Get average rating
-    const ratingResult = await pool.query(
-      'SELECT COALESCE(AVG(rating), 0) as avg_rating, COUNT(*) as total_ratings FROM app.padel_player_ratings WHERE rated_id = $1',
-      [req.user.userId]
-    );
-    const statsMap = await loadPlayerMatchStats(pool, [req.user.userId]);
+    const [ratingResult, statsMap, rankingSummary] = await Promise.all([
+      pool.query(
+        'SELECT COALESCE(AVG(rating), 0) as avg_rating, COUNT(*) as total_ratings FROM app.padel_player_ratings WHERE rated_id = $1',
+        [req.user.userId],
+      ),
+      loadPlayerMatchStats(pool, [req.user.userId]),
+      loadPlayerRankingSummary(pool, req.user.userId),
+    ]);
     const profileRow = applyMatchStatsToRow(result.rows[0], statsMap);
 
     res.json({
       profile: {
         ...profileRow,
+        ranking_position: rankingSummary?.ranking_position ?? null,
         avg_rating: parseFloat(ratingResult.rows[0].avg_rating).toFixed(1),
         total_ratings: parseInt(ratingResult.rows[0].total_ratings)
       }
@@ -1199,6 +1359,53 @@ router.get(
     res.json({ players });
   } catch (error) {
     console.error('Error buscando jugadores:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// GET /api/padel/players/ranking - Ranking por puntos competitivos
+router.get('/ranking', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const result = await pool.query(
+      `
+        WITH ratings AS (
+          SELECT
+            rated_id,
+            AVG(rating) AS avg_rating,
+            COUNT(*)::int AS total_ratings
+          FROM app.padel_player_ratings
+          GROUP BY rated_id
+        )
+        SELECT
+          ${basePlayerColumns},
+          COALESCE(r.total_ratings, 0) AS total_ratings,
+          ${connectionSelectSql(1)}
+        FROM app.padel_player_profiles pp
+        JOIN app.users u ON pp.user_id = u.id AND u.deleted_at IS NULL
+        LEFT JOIN ratings r ON r.rated_id = pp.user_id
+        ${connectionJoinSql('pp.user_id', 1)}
+        WHERE pp.user_id <> $1
+        ORDER BY
+          COALESCE(pp.ranking_points, 0) DESC,
+          COALESCE(pp.matches_won, 0) DESC,
+          COALESCE(pp.matches_lost, 0) ASC,
+          COALESCE(r.avg_rating, 0) DESC,
+          COALESCE(r.total_ratings, 0) DESC,
+          COALESCE(pp.matches_played, 0) DESC,
+          u.nombre ASC
+        LIMIT 50
+      `,
+      [userId],
+    );
+
+    const players = withRankingPositions(
+      await buildPlayerRowsWithMatchStats(pool, result.rows),
+    );
+    res.json({ players });
+  } catch (error) {
+    console.error('Error obteniendo ranking de jugadores:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

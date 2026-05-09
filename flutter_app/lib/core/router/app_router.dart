@@ -19,6 +19,7 @@ import '../../features/matches/screens/match_detail_screen.dart';
 import '../../features/matches/screens/match_list_screen.dart';
 import '../../features/players/screens/favorites_list_screen.dart';
 import '../../features/players/screens/player_profile_screen.dart';
+import '../../features/players/screens/player_ranking_screen.dart';
 import '../../features/players/screens/player_search_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/venues/screens/venue_detail_screen.dart';
@@ -229,6 +230,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (context, state) => const FavoritesListScreen(),
                   ),
                   GoRoute(
+                    path: 'ranking',
+                    builder: (context, state) => const PlayerRankingScreen(),
+                  ),
+                  GoRoute(
                     path: ':id',
                     builder: (context, state) {
                       final id = state.pathParameters['id']!;
@@ -244,7 +249,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/profile',
-                builder: (context, state) => const ProfileScreen(),
+                builder: (context, state) => ProfileScreen(
+                  initialRatingsToken: state.uri.queryParameters['ratings'],
+                ),
               ),
             ],
           ),

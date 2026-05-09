@@ -19,6 +19,9 @@ class PlayerModel {
   final int totalRatings;
   final int matchesPlayed;
   final int matchesWon;
+  final int matchesLost;
+  final int rankingPoints;
+  final int? rankingPosition;
   final String? bio;
   final String? avatarUrl;
   final bool isFavorited;
@@ -47,6 +50,9 @@ class PlayerModel {
     this.totalRatings = 0,
     this.matchesPlayed = 0,
     this.matchesWon = 0,
+    this.matchesLost = 0,
+    this.rankingPoints = 0,
+    this.rankingPosition,
     this.bio,
     this.avatarUrl,
     this.isFavorited = false,
@@ -100,6 +106,9 @@ class PlayerModel {
       totalRatings: _asInt(json['total_ratings']),
       matchesPlayed: _asInt(json['matches_played']),
       matchesWon: _asInt(json['matches_won']),
+      matchesLost: _asInt(json['matches_lost']),
+      rankingPoints: _asInt(json['ranking_points'] ?? json['points']),
+      rankingPosition: _asNullableInt(json['ranking_position']),
       bio: json['bio'] as String?,
       avatarUrl: json['avatar_url'] as String? ?? json['avatarUrl'] as String?,
       isFavorited: (json['is_favorited'] ?? false) as bool,

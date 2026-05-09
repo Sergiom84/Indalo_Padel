@@ -21,6 +21,7 @@ const migrationFiles = [
   path.join(__dirname, 'padel_auth_account_lifecycle.sql'),
   path.join(__dirname, 'padel_profile_deletion.sql'),
   path.join(__dirname, 'padel_match_results.sql'),
+  path.join(__dirname, 'padel_player_ranking.sql'),
   path.join(__dirname, 'padel_community_product_updates.sql'),
   path.join(__dirname, 'padel_fcm_tokens.sql'),
   path.join(__dirname, 'padel_chat.sql'),

@@ -17,7 +17,12 @@ import '../../notifications/providers/app_alerts_provider.dart';
 import '../../players/models/player_model.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  final String? initialRatingsToken;
+
+  const ProfileScreen({
+    super.key,
+    this.initialRatingsToken,
+  });
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -28,6 +33,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _saving = false;
   String? _error;
   Map<String, dynamic>? _profile;
+  String? _openedInitialRatingsToken;
 
   void _syncProfileState(Map<String, dynamic> profile) {
     _profile = profile;
@@ -37,6 +43,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   void initState() {
     super.initState();
     _fetchProfile();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialRatingsToken != oldWidget.initialRatingsToken) {
+      _maybeOpenInitialRatingsSheet();
+    }
+  }
+
+  void _maybeOpenInitialRatingsSheet() {
+    final token = widget.initialRatingsToken;
+    if (_loading ||
+        token == null ||
+        token.isEmpty ||
+        _openedInitialRatingsToken == token) {
+      return;
+    }
+
+    _openedInitialRatingsToken = token;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _openRatingsSheet();
+      }
+    });
   }
 
   Future<void> _fetchProfile() async {
@@ -57,6 +88,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _syncProfileState(Map<String, dynamic>.from(data['profile'] as Map));
         _loading = false;
       });
+      _maybeOpenInitialRatingsSheet();
     } catch (e) {
       if (!mounted) {
         return;
@@ -68,6 +100,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           _loading = false;
           _error = null;
         });
+        _maybeOpenInitialRatingsSheet();
         return;
       }
       setState(() {
