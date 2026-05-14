@@ -455,12 +455,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return 'Ver';
   }
 
-  String _profileRatingsRoute() =>
-      '/profile?ratings=${DateTime.now().millisecondsSinceEpoch}';
-
-  void _openProfileRatings() {
+  Future<void> _openProfileRatings() async {
     appLightImpact();
-    context.go(_profileRatingsRoute());
+    final unreadRatingAlerts = ref.read(appAlertsProvider).profileRatingAlerts;
+
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.get('/padel/players/profile/ratings');
+      final list = data is Map ? data['ratings'] : const [];
+      final ratings = list is List
+          ? list
+              .whereType<Map>()
+              .map(
+                (rating) => RatingModel.fromJson(
+                  Map<String, dynamic>.from(rating),
+                ),
+              )
+              .toList(growable: false)
+          : const <RatingModel>[];
+
+      if (!mounted) {
+        return;
+      }
+
+      if (unreadRatingAlerts.isNotEmpty) {
+        await ref.read(appAlertsProvider.notifier).markProfileRatingsSeen();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _HomeRatingsSheet(ratings: ratings),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage(error.toString(), isError: true);
+    }
   }
 
   void _openRanking() {
@@ -754,6 +793,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               }
             }
 
+            void closeAndOpenRatings() {
+              navigator.pop();
+              if (mounted) {
+                _openProfileRatings();
+              }
+            }
+
             Future<void> handleAction(PlayerModel player, String action) async {
               if (busyIds.contains(player.userId)) {
                 return;
@@ -958,9 +1004,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                             alert: alert,
                                             icon: Icons.star_border,
                                             actionLabel: 'Ver valoraciones',
-                                            onAction: () => closeAndGo(
-                                              _profileRatingsRoute(),
-                                            ),
+                                            onAction: closeAndOpenRatings,
                                           ),
                                         )
                                         .toList(growable: false),
@@ -1756,6 +1800,211 @@ class _MatchPreviewCard extends StatelessWidget {
   }
 }
 
+class _HomeRatingsSheet extends StatelessWidget {
+  final List<RatingModel> ratings;
+
+  const _HomeRatingsSheet({required this.ratings});
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionallySizedBox(
+      heightFactor: 0.82,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Valoraciones recibidas',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.close, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ratings.isEmpty
+                  ? const _EmptyRatingsState()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                      itemCount: ratings.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        return _HomeRatingCard(rating: ratings[index]);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyRatingsState extends StatelessWidget {
+  const _EmptyRatingsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star_outline, color: AppColors.border, size: 52),
+            SizedBox(height: 12),
+            Text(
+              'Aún no tienes valoraciones.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeRatingCard extends StatelessWidget {
+  final RatingModel rating;
+
+  const _HomeRatingCard({required this.rating});
+
+  @override
+  Widget build(BuildContext context) {
+    final contextLabel = _ratingContextLabel(rating);
+    final createdLabel = _formatRatingCreatedAt(rating.createdAt);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.star,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rating.raterName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (contextLabel != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        contextLabel,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              _RatingStars(value: rating.rating),
+            ],
+          ),
+          if (rating.comment != null && rating.comment!.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              rating.comment!.trim(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.35,
+              ),
+            ),
+          ],
+          if (createdLabel != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              createdLabel,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RatingStars extends StatelessWidget {
+  final double value;
+
+  const _RatingStars({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...List.generate(
+          5,
+          (index) => Icon(
+            Icons.star,
+            size: 14,
+            color: index < value.round() ? Colors.amber : AppColors.muted,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String message;
@@ -1779,6 +2028,66 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _ratingContextLabel(RatingModel rating) {
+  final parts = <String>[];
+  final venue = rating.venueName?.trim();
+  if (venue != null && venue.isNotEmpty) {
+    parts.add(venue);
+  }
+
+  final date = _formatRatingDate(rating.scheduledDate);
+  final time = _formatRatingTime(rating.scheduledTime);
+  if (date != null) {
+    parts.add(time == null ? date : '$date · $time');
+  }
+
+  if (parts.isEmpty) {
+    return null;
+  }
+  return parts.join(' · ');
+}
+
+String? _formatRatingCreatedAt(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return null;
+  }
+  final local = parsed.toLocal();
+  final day = local.day.toString().padLeft(2, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final year = local.year.toString();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return 'Recibida el $day/$month/$year a las $hour:$minute';
+}
+
+String? _formatRatingDate(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return value;
+  }
+  final day = parsed.day.toString().padLeft(2, '0');
+  final month = parsed.month.toString().padLeft(2, '0');
+  return '$day/$month/${parsed.year}';
+}
+
+String? _formatRatingTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  final parts = value.split(':');
+  if (parts.length < 2) {
+    return value;
+  }
+  return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
 }
 
 class _NotificationDialogSection extends StatelessWidget {
