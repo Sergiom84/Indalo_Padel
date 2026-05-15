@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/platform/platform_helper.dart';
 import '../../../core/theme/app_theme.dart';
@@ -700,183 +701,192 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       bookings: allUpcomingBookings,
     );
 
-    return Scaffold(
-      backgroundColor: _HomePalette.background,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          color: _HomePalette.orange,
-          backgroundColor: _HomePalette.card,
-          onRefresh: _fetchData,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
-            children: [
-              _HomeHeader(
-                headlineDate: _headlineDate(),
-                greeting: greeting,
-                avatarUrl: avatarUrl,
-                notificationsCount: notificationsCount,
-                notificationsLoading: notificationsLoading,
-                chatUnreadCount: chatUnreadCount,
-                onNotificationsTap: () => _openNotificationsDialog(
-                  initialRequests: incomingRequests,
-                  alerts: alerts,
-                  loading: notificationsLoading,
+    final homeTextStyle = GoogleFonts.dmSans(
+      color: _HomePalette.text,
+    );
+
+    return DefaultTextStyle.merge(
+      style: homeTextStyle,
+      child: Scaffold(
+        backgroundColor: _HomePalette.background,
+        body: SafeArea(
+          bottom: false,
+          child: RefreshIndicator(
+            color: _HomePalette.orange,
+            backgroundColor: _HomePalette.card,
+            onRefresh: _fetchData,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+              children: [
+                _HomeHeader(
+                  headlineDate: _headlineDate(),
+                  greeting: greeting,
+                  avatarUrl: avatarUrl,
+                  notificationsCount: notificationsCount,
+                  notificationsLoading: notificationsLoading,
+                  chatUnreadCount: chatUnreadCount,
+                  onNotificationsTap: () => _openNotificationsDialog(
+                    initialRequests: incomingRequests,
+                    alerts: alerts,
+                    loading: notificationsLoading,
+                  ),
+                  onChatTap: () {
+                    appLightImpact();
+                    context.push('/players/chat');
+                  },
+                  onProfileTap: () {
+                    appLightImpact();
+                    context.push('/profile');
+                  },
                 ),
-                onChatTap: () {
-                  appLightImpact();
-                  context.push('/players/chat');
-                },
-                onProfileTap: () {
-                  appLightImpact();
-                  context.push('/profile');
-                },
-              ),
-              const SizedBox(height: 18),
-              if (_loadingBookings && nextMatch == null)
-                const _HomeHeroLoadingCard()
-              else if (nextMatch != null)
-                _NextMatchHeroCard(
-                  match: nextMatch,
-                  onTap: () => _openMatch(nextMatch),
-                )
-              else
-                _HomeHeroEmptyCard(
+                const SizedBox(height: 18),
+                if (_loadingBookings && nextMatch == null)
+                  const _HomeHeroLoadingCard()
+                else if (nextMatch != null)
+                  _NextMatchHeroCard(
+                    match: nextMatch,
+                    onTap: () => _openMatch(nextMatch),
+                  )
+                else
+                  _HomeHeroEmptyCard(
+                    onCreateMatch: () {
+                      appLightImpact();
+                      context.go('/matches/create');
+                    },
+                  ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricTile(
+                        icon: Icons.star,
+                        label: 'Valoración',
+                        value:
+                            ratingLoading ? '—' : _profileRatingValue(profile),
+                        showDot: alerts.hasProfileBadge,
+                        onTap: _openProfileRatings,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _MetricTile(
+                        icon: Icons.leaderboard,
+                        label: 'Ranking',
+                        value: rankingLoading ? '—' : _rankingValue(profile),
+                        accentColor: _HomePalette.navy,
+                        onTap: _openRanking,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _MetricTile(
+                        icon: Icons.sports_tennis,
+                        label: 'Partidos',
+                        value: _loadingBookings ? '—' : '$upcomingMatchesCount',
+                        onTap: _openMatches,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _QuickActionsRow(
                   onCreateMatch: () {
                     appLightImpact();
                     context.go('/matches/create');
                   },
+                  onFindPlayers: () {
+                    appLightImpact();
+                    context.go('/players');
+                  },
+                  onBookCourt: () {
+                    appLightImpact();
+                    context.go('/venues');
+                  },
                 ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _MetricTile(
-                      icon: Icons.star,
-                      label: 'Valoración',
-                      value: ratingLoading ? '—' : _profileRatingValue(profile),
-                      showDot: alerts.hasProfileBadge,
-                      onTap: _openProfileRatings,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _MetricTile(
-                      icon: Icons.leaderboard,
-                      label: 'Ranking',
-                      value: rankingLoading ? '—' : _rankingValue(profile),
-                      accentColor: _HomePalette.navy,
-                      onTap: _openRanking,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _MetricTile(
-                      icon: Icons.sports_tennis,
-                      label: 'Partidos',
-                      value: _loadingBookings ? '—' : '$upcomingMatchesCount',
-                      onTap: _openMatches,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _QuickActionsRow(
-                onCreateMatch: () {
-                  appLightImpact();
-                  context.go('/matches/create');
-                },
-                onFindPlayers: () {
-                  appLightImpact();
-                  context.go('/players');
-                },
-                onBookCourt: () {
-                  appLightImpact();
-                  context.go('/venues');
-                },
-              ),
-              const SizedBox(height: 22),
-              _HomeSection(
-                title: 'Tu actividad',
-                actionLabel: 'Ver todo',
-                icon: Icons.timeline,
-                onAction: () => context.go('/calendar'),
-                child: _loadingBookings && activityEntries.isEmpty
-                    ? const LoadingSpinner()
-                    : activityEntries.isEmpty
-                        ? const _EmptyState(
-                            icon: Icons.timeline,
-                            message: 'Todavía no tienes actividad próxima.',
-                          )
-                        : _ActivityTimeline(
-                            entries: activityEntries,
-                            onEntryTap: _openActivityEntry,
-                          ),
-              ),
-              const SizedBox(height: 20),
-              _HomeSection(
-                title: 'Reservas próximas',
-                actionLabel: 'Calendario',
-                icon: Icons.calendar_today,
-                onAction: () => context.go('/calendar'),
-                child: _loadingBookings && upcomingBookings.isEmpty
-                    ? const LoadingSpinner()
-                    : upcomingBookings.isEmpty
-                        ? const _EmptyState(
-                            icon: Icons.calendar_today_outlined,
-                            message: 'No tienes reservas próximas.',
-                          )
-                        : Column(
-                            children: upcomingBookings
-                                .map(
-                                  (booking) =>
-                                      _BookingPreviewCard(booking: booking),
-                                )
-                                .toList(),
-                          ),
-              ),
-              const SizedBox(height: 20),
-              _HomeSection(
-                title: 'Clubes destacados',
-                actionLabel: 'Ver clubes',
-                icon: Icons.location_on,
-                onAction:
-                    featuredVenues.isEmpty ? null : () => context.go('/venues'),
-                child: _loadingVenues && featuredVenues.isEmpty
-                    ? const LoadingSpinner()
-                    : featuredVenues.isEmpty
-                        ? const _EmptyState(
-                            icon: Icons.sports_tennis_outlined,
-                            message: 'No hay clubes destacados.',
-                          )
-                        : SizedBox(
-                            height: 84,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: featuredVenues.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(width: 10),
-                              itemBuilder: (context, index) {
-                                return _VenuePreviewCard(
-                                  venue: featuredVenues[index],
-                                );
-                              },
+                const SizedBox(height: 22),
+                _HomeSection(
+                  title: 'Tu actividad',
+                  actionLabel: 'Ver todo',
+                  icon: Icons.timeline,
+                  onAction: () => context.go('/calendar'),
+                  child: _loadingBookings && activityEntries.isEmpty
+                      ? const LoadingSpinner()
+                      : activityEntries.isEmpty
+                          ? const _EmptyState(
+                              icon: Icons.timeline,
+                              message: 'Todavía no tienes actividad próxima.',
+                            )
+                          : _ActivityTimeline(
+                              entries: activityEntries,
+                              onEntryTap: _openActivityEntry,
                             ),
-                          ),
-              ),
-              if (loadingSummary)
-                const Padding(
-                  padding: EdgeInsets.only(top: 14),
-                  child: Text(
-                    'Actualizando contenido...',
-                    style: TextStyle(
-                      color: _HomePalette.textSecondary,
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
                 ),
-            ],
+                const SizedBox(height: 20),
+                _HomeSection(
+                  title: 'Reservas próximas',
+                  actionLabel: 'Calendario',
+                  icon: Icons.calendar_today,
+                  onAction: () => context.go('/calendar'),
+                  child: _loadingBookings && upcomingBookings.isEmpty
+                      ? const LoadingSpinner()
+                      : upcomingBookings.isEmpty
+                          ? const _EmptyState(
+                              icon: Icons.calendar_today_outlined,
+                              message: 'No tienes reservas próximas.',
+                            )
+                          : Column(
+                              children: upcomingBookings
+                                  .map(
+                                    (booking) =>
+                                        _BookingPreviewCard(booking: booking),
+                                  )
+                                  .toList(),
+                            ),
+                ),
+                const SizedBox(height: 20),
+                _HomeSection(
+                  title: 'Clubes destacados',
+                  actionLabel: 'Ver clubes',
+                  icon: Icons.location_on,
+                  onAction: featuredVenues.isEmpty
+                      ? null
+                      : () => context.go('/venues'),
+                  child: _loadingVenues && featuredVenues.isEmpty
+                      ? const LoadingSpinner()
+                      : featuredVenues.isEmpty
+                          ? const _EmptyState(
+                              icon: Icons.sports_tennis_outlined,
+                              message: 'No hay clubes destacados.',
+                            )
+                          : SizedBox(
+                              height: 84,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: featuredVenues.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 10),
+                                itemBuilder: (context, index) {
+                                  return _VenuePreviewCard(
+                                    venue: featuredVenues[index],
+                                  );
+                                },
+                              ),
+                            ),
+                ),
+                if (loadingSummary)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 14),
+                    child: Text(
+                      'Actualizando contenido...',
+                      style: TextStyle(
+                        color: _HomePalette.textSecondary,
+                        fontSize: 12,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

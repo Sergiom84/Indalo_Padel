@@ -17,6 +17,7 @@ import 'notification_dot.dart';
 enum AppTab { home, venues, calendar, community, players, profile }
 
 class _BottomNavPalette {
+  static const homeBackground = Color(0xFFF4F6FA);
   static const background = Color(0xFFFFFFFF);
   static const border = Color(0xFFE2E8F0);
   static const active = Color(0xFFE8732C);
@@ -129,8 +130,8 @@ class _ScrollableAppBottomNavState extends State<_ScrollableAppBottomNav> {
   bool _canScrollLeft = false;
   bool _canScrollRight = false;
 
-  static const double _destinationWidth = 108;
-  static const double _destinationSpacing = 8;
+  static const double _destinationWidth = 62;
+  static const double _destinationSpacing = 0;
 
   @override
   void initState() {
@@ -363,7 +364,7 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -373,7 +374,7 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                     Icon(
                       selected ? destination.selectedIcon : destination.icon,
                       color: color,
-                      size: 24,
+                      size: 23,
                     ),
                     if (destination.showBadge)
                       const Positioned(
@@ -394,7 +395,7 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: color,
-                    fontSize: 12,
+                    fontSize: 10,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),
@@ -407,7 +408,7 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: _BottomNavPalette.muted.withValues(alpha: 0.9),
-                      fontSize: 9,
+                      fontSize: 8,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -629,9 +630,11 @@ class _AppShellState extends ConsumerState<AppShell>
 
     final alerts = ref.watch(appAlertsProvider);
     final chatUnreadCount = ref.watch(chatUnreadCountProvider);
+    final isHomeTab = widget.navigationShell.currentIndex == AppTab.home.index;
 
     return Scaffold(
-      backgroundColor: AppColors.dark,
+      backgroundColor:
+          isHomeTab ? _BottomNavPalette.homeBackground : AppColors.dark,
       extendBody: true,
       body: widget.navigationShell,
       bottomNavigationBar: AppBottomNav(
