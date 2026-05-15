@@ -16,6 +16,16 @@ import 'notification_dot.dart';
 
 enum AppTab { home, venues, calendar, community, players, profile }
 
+class _BottomNavPalette {
+  static const homeBackground = Color(0xFFF4F6FA);
+  static const background = Color(0xFFFFFFFF);
+  static const border = Color(0xFFE2E8F0);
+  static const active = Color(0xFFE8732C);
+  static const activeBg = Color(0xFFFFF1E8);
+  static const text = Color(0xFF1A3A5C);
+  static const muted = Color(0xFF94A0B4);
+}
+
 class AppBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -78,9 +88,9 @@ class AppBottomNav extends StatelessWidget {
 
       return CupertinoTabBar(
         currentIndex: currentIndex,
-        backgroundColor: AppColors.surface.withValues(alpha: 0.95),
-        activeColor: AppColors.primary,
-        inactiveColor: AppColors.muted,
+        backgroundColor: _BottomNavPalette.background.withValues(alpha: 0.96),
+        activeColor: _BottomNavPalette.active,
+        inactiveColor: _BottomNavPalette.muted,
         onTap: (index) {
           if (index == AppTab.venues.index) {
             return;
@@ -120,8 +130,8 @@ class _ScrollableAppBottomNavState extends State<_ScrollableAppBottomNav> {
   bool _canScrollLeft = false;
   bool _canScrollRight = false;
 
-  static const double _destinationWidth = 108;
-  static const double _destinationSpacing = 8;
+  static const double _destinationWidth = 62;
+  static const double _destinationSpacing = 0;
 
   @override
   void initState() {
@@ -201,72 +211,79 @@ class _ScrollableAppBottomNavState extends State<_ScrollableAppBottomNav> {
     ];
 
     return Material(
-      color: AppColors.surface,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 88,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final contentWidth = destinations.length * _destinationWidth +
-                  (destinations.length - 1) * _destinationSpacing;
-              final shouldCenter = contentWidth < constraints.maxWidth;
+      color: _BottomNavPalette.background,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: _BottomNavPalette.border)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 88,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = destinations.length * _destinationWidth +
+                    (destinations.length - 1) * _destinationSpacing;
+                final shouldCenter = contentWidth < constraints.maxWidth;
 
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  _updateScrollCues();
-                }
-              });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    _updateScrollCues();
+                  }
+                });
 
-              return Stack(
-                children: [
-                  SingleChildScrollView(
-                    controller: _scrollController,
-                    scrollDirection: Axis.horizontal,
-                    physics: const ClampingScrollPhysics(),
-                    child: ConstrainedBox(
-                      constraints:
-                          BoxConstraints(minWidth: constraints.maxWidth),
-                      child: Align(
-                        alignment: shouldCenter
-                            ? Alignment.center
-                            : Alignment.centerLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              for (var i = 0; i < destinations.length; i++) ...[
-                                _ScrollableAppBottomNavItem(
-                                  destination: destinations[i],
-                                  selected: i == widget.currentIndex,
-                                  width: _destinationWidth,
-                                  onTap: destinations[i].enabled
-                                      ? () => widget.onTap(i)
-                                      : null,
-                                ),
-                                if (i != destinations.length - 1)
-                                  const SizedBox(width: _destinationSpacing),
+                return Stack(
+                  children: [
+                    SingleChildScrollView(
+                      controller: _scrollController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const ClampingScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(minWidth: constraints.maxWidth),
+                        child: Align(
+                          alignment: shouldCenter
+                              ? Alignment.center
+                              : Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (var i = 0;
+                                    i < destinations.length;
+                                    i++) ...[
+                                  _ScrollableAppBottomNavItem(
+                                    destination: destinations[i],
+                                    selected: i == widget.currentIndex,
+                                    width: _destinationWidth,
+                                    onTap: destinations[i].enabled
+                                        ? () => widget.onTap(i)
+                                        : null,
+                                  ),
+                                  if (i != destinations.length - 1)
+                                    const SizedBox(width: _destinationSpacing),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  _ScrollCue(
-                    alignment: Alignment.centerLeft,
-                    visible: _canScrollLeft,
-                    icon: Icons.keyboard_arrow_left,
-                  ),
-                  _ScrollCue(
-                    alignment: Alignment.centerRight,
-                    visible: _canScrollRight,
-                    icon: Icons.keyboard_arrow_right,
-                  ),
-                ],
-              );
-            },
+                    _ScrollCue(
+                      alignment: Alignment.centerLeft,
+                      visible: _canScrollLeft,
+                      icon: Icons.keyboard_arrow_left,
+                    ),
+                    _ScrollCue(
+                      alignment: Alignment.centerRight,
+                      visible: _canScrollRight,
+                      icon: Icons.keyboard_arrow_right,
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -298,18 +315,18 @@ class _ScrollCue extends StatelessWidget {
             height: 30,
             margin: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
-              color: AppColors.surface2.withValues(alpha: 0.96),
+              color: _BottomNavPalette.background.withValues(alpha: 0.96),
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: _BottomNavPalette.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.24),
+                  color: Colors.black.withValues(alpha: 0.14),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
-            child: Icon(icon, color: AppColors.primary, size: 22),
+            child: Icon(icon, color: _BottomNavPalette.active, size: 22),
           ),
         ),
       ),
@@ -333,21 +350,21 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = destination.enabled
-        ? (selected ? AppColors.primary : AppColors.muted)
-        : AppColors.muted.withValues(alpha: 0.75);
+        ? (selected ? _BottomNavPalette.active : _BottomNavPalette.text)
+        : _BottomNavPalette.muted.withValues(alpha: 0.72);
 
     return SizedBox(
       width: width,
       child: Material(
         color: selected && destination.enabled
-            ? AppColors.primary.withValues(alpha: 0.16)
+            ? _BottomNavPalette.activeBg
             : Colors.transparent,
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -357,13 +374,16 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                     Icon(
                       selected ? destination.selectedIcon : destination.icon,
                       color: color,
-                      size: 24,
+                      size: 23,
                     ),
                     if (destination.showBadge)
                       const Positioned(
                         top: 0,
                         right: -2,
-                        child: NotificationDot(visible: true),
+                        child: NotificationDot(
+                          visible: true,
+                          color: _BottomNavPalette.active,
+                        ),
                       ),
                   ],
                 ),
@@ -375,7 +395,7 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: color,
-                    fontSize: 12,
+                    fontSize: 10,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),
@@ -387,8 +407,8 @@ class _ScrollableAppBottomNavItem extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: AppColors.muted.withValues(alpha: 0.9),
-                      fontSize: 9,
+                      color: _BottomNavPalette.muted.withValues(alpha: 0.9),
+                      fontSize: 8,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -439,7 +459,10 @@ class _BottomNavIcon extends StatelessWidget {
           const Positioned(
             top: -2,
             right: -5,
-            child: NotificationDot(visible: true),
+            child: NotificationDot(
+              visible: true,
+              color: _BottomNavPalette.active,
+            ),
           ),
       ],
     );
@@ -607,9 +630,11 @@ class _AppShellState extends ConsumerState<AppShell>
 
     final alerts = ref.watch(appAlertsProvider);
     final chatUnreadCount = ref.watch(chatUnreadCountProvider);
+    final isHomeTab = widget.navigationShell.currentIndex == AppTab.home.index;
 
     return Scaffold(
-      backgroundColor: AppColors.dark,
+      backgroundColor:
+          isHomeTab ? _BottomNavPalette.homeBackground : AppColors.dark,
       extendBody: true,
       body: widget.navigationShell,
       bottomNavigationBar: AppBottomNav(
